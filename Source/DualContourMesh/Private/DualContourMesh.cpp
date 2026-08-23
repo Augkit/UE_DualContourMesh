@@ -16,5 +16,5 @@ void FDualContourMeshModule::ShutdownModule()
 }
 
 #undef LOCTEXT_NAMESPACE
-	
+
 IMPLEMENT_MODULE(FDualContourMeshModule, DualContourMesh)
