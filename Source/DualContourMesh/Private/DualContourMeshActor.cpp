@@ -1,4 +1,5 @@
 #include "DualContourMeshActor.h"
+#include "Engine/CollisionProfile.h"
 
 static const int32 GEdgeCorners[12][2][3] = {
 	// Along X
@@ -225,7 +226,54 @@ void ADualContourMeshActor::BuildCells()
 ADualContourMeshActor::ADualContourMeshActor()
 {
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+	RootComponent->SetMobility(EComponentMobility::Static);
+
+	CollisionSettings.SetCollisionProfileName(UCollisionProfile::BlockAll_ProfileName);
 }
+
+void ADualContourMeshActor::ApplyCollisionSettings(UDualContourMeshComponent* MeshComponent) const
+{
+	if (!MeshComponent)
+		return;
+
+	const FName ProfileName = CollisionSettings.GetCollisionProfileName();
+	if (CollisionSettings.DoesUseCollisionProfile())
+	{
+		MeshComponent->SetCollisionProfileName(ProfileName);
+	}
+	else
+	{
+		// Applying these values individually intentionally leaves the component on the Custom profile.
+		MeshComponent->SetCollisionProfileName(UCollisionProfile::CustomCollisionProfileName);
+		MeshComponent->SetCollisionEnabled(CollisionSettings.GetCollisionEnabled(false));
+		MeshComponent->SetCollisionObjectType(CollisionSettings.GetObjectType());
+		MeshComponent->SetCollisionResponseToChannels(CollisionSettings.GetResponseToChannels());
+	}
+
+	MeshComponent->SetGenerateOverlapEvents(bGenerateOverlapEvents);
+	MeshComponent->SetNotifyRigidBodyCollision(CollisionSettings.bNotifyRigidBodyCollision);
+	MeshComponent->SetSimulatePhysics(false);
+}
+
+void ADualContourMeshActor::RefreshCollisionSettings()
+{
+	for (UDualContourMeshComponent* MeshComponent : MeshComponents)
+		ApplyCollisionSettings(MeshComponent);
+}
+
+void ADualContourMeshActor::PostRegisterAllComponents()
+{
+	Super::PostRegisterAllComponents();
+	RefreshCollisionSettings();
+}
+
+#if WITH_EDITOR
+void ADualContourMeshActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+	RefreshCollisionSettings();
+}
+#endif
 
 void ADualContourMeshActor::RebuildMesh()
 {
@@ -259,6 +307,7 @@ void ADualContourMeshActor::RebuildMesh()
 				NewComp->CellRangeMin = CellMin;
 				NewComp->CellRangeMax = CellMax;
 				NewComp->SetMaterial(0, MeshMaterial);
+				ApplyCollisionSettings(NewComp);
 				NewComp->RegisterComponent();
 				NewComp->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepRelativeTransform);
 				NewComp->BuildAndRefreshMesh();

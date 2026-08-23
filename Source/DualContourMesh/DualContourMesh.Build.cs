@@ -26,6 +26,9 @@ public class DualContourMesh : ModuleRules
 			new string[]
 			{
 				"Core",
+				"CoreUObject",
+				"Engine",
+				"PhysicsCore",
 				"RenderCore",
 				"RHI",
 			}
@@ -35,8 +38,6 @@ public class DualContourMesh : ModuleRules
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
-				"CoreUObject",
-				"Engine",
 				"Slate",
 				"SlateCore",
 			}

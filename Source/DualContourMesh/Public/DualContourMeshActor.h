@@ -2,6 +2,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Materials/MaterialInterface.h"
+#include "PhysicsEngine/BodyInstance.h"
 #include "DualContourTypes.h"
 #include "DualContourMeshComponent.h"
 #include "DualContourMeshActor.generated.h"
@@ -18,6 +19,13 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour")
 	TObjectPtr<UMaterialInterface> MeshMaterial = nullptr;
+
+	/** Collision profile or custom channel settings applied to every generated mesh chunk. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collision", meta = (ShowOnlyInnerProperties))
+	FBodyInstance CollisionSettings;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Collision")
+	bool bGenerateOverlapEvents = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid")
 	FVectorInt CellCount = FVectorInt(16, 16, 16);
@@ -43,6 +51,9 @@ public:
 	UFUNCTION(CallInEditor, Category = "DualContour")
 	void RebuildMesh();
 
+	UFUNCTION(BlueprintCallable, Category = "Collision")
+	void RefreshCollisionSettings();
+
 	void FillSphereDensity();
 	void BuildCells();
 	uint8 GetSample(int32 X, int32 Y, int32 Z) const;
@@ -50,8 +61,15 @@ public:
 	FVector ComputeGradient(FVector GridPos) const;
 
 	FVector GetSampleWorldPos(int32 SX, int32 SY, int32 SZ) const { return FVector((float)SX, (float)SY, (float)SZ) * CellSize; }
+	virtual void PostRegisterAllComponents() override;
+
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
 
 private:
+	void ApplyCollisionSettings(UDualContourMeshComponent* MeshComponent) const;
+
 	FVectorInt GetSampleDims() const { return FVectorInt(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }
 
 	int32 SampleIndex(int32 X, int32 Y, int32 Z) const;

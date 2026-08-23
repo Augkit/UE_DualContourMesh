@@ -13,6 +13,8 @@
 #include "PrimitiveDrawingUtils.h"
 #include "PrimitiveUniformShaderParametersBuilder.h"
 #include "SceneView.h"
+#include "PhysicsEngine/BodySetup.h"
+#include "PhysicsEngine/PhysicsSettings.h"
 
 // ---------------------------------------------------------------------------
 // SceneProxy â€” one mesh per component, no inner sections array
@@ -157,6 +159,13 @@ private:
 // Component
 // ---------------------------------------------------------------------------
 
+UDualContourMeshComponent::UDualContourMeshComponent(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	PrimaryComponentTick.bCanEverTick = false;
+	SetMobility(EComponentMobility::Static);
+}
+
 void UDualContourMeshComponent::RebuildMesh()
 {
 	if (ADualContourMeshActor* Owner = Cast<ADualContourMeshActor>(GetOwner()))
@@ -167,6 +176,7 @@ void UDualContourMeshComponent::BuildAndRefreshMesh()
 {
 	BuildMesh();
 	UpdateBounds();
+	UpdateCollision();
 	MarkRenderStateDirty();
 }
 
@@ -192,6 +202,109 @@ FBoxSphereBounds UDualContourMeshComponent::CalcBounds(const FTransform& LocalTo
 {
 	FBox Box = LocalBounds.IsValid ? LocalBounds : FBox(FVector::ZeroVector, FVector::ZeroVector);
 	return FBoxSphereBounds(Box).TransformBy(LocalToWorld);
+}
+
+bool UDualContourMeshComponent::GetTriMeshSizeEstimates(FTriMeshCollisionDataEstimates& OutTriMeshEstimates, bool bInUseAllTriData) const
+{
+	OutTriMeshEstimates.VerticeCount += Positions.Num();
+	return true;
+}
+
+bool UDualContourMeshComponent::GetPhysicsTriMeshData(FTriMeshCollisionData* CollisionData, bool bInUseAllTriData)
+{
+	if (!CollisionData || !ContainsPhysicsTriMeshData(bInUseAllTriData))
+		return false;
+
+	CollisionData->Vertices.Reserve(Positions.Num());
+	for (const FVector& Position : Positions)
+	{
+		if (Position.ContainsNaN())
+			return false;
+		CollisionData->Vertices.Add(FVector3f(Position));
+	}
+
+	const int32 TriangleCount = Indices.Num() / 3;
+	CollisionData->Indices.Reserve(TriangleCount);
+	CollisionData->MaterialIndices.Reserve(TriangleCount);
+
+	for (int32 TriangleIndex = 0; TriangleIndex < TriangleCount; ++TriangleIndex)
+	{
+		const uint32 I0 = Indices[TriangleIndex * 3];
+		const uint32 I1 = Indices[TriangleIndex * 3 + 1];
+		const uint32 I2 = Indices[TriangleIndex * 3 + 2];
+		const uint32 VertexCount = static_cast<uint32>(Positions.Num());
+
+		if (I0 >= VertexCount || I1 >= VertexCount || I2 >= VertexCount || I0 == I1 || I0 == I2 || I1 == I2)
+			continue;
+
+		const FVector Edge01 = Positions[I1] - Positions[I0];
+		const FVector Edge02 = Positions[I2] - Positions[I0];
+		if (FVector::CrossProduct(Edge01, Edge02).IsNearlyZero())
+			continue;
+
+		FTriIndices Triangle;
+		Triangle.v0 = static_cast<int32>(I0);
+		Triangle.v1 = static_cast<int32>(I1);
+		Triangle.v2 = static_cast<int32>(I2);
+		CollisionData->Indices.Add(Triangle);
+		CollisionData->MaterialIndices.Add(0);
+	}
+
+	if (UPhysicsSettings::Get()->bSupportUVFromHitResults && UVs.Num() == Positions.Num())
+	{
+		TArray<FVector2D>& CollisionUVs = CollisionData->UVs.AddDefaulted_GetRef();
+		CollisionUVs.Reserve(UVs.Num());
+		for (const FVector2f& UV : UVs)
+			CollisionUVs.Add(FVector2D(UV));
+	}
+
+	// These match the engine's StaticMesh/ProceduralMesh collision winding convention.
+	CollisionData->bFlipNormals = true;
+	CollisionData->bDeformableMesh = false;
+	CollisionData->bFastCook = false;
+
+	return !CollisionData->Indices.IsEmpty();
+}
+
+bool UDualContourMeshComponent::ContainsPhysicsTriMeshData(bool bInUseAllTriData) const
+{
+	return Positions.Num() >= 3 && Indices.Num() >= 3;
+}
+
+void UDualContourMeshComponent::CreateMeshBodySetup()
+{
+	if (MeshBodySetup)
+		return;
+
+	const EObjectFlags BodySetupFlags = IsTemplate() ? RF_Public | RF_ArchetypeObject : RF_NoFlags;
+	MeshBodySetup = NewObject<UBodySetup>(this, NAME_None, BodySetupFlags);
+	MeshBodySetup->BodySetupGuid = FGuid::NewGuid();
+	MeshBodySetup->bGenerateMirroredCollision = false;
+	MeshBodySetup->bDoubleSidedGeometry = false;
+	MeshBodySetup->CollisionTraceFlag = CTF_UseComplexAsSimple;
+}
+
+void UDualContourMeshComponent::UpdateCollision()
+{
+	CreateMeshBodySetup();
+	MeshBodySetup->CollisionTraceFlag = CTF_UseComplexAsSimple;
+	MeshBodySetup->bDoubleSidedGeometry = false;
+	MeshBodySetup->bHasCookedCollisionData = true;
+	MeshBodySetup->InvalidatePhysicsData();
+	MeshBodySetup->CreatePhysicsMeshes();
+	RecreatePhysicsState();
+}
+
+UBodySetup* UDualContourMeshComponent::GetBodySetup()
+{
+	CreateMeshBodySetup();
+	return MeshBodySetup;
+}
+
+UMaterialInterface* UDualContourMeshComponent::GetMaterialFromCollisionFaceIndex(int32 FaceIndex, int32& SectionIndex) const
+{
+	SectionIndex = FaceIndex >= 0 ? 0 : INDEX_NONE;
+	return FaceIndex >= 0 ? GetMaterial(0) : nullptr;
 }
 
 // ---------------------------------------------------------------------------
