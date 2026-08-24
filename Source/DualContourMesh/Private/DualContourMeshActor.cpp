@@ -3,17 +3,6 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogDualContourMesh, Log, All);
 
-#if WITH_EDITOR
-#include "DrawDebugHelpers.h"
-
-static TAutoConsoleVariable<int32> CVarDrawDualContourCells(TEXT("DualContour.Debug.DrawCells"), 0,
-	TEXT("Draw dual contour cell debug boxes (editor only).\n"
-		"  0: off\n"
-		"  1: active cells only (green)\n"
-		"  2: all cells (green=active, red=inactive) -- slow on large grids"),
-	ECVF_Default);
-#endif
-
 static const int32 GEdgeCorners[12][2][3] = {
 	// Along X
 	{{0, 0, 0}, {1, 0, 0}},
@@ -31,6 +20,9 @@ static const int32 GEdgeCorners[12][2][3] = {
 	{{0, 1, 0}, {0, 1, 1}},
 	{{1, 1, 0}, {1, 1, 1}}
 };
+
+// Sample densities are uint8, so a half-integer threshold avoids ambiguous samples exactly on the isosurface.
+static constexpr float GDualContourIsoValue = 127.5f;
 
 static bool Solve3x3(const double Matrix[3][3], const double RightHandSide[3], double Solution[3])
 {
@@ -187,7 +179,6 @@ void ADualContourMeshActor::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt 
 	RangeMin = FVectorInt(FMath::Max(0, RangeMin.X), FMath::Max(0, RangeMin.Y), FMath::Max(0, RangeMin.Z));
 	RangeMax = FVectorInt(FMath::Min(CellCount.X, RangeMax.X), FMath::Min(CellCount.Y, RangeMax.Y), FMath::Min(CellCount.Z, RangeMax.Z));
 
-	const int32 IsoValue = 127;
 	const double Lambda = 0.1;
 
 	for (int32 CellZ = RangeMin.Z; CellZ < RangeMax.Z; CellZ++)
@@ -209,9 +200,9 @@ void ADualContourMeshActor::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt 
 						for (int32 CornerOffsetX = 0; CornerOffsetX <= 1; CornerOffsetX++)
 						{
 							uint8 Density = GetSample(CellX + CornerOffsetX, CellY + CornerOffsetY, CellZ + CornerOffsetZ);
-							if (Density > IsoValue)
+							if (Density >= GDualContourIsoValue)
 								bHasInside = true;
-							else if (Density < IsoValue)
+							else
 								bHasOutside = true;
 						}
 				Cell.bActive = bHasInside && bHasOutside;
@@ -233,12 +224,10 @@ void ADualContourMeshActor::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt 
 					int32 DensityA = GetSample(SampleAX, SampleAY, SampleAZ);
 					int32 DensityB = GetSample(SampleBX, SampleBY, SampleBZ);
 
-					if (DensityA == IsoValue || DensityB == IsoValue)
-						continue;
-					if ((DensityA < IsoValue) == (DensityB < IsoValue))
+					if ((DensityA < GDualContourIsoValue) == (DensityB < GDualContourIsoValue))
 						continue;
 
-					float InterpolationAlpha = (float)(IsoValue - DensityA) / (float)(DensityB - DensityA);
+					float InterpolationAlpha = (GDualContourIsoValue - DensityA) / (float)(DensityB - DensityA);
 
 					FVector GridPositionA((double)SampleAX, (double)SampleAY, (double)SampleAZ);
 					FVector GridPositionB((double)SampleBX, (double)SampleBY, (double)SampleBZ);
@@ -300,59 +289,21 @@ ADualContourMeshActor::ADualContourMeshActor()
 
 	CollisionSettings.SetCollisionProfileName(UCollisionProfile::BlockAll_ProfileName);
 
-	PrimaryActorTick.bCanEverTick = true;
-	PrimaryActorTick.bStartWithTickEnabled = true;
-}
-
-void ADualContourMeshActor::Tick(float DeltaSeconds)
-{
-	Super::Tick(DeltaSeconds);
 #if WITH_EDITOR
-	DrawCellDebug();
-#endif
-}
-
-bool ADualContourMeshActor::ShouldTickIfViewportsOnly() const
-{
-#if WITH_EDITOR
-	return CVarDrawDualContourCells.GetValueOnGameThread() != 0;
-#else
-	return false;
+	DebugComponent = CreateDefaultSubobject<UDualContourDebugComponent>(TEXT("DebugCells"));
+	DebugComponent->SetupAttachment(RootComponent);
+	DebugComponent->bSelectable = false;
 #endif
 }
 
 #if WITH_EDITOR
-void ADualContourMeshActor::DrawCellDebug()
+void ADualContourMeshActor::RefreshDebugComponent()
 {
-	UWorld* World = GetWorld();
-	if (!World || !HasCurrentGeneratedData())
-		return;
-
-	const int32 DrawMode = CVarDrawDualContourCells.GetValueOnGameThread();
-	if (DrawMode == 0)
-		return;
-
-	const FVector HalfExtent(CellSize * 0.5f);
-	const FVector ScaledHalfExtent = HalfExtent * GetActorScale3D();
-	const FQuat ActorQuat = GetActorQuat();
-	const FTransform& ActorTransform = GetActorTransform();
-
-	for (int32 CellZ = 0; CellZ < CellCount.Z; CellZ++)
-		for (int32 CellY = 0; CellY < CellCount.Y; CellY++)
-			for (int32 CellX = 0; CellX < CellCount.X; CellX++)
-			{
-				const int32 Index = CellIndex(CellX, CellY, CellZ);
-				if (!DualContourGrid.IsValidIndex(Index))
-					continue;
-				const FDualContourCell& Cell = DualContourGrid[Index];
-				if (!Cell.bActive && DrawMode < 2)
-					continue;
-
-				FVector LocalCenter((CellX + 0.5f) * CellSize, (CellY + 0.5f) * CellSize, (CellZ + 0.5f) * CellSize);
-				FVector WorldCenter = ActorTransform.TransformPosition(LocalCenter);
-				FColor Color = Cell.bActive ? FColor::Green : FColor::Red;
-				DrawDebugBox(World, WorldCenter, ScaledHalfExtent, ActorQuat, Color, false, -1.f);
-			}
+	if (DebugComponent)
+	{
+		DebugComponent->UpdateFromGrid(DualContourGrid, CellCount, CellSize);
+		DebugComponent->MarkRenderStateDirty();
+	}
 }
 #endif
 
@@ -390,6 +341,13 @@ void ADualContourMeshActor::PostRegisterAllComponents()
 {
 	Super::PostRegisterAllComponents();
 	RefreshCollisionSettings();
+
+#if WITH_EDITOR
+	// CellEntries is an editor-only runtime snapshot and is not serialized with the actor.
+	// Restore it after loading a level or hot-reloading the module when generated grid data is still valid.
+	if (HasCurrentGeneratedData())
+		RefreshDebugComponent();
+#endif
 }
 
 #if WITH_EDITOR
@@ -420,6 +378,10 @@ void ADualContourMeshActor::RebuildMesh()
 	BuildCells();
 
 	bMeshRebuildRequired = false;
+
+#if WITH_EDITOR
+	RefreshDebugComponent();
+#endif
 
 	for (auto& Pair : MeshComponents)
 		if (Pair.Value)
@@ -586,6 +548,10 @@ void ADualContourMeshActor::ModifyDensityWithHemisphere(
 		FMath::Min(CellCount.Z, SampleMaxZ + 1));
 
 	RebuildCellsInRange(CellRangeMin, CellRangeMax);
+
+#if WITH_EDITOR
+	RefreshDebugComponent();
+#endif
 
 	// Collect own division + any -X/-Y/-Z neighbor whose borrowed +X/+Y/+Z ring includes a changed cell
 	TSet<int32> AffectedDivisions;

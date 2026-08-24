@@ -5,6 +5,7 @@
 #include "PhysicsEngine/BodyInstance.h"
 #include "DualContourTypes.h"
 #include "DualContourMeshComponent.h"
+#include "DualContourDebugComponent.h"
 #include "DualContourMeshActor.generated.h"
 
 UCLASS()
@@ -74,12 +75,10 @@ public:
 	}
 
 	virtual void PostRegisterAllComponents() override;
-	virtual void Tick(float DeltaSeconds) override;
-	virtual bool ShouldTickIfViewportsOnly() const override;
 
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
-	void DrawCellDebug();
+	TObjectPtr<UDualContourDebugComponent> DebugComponent;
 #endif
 
 private:
@@ -87,6 +86,9 @@ private:
 	void RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax);
 	void PartialUpdateComponents(const TSet<int32>& AffectedDivisions);
 	UDualContourMeshComponent* CreateMeshComponent(FVectorInt CellMin, FVectorInt CellMax);
+#if WITH_EDITOR
+	void RefreshDebugComponent();
+#endif
 
 	int32 DivisionIndex(int32 DivX, int32 DivY, int32 DivZ) const;
 	FVectorInt DivisionFromCell(int32 CellX, int32 CellY, int32 CellZ) const;
