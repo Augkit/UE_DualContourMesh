@@ -1,5 +1,6 @@
 ﻿#include "DualContourMeshComponent.h"
 #include "DualContourMeshActor.h"
+#include "DualContour.h"
 #include "PrimitiveSceneProxy.h"
 #include "PrimitiveViewRelevance.h"
 #include "MaterialDomain.h"
@@ -322,8 +323,7 @@ void UDualContourMeshComponent::BuildMesh()
 	Indices.Reset();
 	LocalBounds = FBox(ForceInit);
 
-	ADualContourMeshActor* Owner = Cast<ADualContourMeshActor>(GetOwner());
-	if (!Owner || !Owner->HasCurrentGeneratedData())
+	if (!DualContour || !DualContour->HasCurrentGeneratedData())
 		return;
 
 	for (int32 CellZ = CellRangeMin.Z; CellZ < CellRangeMax.Z; CellZ++)
@@ -340,16 +340,15 @@ void UDualContourMeshComponent::BuildMesh()
 
 void UDualContourMeshComponent::GenerateQuadsForCell(int32 CellX, int32 CellY, int32 CellZ)
 {
-	ADualContourMeshActor* Owner = Cast<ADualContourMeshActor>(GetOwner());
-	if (!Owner)
+	if (!DualContour)
 		return;
-	const FVectorInt& CellCounts = Owner->CellCount;
+	const FVectorInt& CellCounts = DualContour->CellCount;
 
 	auto GetCell = [&](int32 QueryCellX, int32 QueryCellY, int32 QueryCellZ) -> const FDualContourCell*
 	{
 		if (!CellCounts.IsValid(QueryCellX, QueryCellY, QueryCellZ))
 			return nullptr;
-		return Owner->GetContourCell(QueryCellX, QueryCellY, QueryCellZ);
+		return DualContour->GetContourCell(QueryCellX, QueryCellY, QueryCellZ);
 	};
 
 	// Reversed winding, (0,2,1) + (0,3,2), makes faces visible from the outward side in UE.
@@ -378,8 +377,8 @@ void UDualContourMeshComponent::GenerateQuadsForCell(int32 CellX, int32 CellY, i
 	// Four adjacent cells lie in the Y-Z plane; this reads the CellY+1 and CellZ+1 rings.
 	if (CellY + 1 < CellCounts.Y && CellZ + 1 < CellCounts.Z)
 	{
-		const uint8 DensityA = Owner->GetSample(CellX, CellY + 1, CellZ + 1);
-		const uint8 DensityB = Owner->GetSample(CellX + 1, CellY + 1, CellZ + 1);
+		const uint8 DensityA = DualContour->GetSample(CellX, CellY + 1, CellZ + 1);
+		const uint8 DensityB = DualContour->GetSample(CellX + 1, CellY + 1, CellZ + 1);
 		if ((DensityA < GDualContourIsoValue) != (DensityB < GDualContourIsoValue))
 		{
 			const FDualContourCell* C00 = GetCell(CellX, CellY, CellZ);
@@ -397,8 +396,8 @@ void UDualContourMeshComponent::GenerateQuadsForCell(int32 CellX, int32 CellY, i
 	// Four adjacent cells lie in the X-Z plane; this reads the CellX+1 and CellZ+1 rings.
 	if (CellX + 1 < CellCounts.X && CellZ + 1 < CellCounts.Z)
 	{
-		const uint8 DensityA = Owner->GetSample(CellX + 1, CellY, CellZ + 1);
-		const uint8 DensityB = Owner->GetSample(CellX + 1, CellY + 1, CellZ + 1);
+		const uint8 DensityA = DualContour->GetSample(CellX + 1, CellY, CellZ + 1);
+		const uint8 DensityB = DualContour->GetSample(CellX + 1, CellY + 1, CellZ + 1);
 		if ((DensityA < GDualContourIsoValue) != (DensityB < GDualContourIsoValue))
 		{
 			const FDualContourCell* C00 = GetCell(CellX, CellY, CellZ);
@@ -416,8 +415,8 @@ void UDualContourMeshComponent::GenerateQuadsForCell(int32 CellX, int32 CellY, i
 	// Four adjacent cells lie in the X-Y plane; this reads the CellX+1 and CellY+1 rings.
 	if (CellX + 1 < CellCounts.X && CellY + 1 < CellCounts.Y)
 	{
-		const uint8 DensityA = Owner->GetSample(CellX + 1, CellY + 1, CellZ);
-		const uint8 DensityB = Owner->GetSample(CellX + 1, CellY + 1, CellZ + 1);
+		const uint8 DensityA = DualContour->GetSample(CellX + 1, CellY + 1, CellZ);
+		const uint8 DensityB = DualContour->GetSample(CellX + 1, CellY + 1, CellZ + 1);
 		if ((DensityA < GDualContourIsoValue) != (DensityB < GDualContourIsoValue))
 		{
 			const FDualContourCell* C00 = GetCell(CellX, CellY, CellZ);

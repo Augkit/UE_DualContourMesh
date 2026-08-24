@@ -6,6 +6,7 @@
 #include "DualContourMeshComponent.generated.h"
 
 class UBodySetup;
+class UDualContour;
 
 UCLASS(ClassGroup = Rendering, meta = (BlueprintSpawnableComponent))
 class DUALCONTOURMESH_API UDualContourMeshComponent : public UMeshComponent, public IInterface_CollisionDataProvider
@@ -17,6 +18,10 @@ public:
 	// This component owns cells in [Min, Max) and reads the positive-axis neighbor ring when building quads.
 	FVectorInt CellRangeMin;
 	FVectorInt CellRangeMax;
+
+	/** Generator data read while constructing this component's mesh division. */
+	UPROPERTY(Transient)
+	TObjectPtr<UDualContour> DualContour;
 
 	TArray<FVector> Positions;
 	TArray<FVector> Normals;
