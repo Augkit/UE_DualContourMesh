@@ -31,6 +31,7 @@ public class DualContourMesh : ModuleRules
 				"PhysicsCore",
 				"RenderCore",
 				"RHI",
+				"InputCore",
 			}
 			);
 			

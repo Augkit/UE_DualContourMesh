@@ -1,6 +1,8 @@
 #include "DualContourMeshActor.h"
 #include "Engine/CollisionProfile.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogDualContourMesh, Log, All);
+
 #if WITH_EDITOR
 #include "DrawDebugHelpers.h"
 
@@ -64,12 +66,62 @@ int32 ADualContourMeshActor::CellIndex(int32 CellX, int32 CellY, int32 CellZ) co
 	return CellX + CellY * CellCount.X + CellZ * CellCount.X * CellCount.Y;
 }
 
+bool ADualContourMeshActor::HasCurrentGeneratedData() const
+{
+	if (bMeshRebuildRequired)
+		return false;
+
+	const int64 ExpectedCellCount = static_cast<int64>(CellCount.X) * CellCount.Y * CellCount.Z;
+	const int64 ExpectedSampleCount = (static_cast<int64>(CellCount.X) + 1) * (static_cast<int64>(CellCount.Y) + 1)
+	                                  * (static_cast<int64>(CellCount.Z) + 1);
+	return ExpectedCellCount == DualContourGrid.Num() && ExpectedSampleCount == SamplePointGrid.Num();
+}
+
+bool ADualContourMeshActor::ValidateMeshGenerationSettings() const
+{
+	if (CellCount.X <= 0 || CellCount.Y <= 0 || CellCount.Z <= 0)
+	{
+		UE_LOG(LogDualContourMesh, Error, TEXT("RebuildMesh aborted for %s: CellCount must be positive (current: %d, %d, %d)."),
+			*GetName(), CellCount.X, CellCount.Y, CellCount.Z);
+		return false;
+	}
+	if (Divisions.X <= 0 || Divisions.Y <= 0 || Divisions.Z <= 0)
+	{
+		UE_LOG(LogDualContourMesh, Error, TEXT("RebuildMesh aborted for %s: Divisions must be positive (current: %d, %d, %d)."),
+			*GetName(), Divisions.X, Divisions.Y, Divisions.Z);
+		return false;
+	}
+	if (CellSize <= 0.f)
+	{
+		UE_LOG(LogDualContourMesh, Error, TEXT("RebuildMesh aborted for %s: CellSize must be greater than zero (current: %g)."),
+			*GetName(), CellSize);
+		return false;
+	}
+
+	const auto FitsInArray = [](int64 SizeX, int64 SizeY, int64 SizeZ)
+	{
+		return SizeX <= MAX_int32 && SizeY <= MAX_int32 && SizeZ <= MAX_int32
+		       && SizeX <= MAX_int32 / SizeY
+		       && SizeX * SizeY <= MAX_int32 / SizeZ;
+	};
+	if (!FitsInArray(CellCount.X, CellCount.Y, CellCount.Z)
+	    || !FitsInArray(static_cast<int64>(CellCount.X) + 1, static_cast<int64>(CellCount.Y) + 1,
+		    static_cast<int64>(CellCount.Z) + 1))
+	{
+		UE_LOG(LogDualContourMesh, Error, TEXT("RebuildMesh aborted for %s: requested grid exceeds TArray's int32 capacity."), *GetName());
+		return false;
+	}
+
+	return true;
+}
+
 uint8 ADualContourMeshActor::GetSample(int32 SampleX, int32 SampleY, int32 SampleZ) const
 {
 	FVectorInt SampleDimensions = GetSampleDims();
 	if (SampleX < 0 || SampleX >= SampleDimensions.X || SampleY < 0 || SampleY >= SampleDimensions.Y || SampleZ < 0 || SampleZ >= SampleDimensions.Z)
 		return 0;
-	return SamplePointGrid[SampleIndex(SampleX, SampleY, SampleZ)];
+	const int32 Index = SampleIndex(SampleX, SampleY, SampleZ);
+	return SamplePointGrid.IsValidIndex(Index) ? SamplePointGrid[Index] : 0;
 }
 
 float ADualContourMeshActor::TrilinearSample(FVector GridPos) const
@@ -126,14 +178,21 @@ void ADualContourMeshActor::FillSphereDensity()
 
 void ADualContourMeshActor::BuildCells()
 {
+	DualContourGrid.SetNum(CellCount.Volume());
+	RebuildCellsInRange(FVectorInt(0, 0, 0), CellCount);
+}
+
+void ADualContourMeshActor::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax)
+{
+	RangeMin = FVectorInt(FMath::Max(0, RangeMin.X), FMath::Max(0, RangeMin.Y), FMath::Max(0, RangeMin.Z));
+	RangeMax = FVectorInt(FMath::Min(CellCount.X, RangeMax.X), FMath::Min(CellCount.Y, RangeMax.Y), FMath::Min(CellCount.Z, RangeMax.Z));
+
 	const int32 IsoValue = 127;
 	const double Lambda = 0.1;
 
-	DualContourGrid.SetNum(CellCount.Volume());
-
-	for (int32 CellZ = 0; CellZ < CellCount.Z; CellZ++)
-		for (int32 CellY = 0; CellY < CellCount.Y; CellY++)
-			for (int32 CellX = 0; CellX < CellCount.X; CellX++)
+	for (int32 CellZ = RangeMin.Z; CellZ < RangeMax.Z; CellZ++)
+		for (int32 CellY = RangeMin.Y; CellY < RangeMax.Y; CellY++)
+			for (int32 CellX = RangeMin.X; CellX < RangeMax.X; CellX++)
 			{
 				FDualContourCell& Cell = DualContourGrid[CellIndex(CellX, CellY, CellZ)];
 				Cell.bActive = false;
@@ -266,7 +325,7 @@ bool ADualContourMeshActor::ShouldTickIfViewportsOnly() const
 void ADualContourMeshActor::DrawCellDebug()
 {
 	UWorld* World = GetWorld();
-	if (!World || DualContourGrid.IsEmpty())
+	if (!World || !HasCurrentGeneratedData())
 		return;
 
 	const int32 DrawMode = CVarDrawDualContourCells.GetValueOnGameThread();
@@ -282,7 +341,10 @@ void ADualContourMeshActor::DrawCellDebug()
 		for (int32 CellY = 0; CellY < CellCount.Y; CellY++)
 			for (int32 CellX = 0; CellX < CellCount.X; CellX++)
 			{
-				const FDualContourCell& Cell = DualContourGrid[CellIndex(CellX, CellY, CellZ)];
+				const int32 Index = CellIndex(CellX, CellY, CellZ);
+				if (!DualContourGrid.IsValidIndex(Index))
+					continue;
+				const FDualContourCell& Cell = DualContourGrid[Index];
 				if (!Cell.bActive && DrawMode < 2)
 					continue;
 
@@ -320,8 +382,8 @@ void ADualContourMeshActor::ApplyCollisionSettings(UDualContourMeshComponent* Me
 
 void ADualContourMeshActor::RefreshCollisionSettings()
 {
-	for (UDualContourMeshComponent* MeshComponent : MeshComponents)
-		ApplyCollisionSettings(MeshComponent);
+	for (auto& Pair : MeshComponents)
+		ApplyCollisionSettings(Pair.Value);
 }
 
 void ADualContourMeshActor::PostRegisterAllComponents()
@@ -333,6 +395,16 @@ void ADualContourMeshActor::PostRegisterAllComponents()
 #if WITH_EDITOR
 void ADualContourMeshActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
+	const FName MemberPropertyName = PropertyChangedEvent.GetMemberPropertyName();
+	if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, CellCount)
+	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, CellSize)
+	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, Divisions)
+	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, SphereCenter)
+	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, SphereRadius))
+	{
+		bMeshRebuildRequired = true;
+	}
+
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 	RefreshCollisionSettings();
 }
@@ -340,42 +412,197 @@ void ADualContourMeshActor::PostEditChangeProperty(FPropertyChangedEvent& Proper
 
 void ADualContourMeshActor::RebuildMesh()
 {
+	bMeshRebuildRequired = true;
+	if (!ValidateMeshGenerationSettings())
+		return;
+
 	FillSphereDensity();
 	BuildCells();
 
-	for (TObjectPtr<UDualContourMeshComponent>& MeshComponent : MeshComponents)
-		if (MeshComponent)
-			MeshComponent->DestroyComponent();
+	bMeshRebuildRequired = false;
+
+	for (auto& Pair : MeshComponents)
+		if (Pair.Value)
+			Pair.Value->DestroyComponent();
 	MeshComponents.Reset();
 
-	const FVectorInt& DivisionCounts = Divisions;
-	const FVectorInt& CellCounts = CellCount;
-
-	for (int32 DivisionZ = 0; DivisionZ < DivisionCounts.Z; DivisionZ++)
-		for (int32 DivisionY = 0; DivisionY < DivisionCounts.Y; DivisionY++)
-			for (int32 DivisionX = 0; DivisionX < DivisionCounts.X; DivisionX++)
+	for (int32 DivisionZ = 0; DivisionZ < Divisions.Z; DivisionZ++)
+		for (int32 DivisionY = 0; DivisionY < Divisions.Y; DivisionY++)
+			for (int32 DivisionX = 0; DivisionX < Divisions.X; DivisionX++)
 			{
-				FVectorInt CellMin(DivisionX * CellCounts.X / DivisionCounts.X, DivisionY * CellCounts.Y / DivisionCounts.Y,
-					DivisionZ * CellCounts.Z / DivisionCounts.Z);
-				FVectorInt CellMax((DivisionX + 1) * CellCounts.X / DivisionCounts.X, (DivisionY + 1) * CellCounts.Y / DivisionCounts.Y,
-					(DivisionZ + 1) * CellCounts.Z / DivisionCounts.Z);
+				FVectorInt CellMin = DivisionCellMin(DivisionX, DivisionY, DivisionZ);
+				FVectorInt CellMax = DivisionCellMax(DivisionX, DivisionY, DivisionZ);
 
 				bool bHasActive = false;
 				for (int32 CellZ = CellMin.Z; CellZ < CellMax.Z && !bHasActive; CellZ++)
 					for (int32 CellY = CellMin.Y; CellY < CellMax.Y && !bHasActive; CellY++)
 						for (int32 CellX = CellMin.X; CellX < CellMax.X && !bHasActive; CellX++)
-							bHasActive = DualContourGrid[CellCount.LinearIndex(CellX, CellY, CellZ)].bActive;
+							bHasActive = DualContourGrid[CellIndex(CellX, CellY, CellZ)].bActive;
 				if (!bHasActive)
 					continue;
 
-				UDualContourMeshComponent* NewMeshComponent = NewObject<UDualContourMeshComponent>(this, NAME_None, RF_Transactional);
-				NewMeshComponent->CellRangeMin = CellMin;
-				NewMeshComponent->CellRangeMax = CellMax;
-				NewMeshComponent->SetMaterial(0, MeshMaterial);
-				ApplyCollisionSettings(NewMeshComponent);
-				NewMeshComponent->RegisterComponent();
-				NewMeshComponent->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepRelativeTransform);
-				NewMeshComponent->BuildAndRefreshMesh();
-				MeshComponents.Add(NewMeshComponent);
+				MeshComponents.Add(DivisionIndex(DivisionX, DivisionY, DivisionZ), CreateMeshComponent(CellMin, CellMax));
 			}
+}
+
+int32 ADualContourMeshActor::DivisionIndex(int32 DivX, int32 DivY, int32 DivZ) const
+{
+	return DivX + DivY * Divisions.X + DivZ * Divisions.X * Divisions.Y;
+}
+
+FVectorInt ADualContourMeshActor::DivisionFromCell(int32 CellX, int32 CellY, int32 CellZ) const
+{
+	return FVectorInt(
+		FMath::Clamp(CellX * Divisions.X / CellCount.X, 0, Divisions.X - 1),
+		FMath::Clamp(CellY * Divisions.Y / CellCount.Y, 0, Divisions.Y - 1),
+		FMath::Clamp(CellZ * Divisions.Z / CellCount.Z, 0, Divisions.Z - 1));
+}
+
+FVectorInt ADualContourMeshActor::DivisionCellMin(int32 DivX, int32 DivY, int32 DivZ) const
+{
+	return FVectorInt(
+		DivX * CellCount.X / Divisions.X,
+		DivY * CellCount.Y / Divisions.Y,
+		DivZ * CellCount.Z / Divisions.Z);
+}
+
+FVectorInt ADualContourMeshActor::DivisionCellMax(int32 DivX, int32 DivY, int32 DivZ) const
+{
+	return FVectorInt(
+		(DivX + 1) * CellCount.X / Divisions.X,
+		(DivY + 1) * CellCount.Y / Divisions.Y,
+		(DivZ + 1) * CellCount.Z / Divisions.Z);
+}
+
+UDualContourMeshComponent* ADualContourMeshActor::CreateMeshComponent(FVectorInt CellMin, FVectorInt CellMax)
+{
+	UDualContourMeshComponent* NewComponent = NewObject<UDualContourMeshComponent>(this, NAME_None, RF_Transactional);
+	NewComponent->CellRangeMin = CellMin;
+	NewComponent->CellRangeMax = CellMax;
+	NewComponent->SetMaterial(0, MeshMaterial);
+	ApplyCollisionSettings(NewComponent);
+	NewComponent->RegisterComponent();
+	NewComponent->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepRelativeTransform);
+	NewComponent->BuildAndRefreshMesh();
+	return NewComponent;
+}
+
+void ADualContourMeshActor::PartialUpdateComponents(const TSet<int32>& AffectedDivisions)
+{
+	for (int32 DivIdx : AffectedDivisions)
+	{
+		const int32 DivX = DivIdx % Divisions.X;
+		const int32 DivY = (DivIdx / Divisions.X) % Divisions.Y;
+		const int32 DivZ = DivIdx / (Divisions.X * Divisions.Y);
+
+		if (DivX < 0 || DivX >= Divisions.X || DivY < 0 || DivY >= Divisions.Y || DivZ < 0 || DivZ >= Divisions.Z)
+			continue;
+
+		FVectorInt CellMin = DivisionCellMin(DivX, DivY, DivZ);
+		FVectorInt CellMax = DivisionCellMax(DivX, DivY, DivZ);
+
+		bool bHasActive = false;
+		for (int32 CellZ = CellMin.Z; CellZ < CellMax.Z && !bHasActive; CellZ++)
+			for (int32 CellY = CellMin.Y; CellY < CellMax.Y && !bHasActive; CellY++)
+				for (int32 CellX = CellMin.X; CellX < CellMax.X && !bHasActive; CellX++)
+					bHasActive = DualContourGrid[CellIndex(CellX, CellY, CellZ)].bActive;
+
+		TObjectPtr<UDualContourMeshComponent>* ExistingComp = MeshComponents.Find(DivIdx);
+		if (ExistingComp && *ExistingComp)
+		{
+			if (!bHasActive)
+			{
+				(*ExistingComp)->DestroyComponent();
+				MeshComponents.Remove(DivIdx);
+			}
+			else
+			{
+				(*ExistingComp)->BuildAndRefreshMesh();
+			}
+		}
+		else if (bHasActive)
+		{
+			MeshComponents.Add(DivIdx, CreateMeshComponent(CellMin, CellMax));
+		}
+	}
+}
+
+void ADualContourMeshActor::ModifyDensityWithHemisphere(
+	const FVector& WorldHitPos, const FVector& WorldHitNormal, float Radius, bool bExcavate)
+{
+	if (!HasCurrentGeneratedData())
+	{
+		UE_LOG(LogDualContourMesh, Warning,
+			TEXT("Density edit ignored for %s because mesh-generation settings changed. Call RebuildMesh first."), *GetName());
+		return;
+	}
+
+	const FTransform& ActorTransform = GetActorTransform();
+	const FVector LocalHitPos = ActorTransform.InverseTransformPosition(WorldHitPos);
+	const FVector LocalHitNormal = ActorTransform.InverseTransformVectorNoScale(WorldHitNormal).GetSafeNormal();
+
+	const FVectorInt SampleDims = GetSampleDims();
+	const float GridRadius = Radius / CellSize;
+
+	const int32 SampleMinX = FMath::Clamp(FMath::FloorToInt(LocalHitPos.X / CellSize - GridRadius), 0, SampleDims.X - 1);
+	const int32 SampleMinY = FMath::Clamp(FMath::FloorToInt(LocalHitPos.Y / CellSize - GridRadius), 0, SampleDims.Y - 1);
+	const int32 SampleMinZ = FMath::Clamp(FMath::FloorToInt(LocalHitPos.Z / CellSize - GridRadius), 0, SampleDims.Z - 1);
+	const int32 SampleMaxX = FMath::Clamp(FMath::CeilToInt(LocalHitPos.X / CellSize + GridRadius), 0, SampleDims.X - 1);
+	const int32 SampleMaxY = FMath::Clamp(FMath::CeilToInt(LocalHitPos.Y / CellSize + GridRadius), 0, SampleDims.Y - 1);
+	const int32 SampleMaxZ = FMath::Clamp(FMath::CeilToInt(LocalHitPos.Z / CellSize + GridRadius), 0, SampleDims.Z - 1);
+
+	bool bModified = false;
+	for (int32 SampleZ = SampleMinZ; SampleZ <= SampleMaxZ; SampleZ++)
+		for (int32 SampleY = SampleMinY; SampleY <= SampleMaxY; SampleY++)
+			for (int32 SampleX = SampleMinX; SampleX <= SampleMaxX; SampleX++)
+			{
+				const FVector SampleLocalPos = GetSampleWorldPos(SampleX, SampleY, SampleZ);
+				const FVector Delta = SampleLocalPos - LocalHitPos;
+				const float Dist = (float)Delta.Size();
+				if (Dist > Radius)
+					continue;
+				if (FVector::DotProduct(Delta, LocalHitNormal) < 0.f)
+					continue;
+
+				const int32 FalloffAmount = FMath::Max(1, FMath::RoundToInt(127.f * (1.f - Dist / Radius)));
+				const int32 Idx = SampleIndex(SampleX, SampleY, SampleZ);
+				const int32 OldVal = SamplePointGrid[Idx];
+				SamplePointGrid[Idx] = (uint8)FMath::Clamp(
+					bExcavate ? OldVal - FalloffAmount : OldVal + FalloffAmount, 0, 255);
+				bModified = true;
+			}
+
+	if (!bModified)
+		return;
+
+	// Affected cells: a sample at (SX,SY,SZ) is a corner of cells [SX-1..SX, SY-1..SY, SZ-1..SZ]
+	const FVectorInt CellRangeMin(
+		FMath::Max(0, SampleMinX - 1),
+		FMath::Max(0, SampleMinY - 1),
+		FMath::Max(0, SampleMinZ - 1));
+	const FVectorInt CellRangeMax(
+		FMath::Min(CellCount.X, SampleMaxX + 1),
+		FMath::Min(CellCount.Y, SampleMaxY + 1),
+		FMath::Min(CellCount.Z, SampleMaxZ + 1));
+
+	RebuildCellsInRange(CellRangeMin, CellRangeMax);
+
+	// Collect own division + any -X/-Y/-Z neighbor whose borrowed +X/+Y/+Z ring includes a changed cell
+	TSet<int32> AffectedDivisions;
+	for (int32 CellZ = CellRangeMin.Z; CellZ < CellRangeMax.Z; CellZ++)
+		for (int32 CellY = CellRangeMin.Y; CellY < CellRangeMax.Y; CellY++)
+			for (int32 CellX = CellRangeMin.X; CellX < CellRangeMax.X; CellX++)
+			{
+				const FVectorInt Div = DivisionFromCell(CellX, CellY, CellZ);
+				AffectedDivisions.Add(DivisionIndex(Div.X, Div.Y, Div.Z));
+
+				if (Div.X > 0 && CellX == DivisionCellMax(Div.X - 1, Div.Y, Div.Z).X)
+					AffectedDivisions.Add(DivisionIndex(Div.X - 1, Div.Y, Div.Z));
+				if (Div.Y > 0 && CellY == DivisionCellMax(Div.X, Div.Y - 1, Div.Z).Y)
+					AffectedDivisions.Add(DivisionIndex(Div.X, Div.Y - 1, Div.Z));
+				if (Div.Z > 0 && CellZ == DivisionCellMax(Div.X, Div.Y, Div.Z - 1).Z)
+					AffectedDivisions.Add(DivisionIndex(Div.X, Div.Y, Div.Z - 1));
+			}
+
+	PartialUpdateComponents(AffectedDivisions);
 }

@@ -25,10 +25,10 @@ class FDualContourMeshSceneProxy final : public FPrimitiveSceneProxy
 public:
 	FDualContourMeshSceneProxy(UDualContourMeshComponent* InComponent)
 		: FPrimitiveSceneProxy(InComponent)
-		, VertexFactory(nullptr)
-		, NumPrimitives(0)
-		, Material(nullptr)
-		, MaterialRelevance(InComponent->GetMaterialRelevance(GetScene().GetShaderPlatform()))
+		  , VertexFactory(nullptr)
+		  , NumPrimitives(0)
+		  , Material(nullptr)
+		  , MaterialRelevance(InComponent->GetMaterialRelevance(GetScene().GetShaderPlatform()))
 	{
 		if (InComponent->Positions.IsEmpty())
 			return;
@@ -234,7 +234,7 @@ bool UDualContourMeshComponent::GetPhysicsTriMeshData(FTriMeshCollisionData* Col
 		const uint32 VertexCount = static_cast<uint32>(Positions.Num());
 
 		if (VertexIndex0 >= VertexCount || VertexIndex1 >= VertexCount || VertexIndex2 >= VertexCount || VertexIndex0 == VertexIndex1
-			|| VertexIndex0 == VertexIndex2 || VertexIndex1 == VertexIndex2)
+		    || VertexIndex0 == VertexIndex2 || VertexIndex1 == VertexIndex2)
 			continue;
 
 		const FVector Edge01 = Positions[VertexIndex1] - Positions[VertexIndex0];
@@ -323,7 +323,7 @@ void UDualContourMeshComponent::BuildMesh()
 	LocalBounds = FBox(ForceInit);
 
 	ADualContourMeshActor* Owner = Cast<ADualContourMeshActor>(GetOwner());
-	if (!Owner || Owner->DualContourGrid.IsEmpty())
+	if (!Owner || !Owner->HasCurrentGeneratedData())
 		return;
 
 	for (int32 CellZ = CellRangeMin.Z; CellZ < CellRangeMax.Z; CellZ++)
@@ -350,13 +350,16 @@ void UDualContourMeshComponent::GenerateQuadsForCell(int32 CellX, int32 CellY, i
 	{
 		if (!CellCounts.IsValid(QueryCellX, QueryCellY, QueryCellZ))
 			return nullptr;
-		const FDualContourCell& Cell = Owner->DualContourGrid[CellCounts.LinearIndex(QueryCellX, QueryCellY, QueryCellZ)];
+		const int32 Index = CellCounts.LinearIndex(QueryCellX, QueryCellY, QueryCellZ);
+		if (!Owner->DualContourGrid.IsValidIndex(Index))
+			return nullptr;
+		const FDualContourCell& Cell = Owner->DualContourGrid[Index];
 		return Cell.bActive ? &Cell : nullptr;
 	};
 
 	// Reversed winding, (0,2,1) + (0,3,2), makes faces visible from the outward side in UE.
 	auto AddQuad = [&](const FDualContourCell* Cell0, FVector2f UV0, const FDualContourCell* Cell1, FVector2f UV1, const FDualContourCell* Cell2,
-					   FVector2f UV2, const FDualContourCell* Cell3, FVector2f UV3)
+		FVector2f UV2, const FDualContourCell* Cell3, FVector2f UV3)
 	{
 		if (!Cell0 || !Cell1 || !Cell2 || !Cell3)
 			return;
@@ -388,9 +391,9 @@ void UDualContourMeshComponent::GenerateQuadsForCell(int32 CellX, int32 CellY, i
 			const FDualContourCell* C10 = GetCell(CellX, CellY + 1, CellZ);
 			const FDualContourCell* C11 = GetCell(CellX, CellY + 1, CellZ + 1);
 			const FDualContourCell* C01 = GetCell(CellX, CellY, CellZ + 1);
-			if (DensityA > IsoValue)  // outward = +X
+			if (DensityA > IsoValue) // outward = +X
 				AddQuad(C00, {0, 0}, C10, {1, 0}, C11, {1, 1}, C01, {0, 1});
-			else  // outward = -X
+			else // outward = -X
 				AddQuad(C00, {0, 0}, C01, {0, 1}, C11, {1, 1}, C10, {1, 0});
 		}
 	}
@@ -407,9 +410,9 @@ void UDualContourMeshComponent::GenerateQuadsForCell(int32 CellX, int32 CellY, i
 			const FDualContourCell* C10 = GetCell(CellX + 1, CellY, CellZ);
 			const FDualContourCell* C11 = GetCell(CellX + 1, CellY, CellZ + 1);
 			const FDualContourCell* C01 = GetCell(CellX, CellY, CellZ + 1);
-			if (DensityA > IsoValue)  // outward = +Y
+			if (DensityA > IsoValue) // outward = +Y
 				AddQuad(C00, {0, 0}, C01, {0, 1}, C11, {1, 1}, C10, {1, 0});
-			else  // outward = -Y
+			else // outward = -Y
 				AddQuad(C00, {0, 0}, C10, {1, 0}, C11, {1, 1}, C01, {0, 1});
 		}
 	}
@@ -426,9 +429,9 @@ void UDualContourMeshComponent::GenerateQuadsForCell(int32 CellX, int32 CellY, i
 			const FDualContourCell* C10 = GetCell(CellX + 1, CellY, CellZ);
 			const FDualContourCell* C11 = GetCell(CellX + 1, CellY + 1, CellZ);
 			const FDualContourCell* C01 = GetCell(CellX, CellY + 1, CellZ);
-			if (DensityA > IsoValue)  // outward = +Z
+			if (DensityA > IsoValue) // outward = +Z
 				AddQuad(C00, {0, 0}, C10, {1, 0}, C11, {1, 1}, C01, {0, 1});
-			else  // outward = -Z
+			else // outward = -Z
 				AddQuad(C00, {0, 0}, C01, {0, 1}, C11, {1, 1}, C10, {1, 0});
 		}
 	}
