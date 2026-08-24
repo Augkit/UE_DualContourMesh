@@ -96,7 +96,7 @@ bool UDualContour::Rebuild()
 	return true;
 }
 
-uint8 UDualContour::GetSample(int32 SampleX, int32 SampleY, int32 SampleZ) const
+uint8 UDualContour::GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const
 {
 	const FVectorInt SampleDimensions = GetSampleDims();
 	if (!SampleDimensions.IsValid(SampleX, SampleY, SampleZ))
@@ -112,11 +112,11 @@ uint8 UDualContour::GetSample(int32 SampleX, int32 SampleY, int32 SampleZ) const
 	const int32 LocalX = SampleX % GDualContourChunkSize;
 	const int32 LocalY = SampleY % GDualContourChunkSize;
 	const int32 LocalZ = SampleZ % GDualContourChunkSize;
-	return Chunk->DenseSamples[LocalX + LocalY * GDualContourChunkSize
+	return Chunk->DensitySamples[LocalX + LocalY * GDualContourChunkSize
 		+ LocalZ * GDualContourChunkSize * GDualContourChunkSize];
 }
 
-void UDualContour::SetDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Value)
+void UDualContour::SetDensity(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Value)
 {
 	const FIntVector ChunkCoord(SampleX / GDualContourChunkSize, SampleY / GDualContourChunkSize, SampleZ / GDualContourChunkSize);
 	FDensityChunk& Chunk = DensityChunks.FindOrAdd(ChunkCoord);
@@ -124,7 +124,7 @@ void UDualContour::SetDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ,
 	const int32 LocalX = SampleX % GDualContourChunkSize;
 	const int32 LocalY = SampleY % GDualContourChunkSize;
 	const int32 LocalZ = SampleZ % GDualContourChunkSize;
-	Chunk.DenseSamples[LocalX + LocalY * GDualContourChunkSize
+	Chunk.DensitySamples[LocalX + LocalY * GDualContourChunkSize
 		+ LocalZ * GDualContourChunkSize * GDualContourChunkSize] = Value;
 }
 
@@ -180,7 +180,7 @@ bool UDualContour::HasActiveCellInRange(FVectorInt CellMin, FVectorInt CellMax) 
 	return false;
 }
 
-float UDualContour::TrilinearSample(FVector GridPos) const
+float UDualContour::TrilinearDensity(FVector GridPos) const
 {
 	const FVectorInt Dims = GetSampleDims();
 	const float GridX = FMath::Clamp(GridPos.X, 0., static_cast<double>(Dims.X - 1));
@@ -193,19 +193,19 @@ float UDualContour::TrilinearSample(FVector GridPos) const
 	const float BlendX = GridX - LowerX, BlendY = GridY - LowerY, BlendZ = GridZ - LowerZ;
 
 	return FMath::Lerp(
-		FMath::Lerp(FMath::Lerp(static_cast<float>(GetSample(LowerX, LowerY, LowerZ)), static_cast<float>(GetSample(UpperX, LowerY, LowerZ)), BlendX),
-			FMath::Lerp(static_cast<float>(GetSample(LowerX, UpperY, LowerZ)), static_cast<float>(GetSample(UpperX, UpperY, LowerZ)), BlendX), BlendY),
-		FMath::Lerp(FMath::Lerp(static_cast<float>(GetSample(LowerX, LowerY, UpperZ)), static_cast<float>(GetSample(UpperX, LowerY, UpperZ)), BlendX),
-			FMath::Lerp(static_cast<float>(GetSample(LowerX, UpperY, UpperZ)), static_cast<float>(GetSample(UpperX, UpperY, UpperZ)), BlendX), BlendY), BlendZ);
+		FMath::Lerp(FMath::Lerp(static_cast<float>(GetDensity(LowerX, LowerY, LowerZ)), static_cast<float>(GetDensity(UpperX, LowerY, LowerZ)), BlendX),
+			FMath::Lerp(static_cast<float>(GetDensity(LowerX, UpperY, LowerZ)), static_cast<float>(GetDensity(UpperX, UpperY, LowerZ)), BlendX), BlendY),
+		FMath::Lerp(FMath::Lerp(static_cast<float>(GetDensity(LowerX, LowerY, UpperZ)), static_cast<float>(GetDensity(UpperX, LowerY, UpperZ)), BlendX),
+			FMath::Lerp(static_cast<float>(GetDensity(LowerX, UpperY, UpperZ)), static_cast<float>(GetDensity(UpperX, UpperY, UpperZ)), BlendX), BlendY), BlendZ);
 }
 
 FVector UDualContour::ComputeGradient(FVector GridPos) const
 {
 	constexpr float Step = 0.5f;
 	return FVector(
-		TrilinearSample(GridPos + FVector(Step, 0, 0)) - TrilinearSample(GridPos - FVector(Step, 0, 0)),
-		TrilinearSample(GridPos + FVector(0, Step, 0)) - TrilinearSample(GridPos - FVector(0, Step, 0)),
-		TrilinearSample(GridPos + FVector(0, 0, Step)) - TrilinearSample(GridPos - FVector(0, 0, Step)));
+		TrilinearDensity(GridPos + FVector(Step, 0, 0)) - TrilinearDensity(GridPos - FVector(Step, 0, 0)),
+		TrilinearDensity(GridPos + FVector(0, Step, 0)) - TrilinearDensity(GridPos - FVector(0, Step, 0)),
+		TrilinearDensity(GridPos + FVector(0, 0, Step)) - TrilinearDensity(GridPos - FVector(0, 0, Step)));
 }
 
 void UDualContour::FillSphereDensity()
@@ -218,10 +218,10 @@ void UDualContour::FillSphereDensity()
 			{
 				const float SignedDistance = SphereRadius - static_cast<float>(FVector::Dist(GetSampleLocalPosition(X, Y, Z), SphereCenter));
 				const float IsoValue = static_cast<float>(GDualContourIsoValue);
-				const uint8 Sample = static_cast<uint8>(FMath::RoundToInt(FMath::Clamp(
+				const uint8 Density = static_cast<uint8>(FMath::RoundToInt(FMath::Clamp(
 					IsoValue + SignedDistance * IsoValue / CellSize, 0.f, 255.f)));
-				if (Sample != 0)
-					SetDensitySample(X, Y, Z, Sample);
+				if (Density != 0)
+					SetDensity(X, Y, Z, Density);
 			}
 }
 
@@ -251,7 +251,7 @@ void UDualContour::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax)
 				for (int32 Z = 0; Z <= 1; ++Z)
 					for (int32 Y = 0; Y <= 1; ++Y)
 						for (int32 X = 0; X <= 1; ++X)
-							(GetSample(CellX + X, CellY + Y, CellZ + Z) >= GDualContourIsoValue ? bHasInside : bHasOutside) = true;
+							(GetDensity(CellX + X, CellY + Y, CellZ + Z) >= GDualContourIsoValue ? bHasInside : bHasOutside) = true;
 				Cell.bActive = bHasInside && bHasOutside;
 				if (!Cell.bActive)
 				{
@@ -269,7 +269,7 @@ void UDualContour::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax)
 					const int32* B = EdgeCorners[EdgeIndex][1];
 					const int32 AX = CellX + A[0], AY = CellY + A[1], AZ = CellZ + A[2];
 					const int32 BX = CellX + B[0], BY = CellY + B[1], BZ = CellZ + B[2];
-					const int32 DensityA = GetSample(AX, AY, AZ), DensityB = GetSample(BX, BY, BZ);
+					const int32 DensityA = GetDensity(AX, AY, AZ), DensityB = GetDensity(BX, BY, BZ);
 					if ((DensityA < GDualContourIsoValue) == (DensityB < GDualContourIsoValue))
 						continue;
 
@@ -359,8 +359,8 @@ bool UDualContour::ModifyDensityWithHemisphere(const FVector& LocalHitPos, const
 				if (Distance > Radius || FVector::DotProduct(Delta, Normal) < 0.f)
 					continue;
 				const int32 Falloff = FMath::Max(1, FMath::RoundToInt(GDualContourIsoValue * (1.f - Distance / Radius)));
-				const int32 OldValue = GetSample(X, Y, Z);
-				SetDensitySample(X, Y, Z, static_cast<uint8>(FMath::Clamp(bExcavate ? OldValue - Falloff : OldValue + Falloff, 0, 255)));
+				const int32 OldValue = GetDensity(X, Y, Z);
+				SetDensity(X, Y, Z, static_cast<uint8>(FMath::Clamp(bExcavate ? OldValue - Falloff : OldValue + Falloff, 0, 255)));
 				bModified = true;
 			}
 	if (!bModified)

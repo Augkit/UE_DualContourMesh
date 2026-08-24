@@ -44,21 +44,21 @@ struct DUALCONTOURMESH_API FDualContourCell
 	FVector Normal = FVector::UpVector;
 };
 
-// Sparse density chunk. Empty DenseSamples means the whole chunk has UniformValue.
+// Sparse density chunk. Empty DensitySamples means the whole chunk has UniformValue.
 struct FDensityChunk
 {
 	uint8 UniformValue = 0;
-	TArray<uint8> DenseSamples; // size = ChunkSize^3 when expanded
+	TArray<uint8> DensitySamples; // size = ChunkSize^3 when expanded
 
-	bool IsUniform() const { return DenseSamples.IsEmpty(); }
+	bool IsUniform() const { return DensitySamples.IsEmpty(); }
 
 	void Expand()
 	{
 		if (!IsUniform())
 			return;
 		const int32 N = GDualContourChunkSize * GDualContourChunkSize * GDualContourChunkSize;
-		DenseSamples.SetNumUninitialized(N);
-		FMemory::Memset(DenseSamples.GetData(), UniformValue, N);
+		DensitySamples.SetNumUninitialized(N);
+		FMemory::Memset(DensitySamples.GetData(), UniformValue, N);
 	}
 };
 

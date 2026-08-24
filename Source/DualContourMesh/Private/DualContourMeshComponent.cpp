@@ -377,8 +377,8 @@ void UDualContourMeshComponent::GenerateQuadsForCell(int32 CellX, int32 CellY, i
 	// Four adjacent cells lie in the Y-Z plane; this reads the CellY+1 and CellZ+1 rings.
 	if (CellY + 1 < CellCounts.Y && CellZ + 1 < CellCounts.Z)
 	{
-		const uint8 DensityA = DualContour->GetSample(CellX, CellY + 1, CellZ + 1);
-		const uint8 DensityB = DualContour->GetSample(CellX + 1, CellY + 1, CellZ + 1);
+		const uint8 DensityA = DualContour->GetDensity(CellX, CellY + 1, CellZ + 1);
+		const uint8 DensityB = DualContour->GetDensity(CellX + 1, CellY + 1, CellZ + 1);
 		if ((DensityA < GDualContourIsoValue) != (DensityB < GDualContourIsoValue))
 		{
 			const FDualContourCell* C00 = GetCell(CellX, CellY, CellZ);
@@ -396,8 +396,8 @@ void UDualContourMeshComponent::GenerateQuadsForCell(int32 CellX, int32 CellY, i
 	// Four adjacent cells lie in the X-Z plane; this reads the CellX+1 and CellZ+1 rings.
 	if (CellX + 1 < CellCounts.X && CellZ + 1 < CellCounts.Z)
 	{
-		const uint8 DensityA = DualContour->GetSample(CellX + 1, CellY, CellZ + 1);
-		const uint8 DensityB = DualContour->GetSample(CellX + 1, CellY + 1, CellZ + 1);
+		const uint8 DensityA = DualContour->GetDensity(CellX + 1, CellY, CellZ + 1);
+		const uint8 DensityB = DualContour->GetDensity(CellX + 1, CellY + 1, CellZ + 1);
 		if ((DensityA < GDualContourIsoValue) != (DensityB < GDualContourIsoValue))
 		{
 			const FDualContourCell* C00 = GetCell(CellX, CellY, CellZ);
@@ -415,8 +415,8 @@ void UDualContourMeshComponent::GenerateQuadsForCell(int32 CellX, int32 CellY, i
 	// Four adjacent cells lie in the X-Y plane; this reads the CellX+1 and CellY+1 rings.
 	if (CellX + 1 < CellCounts.X && CellY + 1 < CellCounts.Y)
 	{
-		const uint8 DensityA = DualContour->GetSample(CellX + 1, CellY + 1, CellZ);
-		const uint8 DensityB = DualContour->GetSample(CellX + 1, CellY + 1, CellZ + 1);
+		const uint8 DensityA = DualContour->GetDensity(CellX + 1, CellY + 1, CellZ);
+		const uint8 DensityB = DualContour->GetDensity(CellX + 1, CellY + 1, CellZ + 1);
 		if ((DensityA < GDualContourIsoValue) != (DensityB < GDualContourIsoValue))
 		{
 			const FDualContourCell* C00 = GetCell(CellX, CellY, CellZ);

@@ -37,9 +37,9 @@ public:
 
 	void FillSphereDensity();
 	void BuildCells();
-	uint8 GetSample(int32 SampleX, int32 SampleY, int32 SampleZ) const;
+	uint8 GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
 	const FDualContourCell* GetContourCell(int32 CellX, int32 CellY, int32 CellZ) const;
-	float TrilinearSample(FVector GridPos) const;
+	float TrilinearDensity(FVector GridPos) const;
 	FVector ComputeGradient(FVector GridPos) const;
 	bool HasCurrentGeneratedData() const;
 	bool HasActiveCellInRange(FVectorInt CellMin, FVectorInt CellMax) const;
@@ -68,7 +68,7 @@ private:
 	FVectorInt LastBuiltCellCount;
 
 	FVectorInt GetSampleDims() const { return FVectorInt(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }
-	void SetDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Value);
+	void SetDensity(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Value);
 	void SetContourCell(int32 CellX, int32 CellY, int32 CellZ, const FDualContourCell& Cell);
 	void RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax);
 	bool ValidateGenerationSettings() const;
