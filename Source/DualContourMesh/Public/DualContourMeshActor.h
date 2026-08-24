@@ -56,11 +56,14 @@ public:
 
 	void FillSphereDensity();
 	void BuildCells();
-	uint8 GetSample(int32 X, int32 Y, int32 Z) const;
+	uint8 GetSample(int32 SampleX, int32 SampleY, int32 SampleZ) const;
 	float TrilinearSample(FVector GridPos) const;
 	FVector ComputeGradient(FVector GridPos) const;
 
-	FVector GetSampleWorldPos(int32 SX, int32 SY, int32 SZ) const { return FVector((float)SX, (float)SY, (float)SZ) * CellSize; }
+	FVector GetSampleWorldPos(int32 SampleX, int32 SampleY, int32 SampleZ) const
+	{
+		return FVector((float)SampleX, (float)SampleY, (float)SampleZ) * CellSize;
+	}
 	virtual void PostRegisterAllComponents() override;
 
 #if WITH_EDITOR
@@ -72,6 +75,6 @@ private:
 
 	FVectorInt GetSampleDims() const { return FVectorInt(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }
 
-	int32 SampleIndex(int32 X, int32 Y, int32 Z) const;
-	int32 CellIndex(int32 X, int32 Y, int32 Z) const;
+	int32 SampleIndex(int32 SampleX, int32 SampleY, int32 SampleZ) const;
+	int32 CellIndex(int32 CellX, int32 CellY, int32 CellZ) const;
 };

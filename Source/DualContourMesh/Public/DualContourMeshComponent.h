@@ -14,7 +14,7 @@ class DUALCONTOURMESH_API UDualContourMeshComponent : public UMeshComponent, pub
 public:
 	UDualContourMeshComponent(const FObjectInitializer& ObjectInitializer);
 
-	// Cell range [Min, Max) this component owns; Max+1 ring is borrowed for quad building
+	// This component owns cells in [Min, Max) and reads the positive-axis neighbor ring when building quads.
 	FVectorInt CellRangeMin;
 	FVectorInt CellRangeMax;
 
@@ -44,7 +44,7 @@ public:
 
 private:
 	void BuildMesh();
-	void GenerateQuadsForCell(int32 CX, int32 CY, int32 CZ);
+	void GenerateQuadsForCell(int32 CellX, int32 CellY, int32 CellZ);
 	void CreateMeshBodySetup();
 	void UpdateCollision();
 

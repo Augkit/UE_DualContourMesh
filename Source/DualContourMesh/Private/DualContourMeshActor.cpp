@@ -19,97 +19,97 @@ static const int32 GEdgeCorners[12][2][3] = {
     {{1, 1, 0}, {1, 1, 1}}
 };
 
-static bool Solve3x3(const double M[3][3], const double b[3], double x[3])
+static bool Solve3x3(const double Matrix[3][3], const double RightHandSide[3], double Solution[3])
 {
-	double C00 = M[1][1] * M[2][2] - M[1][2] * M[2][1];
-	double C01 = -(M[1][0] * M[2][2] - M[1][2] * M[2][0]);
-	double C02 = M[1][0] * M[2][1] - M[1][1] * M[2][0];
-	double det = M[0][0] * C00 + M[0][1] * C01 + M[0][2] * C02;
-	if (FMath::Abs(det) < 1e-10)
+	double C00 = Matrix[1][1] * Matrix[2][2] - Matrix[1][2] * Matrix[2][1];
+	double C01 = -(Matrix[1][0] * Matrix[2][2] - Matrix[1][2] * Matrix[2][0]);
+	double C02 = Matrix[1][0] * Matrix[2][1] - Matrix[1][1] * Matrix[2][0];
+	double Determinant = Matrix[0][0] * C00 + Matrix[0][1] * C01 + Matrix[0][2] * C02;
+	if (FMath::Abs(Determinant) < 1e-10)
 		return false;
 
-	double C10 = -(M[0][1] * M[2][2] - M[0][2] * M[2][1]);
-	double C11 = M[0][0] * M[2][2] - M[0][2] * M[2][0];
-	double C12 = -(M[0][0] * M[2][1] - M[0][1] * M[2][0]);
-	double C20 = M[0][1] * M[1][2] - M[0][2] * M[1][1];
-	double C21 = -(M[0][0] * M[1][2] - M[0][2] * M[1][0]);
-	double C22 = M[0][0] * M[1][1] - M[0][1] * M[1][0];
+	double C10 = -(Matrix[0][1] * Matrix[2][2] - Matrix[0][2] * Matrix[2][1]);
+	double C11 = Matrix[0][0] * Matrix[2][2] - Matrix[0][2] * Matrix[2][0];
+	double C12 = -(Matrix[0][0] * Matrix[2][1] - Matrix[0][1] * Matrix[2][0]);
+	double C20 = Matrix[0][1] * Matrix[1][2] - Matrix[0][2] * Matrix[1][1];
+	double C21 = -(Matrix[0][0] * Matrix[1][2] - Matrix[0][2] * Matrix[1][0]);
+	double C22 = Matrix[0][0] * Matrix[1][1] - Matrix[0][1] * Matrix[1][0];
 
-	double invDet = 1.0 / det;
-	x[0] = invDet * (C00 * b[0] + C10 * b[1] + C20 * b[2]);
-	x[1] = invDet * (C01 * b[0] + C11 * b[1] + C21 * b[2]);
-	x[2] = invDet * (C02 * b[0] + C12 * b[1] + C22 * b[2]);
+	double InverseDeterminant = 1.0 / Determinant;
+	Solution[0] = InverseDeterminant * (C00 * RightHandSide[0] + C10 * RightHandSide[1] + C20 * RightHandSide[2]);
+	Solution[1] = InverseDeterminant * (C01 * RightHandSide[0] + C11 * RightHandSide[1] + C21 * RightHandSide[2]);
+	Solution[2] = InverseDeterminant * (C02 * RightHandSide[0] + C12 * RightHandSide[1] + C22 * RightHandSide[2]);
 	return true;
 }
 
-int32 ADualContourMeshActor::SampleIndex(int32 X, int32 Y, int32 Z) const
+int32 ADualContourMeshActor::SampleIndex(int32 SampleX, int32 SampleY, int32 SampleZ) const
 {
-	FVectorInt D = GetSampleDims();
-	return X + Y * D.X + Z * D.X * D.Y;
+	FVectorInt SampleDimensions = GetSampleDims();
+	return SampleX + SampleY * SampleDimensions.X + SampleZ * SampleDimensions.X * SampleDimensions.Y;
 }
 
-int32 ADualContourMeshActor::CellIndex(int32 X, int32 Y, int32 Z) const
+int32 ADualContourMeshActor::CellIndex(int32 CellX, int32 CellY, int32 CellZ) const
 {
-	return X + Y * CellCount.X + Z * CellCount.X * CellCount.Y;
+	return CellX + CellY * CellCount.X + CellZ * CellCount.X * CellCount.Y;
 }
 
-uint8 ADualContourMeshActor::GetSample(int32 X, int32 Y, int32 Z) const
+uint8 ADualContourMeshActor::GetSample(int32 SampleX, int32 SampleY, int32 SampleZ) const
 {
-	FVectorInt D = GetSampleDims();
-	if (X < 0 || X >= D.X || Y < 0 || Y >= D.Y || Z < 0 || Z >= D.Z)
+	FVectorInt SampleDimensions = GetSampleDims();
+	if (SampleX < 0 || SampleX >= SampleDimensions.X || SampleY < 0 || SampleY >= SampleDimensions.Y || SampleZ < 0 || SampleZ >= SampleDimensions.Z)
 		return 0;
-	return SamplePointGrid[SampleIndex(X, Y, Z)];
+	return SamplePointGrid[SampleIndex(SampleX, SampleY, SampleZ)];
 }
 
 float ADualContourMeshActor::TrilinearSample(FVector GridPos) const
 {
-	FVectorInt D = GetSampleDims();
-	float gx = FMath::Clamp(GridPos.X, 0., (double)(D.X - 1));
-	float gy = FMath::Clamp(GridPos.Y, 0., (double)(D.Y - 1));
-	float gz = FMath::Clamp(GridPos.Z, 0., (double)(D.Z - 1));
+	FVectorInt SampleDimensions = GetSampleDims();
+	float GridX = FMath::Clamp(GridPos.X, 0., (double)(SampleDimensions.X - 1));
+	float GridY = FMath::Clamp(GridPos.Y, 0., (double)(SampleDimensions.Y - 1));
+	float GridZ = FMath::Clamp(GridPos.Z, 0., (double)(SampleDimensions.Z - 1));
 
-	int32 x0 = FMath::Clamp(FMath::FloorToInt(gx), 0, D.X - 2);
-	int32 y0 = FMath::Clamp(FMath::FloorToInt(gy), 0, D.Y - 2);
-	int32 z0 = FMath::Clamp(FMath::FloorToInt(gz), 0, D.Z - 2);
-	int32 x1 = x0 + 1, y1 = y0 + 1, z1 = z0 + 1;
+	int32 LowerX = FMath::Clamp(FMath::FloorToInt(GridX), 0, SampleDimensions.X - 2);
+	int32 LowerY = FMath::Clamp(FMath::FloorToInt(GridY), 0, SampleDimensions.Y - 2);
+	int32 LowerZ = FMath::Clamp(FMath::FloorToInt(GridZ), 0, SampleDimensions.Z - 2);
+	int32 UpperX = LowerX + 1, UpperY = LowerY + 1, UpperZ = LowerZ + 1;
 
-	float tx = gx - x0, ty = gy - y0, tz = gz - z0;
+	float BlendX = GridX - LowerX, BlendY = GridY - LowerY, BlendZ = GridZ - LowerZ;
 
-	float d000 = (float)SamplePointGrid[SampleIndex(x0, y0, z0)];
-	float d100 = (float)SamplePointGrid[SampleIndex(x1, y0, z0)];
-	float d010 = (float)SamplePointGrid[SampleIndex(x0, y1, z0)];
-	float d110 = (float)SamplePointGrid[SampleIndex(x1, y1, z0)];
-	float d001 = (float)SamplePointGrid[SampleIndex(x0, y0, z1)];
-	float d101 = (float)SamplePointGrid[SampleIndex(x1, y0, z1)];
-	float d011 = (float)SamplePointGrid[SampleIndex(x0, y1, z1)];
-	float d111 = (float)SamplePointGrid[SampleIndex(x1, y1, z1)];
+	float Density000 = (float)SamplePointGrid[SampleIndex(LowerX, LowerY, LowerZ)];
+	float Density100 = (float)SamplePointGrid[SampleIndex(UpperX, LowerY, LowerZ)];
+	float Density010 = (float)SamplePointGrid[SampleIndex(LowerX, UpperY, LowerZ)];
+	float Density110 = (float)SamplePointGrid[SampleIndex(UpperX, UpperY, LowerZ)];
+	float Density001 = (float)SamplePointGrid[SampleIndex(LowerX, LowerY, UpperZ)];
+	float Density101 = (float)SamplePointGrid[SampleIndex(UpperX, LowerY, UpperZ)];
+	float Density011 = (float)SamplePointGrid[SampleIndex(LowerX, UpperY, UpperZ)];
+	float Density111 = (float)SamplePointGrid[SampleIndex(UpperX, UpperY, UpperZ)];
 
-	return FMath::Lerp(FMath::Lerp(FMath::Lerp(d000, d100, tx), FMath::Lerp(d010, d110, tx), ty),
-		FMath::Lerp(FMath::Lerp(d001, d101, tx), FMath::Lerp(d011, d111, tx), ty), tz);
+	return FMath::Lerp(FMath::Lerp(FMath::Lerp(Density000, Density100, BlendX), FMath::Lerp(Density010, Density110, BlendX), BlendY),
+		FMath::Lerp(FMath::Lerp(Density001, Density101, BlendX), FMath::Lerp(Density011, Density111, BlendX), BlendY), BlendZ);
 }
 
 FVector ADualContourMeshActor::ComputeGradient(FVector GridPos) const
 {
-	const float h = 0.5f;
-	float gx = TrilinearSample(GridPos + FVector(h, 0, 0)) - TrilinearSample(GridPos - FVector(h, 0, 0));
-	float gy = TrilinearSample(GridPos + FVector(0, h, 0)) - TrilinearSample(GridPos - FVector(0, h, 0));
-	float gz = TrilinearSample(GridPos + FVector(0, 0, h)) - TrilinearSample(GridPos - FVector(0, 0, h));
-	return FVector(gx, gy, gz);
+	const float GradientStep = 0.5f;
+	float GradientX = TrilinearSample(GridPos + FVector(GradientStep, 0, 0)) - TrilinearSample(GridPos - FVector(GradientStep, 0, 0));
+	float GradientY = TrilinearSample(GridPos + FVector(0, GradientStep, 0)) - TrilinearSample(GridPos - FVector(0, GradientStep, 0));
+	float GradientZ = TrilinearSample(GridPos + FVector(0, 0, GradientStep)) - TrilinearSample(GridPos - FVector(0, 0, GradientStep));
+	return FVector(GradientX, GradientY, GradientZ);
 }
 
 void ADualContourMeshActor::FillSphereDensity()
 {
-	FVectorInt D = GetSampleDims();
-	SamplePointGrid.SetNumUninitialized(D.Volume());
+	FVectorInt SampleDimensions = GetSampleDims();
+	SamplePointGrid.SetNumUninitialized(SampleDimensions.Volume());
 
-	for (int32 sz = 0; sz < D.Z; sz++)
-		for (int32 sy = 0; sy < D.Y; sy++)
-			for (int32 sx = 0; sx < D.X; sx++)
+	for (int32 SampleZ = 0; SampleZ < SampleDimensions.Z; SampleZ++)
+		for (int32 SampleY = 0; SampleY < SampleDimensions.Y; SampleY++)
+			for (int32 SampleX = 0; SampleX < SampleDimensions.X; SampleX++)
 			{
-				FVector WorldPos = GetSampleWorldPos(sx, sy, sz);
-				float SignedDist = SphereRadius - (float)FVector::Dist(WorldPos, SphereCenter);
-				float d = FMath::Clamp(127.5f + SignedDist * 127.5f / CellSize, 0.f, 255.f);
-				SamplePointGrid[SampleIndex(sx, sy, sz)] = (uint8)FMath::RoundToInt(d);
+				FVector WorldPosition = GetSampleWorldPos(SampleX, SampleY, SampleZ);
+				float SignedDistance = SphereRadius - (float)FVector::Dist(WorldPosition, SphereCenter);
+				float DensityValue = FMath::Clamp(127.5f + SignedDistance * 127.5f / CellSize, 0.f, 255.f);
+				SamplePointGrid[SampleIndex(SampleX, SampleY, SampleZ)] = (uint8)FMath::RoundToInt(DensityValue);
 			}
 }
 
@@ -120,80 +120,80 @@ void ADualContourMeshActor::BuildCells()
 
 	DualContourGrid.SetNum(CellCount.Volume());
 
-	for (int32 cz = 0; cz < CellCount.Z; cz++)
-		for (int32 cy = 0; cy < CellCount.Y; cy++)
-			for (int32 cx = 0; cx < CellCount.X; cx++)
+	for (int32 CellZ = 0; CellZ < CellCount.Z; CellZ++)
+		for (int32 CellY = 0; CellY < CellCount.Y; CellY++)
+			for (int32 CellX = 0; CellX < CellCount.X; CellX++)
 			{
-				FDualContourCell& Cell = DualContourGrid[CellIndex(cx, cy, cz)];
+				FDualContourCell& Cell = DualContourGrid[CellIndex(CellX, CellY, CellZ)];
 				Cell.bActive = false;
 				Cell.Normal = FVector::UpVector;
 
-				FVector CellMin = FVector((double)cx, (double)cy, (double)cz) * (double)CellSize;
-				FVector CellMax = FVector((double)cx + 1., (double)cy + 1., (double)cz + 1.) * (double)CellSize;
+				FVector CellMin = FVector((double)CellX, (double)CellY, (double)CellZ) * (double)CellSize;
+				FVector CellMax = FVector((double)CellX + 1., (double)CellY + 1., (double)CellZ + 1.) * (double)CellSize;
 				FVector CellCenter = (CellMin + CellMax) * 0.5;
 				Cell.Center = CellCenter;
 
 				bool bHasInside = false, bHasOutside = false;
-				for (int32 dz = 0; dz <= 1; dz++)
-					for (int32 dy = 0; dy <= 1; dy++)
-						for (int32 dx = 0; dx <= 1; dx++)
+				for (int32 CornerOffsetZ = 0; CornerOffsetZ <= 1; CornerOffsetZ++)
+					for (int32 CornerOffsetY = 0; CornerOffsetY <= 1; CornerOffsetY++)
+						for (int32 CornerOffsetX = 0; CornerOffsetX <= 1; CornerOffsetX++)
 						{
-							uint8 d = GetSample(cx + dx, cy + dy, cz + dz);
-							if (d > IsoValue)
+							uint8 Density = GetSample(CellX + CornerOffsetX, CellY + CornerOffsetY, CellZ + CornerOffsetZ);
+							if (Density > IsoValue)
 								bHasInside = true;
-							else if (d < IsoValue)
+							else if (Density < IsoValue)
 								bHasOutside = true;
 						}
 				Cell.bActive = bHasInside && bHasOutside;
 				if (!Cell.bActive)
 					continue;
 
-				double AtA[3][3] = {};
-				double Atb[3] = {};
+				double NormalEquationMatrix[3][3] = {};
+				double NormalEquationVector[3] = {};
 				FVector AccumNormal = FVector::ZeroVector;
 				int32 NumIntersections = 0;
 
-				for (int32 EdgeIdx = 0; EdgeIdx < 12; EdgeIdx++)
+				for (int32 EdgeIndex = 0; EdgeIndex < 12; EdgeIndex++)
 				{
-					const int32* OffA = GEdgeCorners[EdgeIdx][0];
-					const int32* OffB = GEdgeCorners[EdgeIdx][1];
+					const int32* CornerOffsetA = GEdgeCorners[EdgeIndex][0];
+					const int32* CornerOffsetB = GEdgeCorners[EdgeIndex][1];
 
-					int32 sxA = cx + OffA[0], syA = cy + OffA[1], szA = cz + OffA[2];
-					int32 sxB = cx + OffB[0], syB = cy + OffB[1], szB = cz + OffB[2];
-					int32 dA = GetSample(sxA, syA, szA);
-					int32 dB = GetSample(sxB, syB, szB);
+					int32 SampleAX = CellX + CornerOffsetA[0], SampleAY = CellY + CornerOffsetA[1], SampleAZ = CellZ + CornerOffsetA[2];
+					int32 SampleBX = CellX + CornerOffsetB[0], SampleBY = CellY + CornerOffsetB[1], SampleBZ = CellZ + CornerOffsetB[2];
+					int32 DensityA = GetSample(SampleAX, SampleAY, SampleAZ);
+					int32 DensityB = GetSample(SampleBX, SampleBY, SampleBZ);
 
-					if (dA == IsoValue || dB == IsoValue)
+					if (DensityA == IsoValue || DensityB == IsoValue)
 						continue;
-					if ((dA < IsoValue) == (dB < IsoValue))
+					if ((DensityA < IsoValue) == (DensityB < IsoValue))
 						continue;
 
-					float t = (float)(IsoValue - dA) / (float)(dB - dA);
+					float InterpolationAlpha = (float)(IsoValue - DensityA) / (float)(DensityB - DensityA);
 
-					FVector GridPosA((double)sxA, (double)syA, (double)szA);
-					FVector GridPosB((double)sxB, (double)syB, (double)szB);
-					FVector GridPos = GridPosA + (double)t * (GridPosB - GridPosA);
-					FVector WorldPos = GridPos * (double)CellSize;
+					FVector GridPositionA((double)SampleAX, (double)SampleAY, (double)SampleAZ);
+					FVector GridPositionB((double)SampleBX, (double)SampleBY, (double)SampleBZ);
+					FVector GridPosition = GridPositionA + (double)InterpolationAlpha * (GridPositionB - GridPositionA);
+					FVector WorldPosition = GridPosition * (double)CellSize;
 
-					FVector Normal = (-ComputeGradient(GridPos)).GetSafeNormal();
+					FVector Normal = (-ComputeGradient(GridPosition)).GetSafeNormal();
 					if (Normal.IsNearlyZero())
 						continue;
 
-					double nx = Normal.X, ny = Normal.Y, nz = Normal.Z;
-					double dp = nx * WorldPos.X + ny * WorldPos.Y + nz * WorldPos.Z;
+					double NormalX = Normal.X, NormalY = Normal.Y, NormalZ = Normal.Z;
+					double PlaneDistance = NormalX * WorldPosition.X + NormalY * WorldPosition.Y + NormalZ * WorldPosition.Z;
 
-					AtA[0][0] += nx * nx;
-					AtA[0][1] += nx * ny;
-					AtA[0][2] += nx * nz;
-					AtA[1][0] += ny * nx;
-					AtA[1][1] += ny * ny;
-					AtA[1][2] += ny * nz;
-					AtA[2][0] += nz * nx;
-					AtA[2][1] += nz * ny;
-					AtA[2][2] += nz * nz;
-					Atb[0] += nx * dp;
-					Atb[1] += ny * dp;
-					Atb[2] += nz * dp;
+					NormalEquationMatrix[0][0] += NormalX * NormalX;
+					NormalEquationMatrix[0][1] += NormalX * NormalY;
+					NormalEquationMatrix[0][2] += NormalX * NormalZ;
+					NormalEquationMatrix[1][0] += NormalY * NormalX;
+					NormalEquationMatrix[1][1] += NormalY * NormalY;
+					NormalEquationMatrix[1][2] += NormalY * NormalZ;
+					NormalEquationMatrix[2][0] += NormalZ * NormalX;
+					NormalEquationMatrix[2][1] += NormalZ * NormalY;
+					NormalEquationMatrix[2][2] += NormalZ * NormalZ;
+					NormalEquationVector[0] += NormalX * PlaneDistance;
+					NormalEquationVector[1] += NormalY * PlaneDistance;
+					NormalEquationVector[2] += NormalZ * PlaneDistance;
 
 					AccumNormal += Normal;
 					NumIntersections++;
@@ -202,19 +202,19 @@ void ADualContourMeshActor::BuildCells()
 				if (NumIntersections == 0)
 					continue;
 
-				AtA[0][0] += Lambda;
-				AtA[1][1] += Lambda;
-				AtA[2][2] += Lambda;
-				Atb[0] += Lambda * CellCenter.X;
-				Atb[1] += Lambda * CellCenter.Y;
-				Atb[2] += Lambda * CellCenter.Z;
+				NormalEquationMatrix[0][0] += Lambda;
+				NormalEquationMatrix[1][1] += Lambda;
+				NormalEquationMatrix[2][2] += Lambda;
+				NormalEquationVector[0] += Lambda * CellCenter.X;
+				NormalEquationVector[1] += Lambda * CellCenter.Y;
+				NormalEquationVector[2] += Lambda * CellCenter.Z;
 
-				double Solved[3];
-				if (Solve3x3(AtA, Atb, Solved))
+				double SolvedPosition[3];
+				if (Solve3x3(NormalEquationMatrix, NormalEquationVector, SolvedPosition))
 				{
-					Cell.Center.X = FMath::Clamp((float)Solved[0], (float)CellMin.X, (float)CellMax.X);
-					Cell.Center.Y = FMath::Clamp((float)Solved[1], (float)CellMin.Y, (float)CellMax.Y);
-					Cell.Center.Z = FMath::Clamp((float)Solved[2], (float)CellMin.Z, (float)CellMax.Z);
+					Cell.Center.X = FMath::Clamp((float)SolvedPosition[0], (float)CellMin.X, (float)CellMax.X);
+					Cell.Center.Y = FMath::Clamp((float)SolvedPosition[1], (float)CellMin.Y, (float)CellMax.Y);
+					Cell.Center.Z = FMath::Clamp((float)SolvedPosition[2], (float)CellMin.Z, (float)CellMax.Z);
 				}
 
 				Cell.Normal = AccumNormal.GetSafeNormal();
@@ -280,37 +280,37 @@ void ADualContourMeshActor::RebuildMesh()
 	FillSphereDensity();
 	BuildCells();
 
-	for (TObjectPtr<UDualContourMeshComponent>& Comp : MeshComponents)
-		if (Comp)
-			Comp->DestroyComponent();
+	for (TObjectPtr<UDualContourMeshComponent>& MeshComponent : MeshComponents)
+		if (MeshComponent)
+			MeshComponent->DestroyComponent();
 	MeshComponents.Reset();
 
-	const FVectorInt& Div = Divisions;
-	const FVectorInt& CC = CellCount;
+	const FVectorInt& DivisionCounts = Divisions;
+	const FVectorInt& CellCounts = CellCount;
 
-	for (int32 dz = 0; dz < Div.Z; dz++)
-		for (int32 dy = 0; dy < Div.Y; dy++)
-			for (int32 dx = 0; dx < Div.X; dx++)
+	for (int32 DivisionZ = 0; DivisionZ < DivisionCounts.Z; DivisionZ++)
+		for (int32 DivisionY = 0; DivisionY < DivisionCounts.Y; DivisionY++)
+			for (int32 DivisionX = 0; DivisionX < DivisionCounts.X; DivisionX++)
 			{
-				FVectorInt CellMin(dx * CC.X / Div.X, dy * CC.Y / Div.Y, dz * CC.Z / Div.Z);
-				FVectorInt CellMax((dx + 1) * CC.X / Div.X, (dy + 1) * CC.Y / Div.Y, (dz + 1) * CC.Z / Div.Z);
+				FVectorInt CellMin(DivisionX * CellCounts.X / DivisionCounts.X, DivisionY * CellCounts.Y / DivisionCounts.Y, DivisionZ * CellCounts.Z / DivisionCounts.Z);
+				FVectorInt CellMax((DivisionX + 1) * CellCounts.X / DivisionCounts.X, (DivisionY + 1) * CellCounts.Y / DivisionCounts.Y, (DivisionZ + 1) * CellCounts.Z / DivisionCounts.Z);
 
 				bool bHasActive = false;
-				for (int32 cz = CellMin.Z; cz < CellMax.Z && !bHasActive; cz++)
-					for (int32 cy = CellMin.Y; cy < CellMax.Y && !bHasActive; cy++)
-						for (int32 cx = CellMin.X; cx < CellMax.X && !bHasActive; cx++)
-							bHasActive = DualContourGrid[CellCount.LinearIndex(cx, cy, cz)].bActive;
+				for (int32 CellZ = CellMin.Z; CellZ < CellMax.Z && !bHasActive; CellZ++)
+					for (int32 CellY = CellMin.Y; CellY < CellMax.Y && !bHasActive; CellY++)
+						for (int32 CellX = CellMin.X; CellX < CellMax.X && !bHasActive; CellX++)
+							bHasActive = DualContourGrid[CellCount.LinearIndex(CellX, CellY, CellZ)].bActive;
 				if (!bHasActive)
 					continue;
 
-				UDualContourMeshComponent* NewComp = NewObject<UDualContourMeshComponent>(this, NAME_None, RF_Transactional);
-				NewComp->CellRangeMin = CellMin;
-				NewComp->CellRangeMax = CellMax;
-				NewComp->SetMaterial(0, MeshMaterial);
-				ApplyCollisionSettings(NewComp);
-				NewComp->RegisterComponent();
-				NewComp->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepRelativeTransform);
-				NewComp->BuildAndRefreshMesh();
-				MeshComponents.Add(NewComp);
+				UDualContourMeshComponent* NewMeshComponent = NewObject<UDualContourMeshComponent>(this, NAME_None, RF_Transactional);
+				NewMeshComponent->CellRangeMin = CellMin;
+				NewMeshComponent->CellRangeMax = CellMax;
+				NewMeshComponent->SetMaterial(0, MeshMaterial);
+				ApplyCollisionSettings(NewMeshComponent);
+				NewMeshComponent->RegisterComponent();
+				NewMeshComponent->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepRelativeTransform);
+				NewMeshComponent->BuildAndRefreshMesh();
+				MeshComponents.Add(NewMeshComponent);
 			}
 }
