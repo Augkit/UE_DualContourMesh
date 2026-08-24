@@ -1,22 +1,33 @@
 #include "DualContourMeshActor.h"
 #include "Engine/CollisionProfile.h"
 
+#if WITH_EDITOR
+#include "DrawDebugHelpers.h"
+
+static TAutoConsoleVariable<int32> CVarDrawDualContourCells(TEXT("DualContour.Debug.DrawCells"), 0,
+	TEXT("Draw dual contour cell debug boxes (editor only).\n"
+		"  0: off\n"
+		"  1: active cells only (green)\n"
+		"  2: all cells (green=active, red=inactive) -- slow on large grids"),
+	ECVF_Default);
+#endif
+
 static const int32 GEdgeCorners[12][2][3] = {
 	// Along X
 	{{0, 0, 0}, {1, 0, 0}},
-    {{0, 1, 0}, {1, 1, 0}},
-    {{0, 0, 1}, {1, 0, 1}},
-    {{0, 1, 1}, {1, 1, 1}},
+	{{0, 1, 0}, {1, 1, 0}},
+	{{0, 0, 1}, {1, 0, 1}},
+	{{0, 1, 1}, {1, 1, 1}},
 	// Along Y
 	{{0, 0, 0}, {0, 1, 0}},
-    {{1, 0, 0}, {1, 1, 0}},
-    {{0, 0, 1}, {0, 1, 1}},
-    {{1, 0, 1}, {1, 1, 1}},
+	{{1, 0, 0}, {1, 1, 0}},
+	{{0, 0, 1}, {0, 1, 1}},
+	{{1, 0, 1}, {1, 1, 1}},
 	// Along Z
 	{{0, 0, 0}, {0, 0, 1}},
-    {{1, 0, 0}, {1, 0, 1}},
-    {{0, 1, 0}, {0, 1, 1}},
-    {{1, 1, 0}, {1, 1, 1}}
+	{{1, 0, 0}, {1, 0, 1}},
+	{{0, 1, 0}, {0, 1, 1}},
+	{{1, 1, 0}, {1, 1, 1}}
 };
 
 static bool Solve3x3(const double Matrix[3][3], const double RightHandSide[3], double Solution[3])
@@ -229,7 +240,59 @@ ADualContourMeshActor::ADualContourMeshActor()
 	RootComponent->SetMobility(EComponentMobility::Static);
 
 	CollisionSettings.SetCollisionProfileName(UCollisionProfile::BlockAll_ProfileName);
+
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bStartWithTickEnabled = true;
 }
+
+void ADualContourMeshActor::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+#if WITH_EDITOR
+	DrawCellDebug();
+#endif
+}
+
+bool ADualContourMeshActor::ShouldTickIfViewportsOnly() const
+{
+#if WITH_EDITOR
+	return CVarDrawDualContourCells.GetValueOnGameThread() != 0;
+#else
+	return false;
+#endif
+}
+
+#if WITH_EDITOR
+void ADualContourMeshActor::DrawCellDebug()
+{
+	UWorld* World = GetWorld();
+	if (!World || DualContourGrid.IsEmpty())
+		return;
+
+	const int32 DrawMode = CVarDrawDualContourCells.GetValueOnGameThread();
+	if (DrawMode == 0)
+		return;
+
+	const FVector HalfExtent(CellSize * 0.5f);
+	const FVector ScaledHalfExtent = HalfExtent * GetActorScale3D();
+	const FQuat ActorQuat = GetActorQuat();
+	const FTransform& ActorTransform = GetActorTransform();
+
+	for (int32 CellZ = 0; CellZ < CellCount.Z; CellZ++)
+		for (int32 CellY = 0; CellY < CellCount.Y; CellY++)
+			for (int32 CellX = 0; CellX < CellCount.X; CellX++)
+			{
+				const FDualContourCell& Cell = DualContourGrid[CellIndex(CellX, CellY, CellZ)];
+				if (!Cell.bActive && DrawMode < 2)
+					continue;
+
+				FVector LocalCenter((CellX + 0.5f) * CellSize, (CellY + 0.5f) * CellSize, (CellZ + 0.5f) * CellSize);
+				FVector WorldCenter = ActorTransform.TransformPosition(LocalCenter);
+				FColor Color = Cell.bActive ? FColor::Green : FColor::Red;
+				DrawDebugBox(World, WorldCenter, ScaledHalfExtent, ActorQuat, Color, false, -1.f);
+			}
+}
+#endif
 
 void ADualContourMeshActor::ApplyCollisionSettings(UDualContourMeshComponent* MeshComponent) const
 {
@@ -292,8 +355,10 @@ void ADualContourMeshActor::RebuildMesh()
 		for (int32 DivisionY = 0; DivisionY < DivisionCounts.Y; DivisionY++)
 			for (int32 DivisionX = 0; DivisionX < DivisionCounts.X; DivisionX++)
 			{
-				FVectorInt CellMin(DivisionX * CellCounts.X / DivisionCounts.X, DivisionY * CellCounts.Y / DivisionCounts.Y, DivisionZ * CellCounts.Z / DivisionCounts.Z);
-				FVectorInt CellMax((DivisionX + 1) * CellCounts.X / DivisionCounts.X, (DivisionY + 1) * CellCounts.Y / DivisionCounts.Y, (DivisionZ + 1) * CellCounts.Z / DivisionCounts.Z);
+				FVectorInt CellMin(DivisionX * CellCounts.X / DivisionCounts.X, DivisionY * CellCounts.Y / DivisionCounts.Y,
+					DivisionZ * CellCounts.Z / DivisionCounts.Z);
+				FVectorInt CellMax((DivisionX + 1) * CellCounts.X / DivisionCounts.X, (DivisionY + 1) * CellCounts.Y / DivisionCounts.Y,
+					(DivisionZ + 1) * CellCounts.Z / DivisionCounts.Z);
 
 				bool bHasActive = false;
 				for (int32 CellZ = CellMin.Z; CellZ < CellMax.Z && !bHasActive; CellZ++)

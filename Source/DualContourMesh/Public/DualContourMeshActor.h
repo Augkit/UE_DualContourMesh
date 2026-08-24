@@ -11,6 +11,7 @@ UCLASS()
 class DUALCONTOURMESH_API ADualContourMeshActor : public AActor
 {
 	GENERATED_BODY()
+
 public:
 	ADualContourMeshActor();
 
@@ -64,10 +65,14 @@ public:
 	{
 		return FVector((float)SampleX, (float)SampleY, (float)SampleZ) * CellSize;
 	}
+
 	virtual void PostRegisterAllComponents() override;
+	virtual void Tick(float DeltaSeconds) override;
+	virtual bool ShouldTickIfViewportsOnly() const override;
 
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+	void DrawCellDebug();
 #endif
 
 private:
