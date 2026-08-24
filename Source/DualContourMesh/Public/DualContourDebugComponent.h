@@ -15,8 +15,8 @@ public:
 	virtual FBoxSphereBounds CalcBounds(const FTransform& LocalToWorld) const override;
 
 #if WITH_EDITOR
-	/** Rebuild the cell snapshot from the actor's grid data. Call MarkRenderStateDirty() afterwards. */
-	void UpdateFromGrid(const TArray<FDualContourCell>& Grid, FVectorInt InCellCount, float CellSize);
+	/** Rebuild the cell snapshot from the actor's chunk data. Call MarkRenderStateDirty() afterwards. */
+	void UpdateFromGrid(const TMap<FIntVector, FContourChunk>& Chunks, FVectorInt InCellCount, float CellSize);
 
 	struct FCellEntry
 	{

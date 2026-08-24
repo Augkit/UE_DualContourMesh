@@ -38,11 +38,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid")
 	FVectorInt Divisions = FVectorInt(1, 1, 1);
 
-	UPROPERTY(BlueprintReadOnly, Category = "Grid", meta = (HideInDetailsPanel))
-	TArray<uint8> SamplePointGrid;
-
-	UPROPERTY(BlueprintReadOnly, Category = "Grid", meta = (HideInDetailsPanel))
-	TArray<FDualContourCell> DualContourGrid;
+	TMap<FIntVector, FDensityChunk> DensityChunks;
+	TMap<FIntVector, FContourChunk> ContourChunks;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "TestSphere")
 	FVector SphereCenter = FVector(80.f, 80.f, 80.f);
@@ -65,6 +62,7 @@ public:
 	void FillSphereDensity();
 	void BuildCells();
 	uint8 GetSample(int32 SampleX, int32 SampleY, int32 SampleZ) const;
+	const FDualContourCell* GetContourCell(int32 CellX, int32 CellY, int32 CellZ) const;
 	float TrilinearSample(FVector GridPos) const;
 	FVector ComputeGradient(FVector GridPos) const;
 	bool HasCurrentGeneratedData() const;
@@ -97,7 +95,11 @@ private:
 
 	FVectorInt GetSampleDims() const { return FVectorInt(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }
 
-	int32 SampleIndex(int32 SampleX, int32 SampleY, int32 SampleZ) const;
-	int32 CellIndex(int32 CellX, int32 CellY, int32 CellZ) const;
+	void SetDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Value);
+	void SetContourCell(int32 CellX, int32 CellY, int32 CellZ, const FDualContourCell& Cell);
+	bool HasActiveCellInRange(FVectorInt CellMin, FVectorInt CellMax) const;
+	static uint16 PackLocalContourKey(int32 CellX, int32 CellY, int32 CellZ);
+
+	FVectorInt LastBuiltCellCount;
 	bool ValidateMeshGenerationSettings() const;
 };

@@ -44,26 +44,17 @@ static bool Solve3x3(const double Matrix[3][3], const double RightHandSide[3], d
 	return true;
 }
 
-int32 ADualContourMeshActor::SampleIndex(int32 SampleX, int32 SampleY, int32 SampleZ) const
+uint16 ADualContourMeshActor::PackLocalContourKey(int32 CellX, int32 CellY, int32 CellZ)
 {
-	FVectorInt SampleDimensions = GetSampleDims();
-	return SampleX + SampleY * SampleDimensions.X + SampleZ * SampleDimensions.X * SampleDimensions.Y;
-}
-
-int32 ADualContourMeshActor::CellIndex(int32 CellX, int32 CellY, int32 CellZ) const
-{
-	return CellX + CellY * CellCount.X + CellZ * CellCount.X * CellCount.Y;
+	return (uint16)((CellX % GDualContourChunkSize) | ((CellY % GDualContourChunkSize) << 4) | ((CellZ % GDualContourChunkSize) << 8));
 }
 
 bool ADualContourMeshActor::HasCurrentGeneratedData() const
 {
-	if (bMeshRebuildRequired)
-		return false;
-
-	const int64 ExpectedCellCount = static_cast<int64>(CellCount.X) * CellCount.Y * CellCount.Z;
-	const int64 ExpectedSampleCount = (static_cast<int64>(CellCount.X) + 1) * (static_cast<int64>(CellCount.Y) + 1)
-	                                  * (static_cast<int64>(CellCount.Z) + 1);
-	return ExpectedCellCount == DualContourGrid.Num() && ExpectedSampleCount == SamplePointGrid.Num();
+	return !bMeshRebuildRequired
+	       && LastBuiltCellCount.X == CellCount.X
+	       && LastBuiltCellCount.Y == CellCount.Y
+	       && LastBuiltCellCount.Z == CellCount.Z;
 }
 
 bool ADualContourMeshActor::ValidateMeshGenerationSettings() const
@@ -109,8 +100,83 @@ uint8 ADualContourMeshActor::GetSample(int32 SampleX, int32 SampleY, int32 Sampl
 	FVectorInt SampleDimensions = GetSampleDims();
 	if (SampleX < 0 || SampleX >= SampleDimensions.X || SampleY < 0 || SampleY >= SampleDimensions.Y || SampleZ < 0 || SampleZ >= SampleDimensions.Z)
 		return 0;
-	const int32 Index = SampleIndex(SampleX, SampleY, SampleZ);
-	return SamplePointGrid.IsValidIndex(Index) ? SamplePointGrid[Index] : 0;
+	const FIntVector ChunkCoord(SampleX / GDualContourChunkSize, SampleY / GDualContourChunkSize, SampleZ / GDualContourChunkSize);
+	const FDensityChunk* Chunk = DensityChunks.Find(ChunkCoord);
+	if (!Chunk)
+		return 0;
+	if (Chunk->IsUniform())
+		return Chunk->UniformValue;
+	const int32 LocalX = SampleX % GDualContourChunkSize;
+	const int32 LocalY = SampleY % GDualContourChunkSize;
+	const int32 LocalZ = SampleZ % GDualContourChunkSize;
+	return Chunk->DenseSamples[LocalX + LocalY * GDualContourChunkSize + LocalZ * GDualContourChunkSize * GDualContourChunkSize];
+}
+
+void ADualContourMeshActor::SetDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Value)
+{
+	const FIntVector ChunkCoord(SampleX / GDualContourChunkSize, SampleY / GDualContourChunkSize, SampleZ / GDualContourChunkSize);
+	FDensityChunk& Chunk = DensityChunks.FindOrAdd(ChunkCoord);
+	Chunk.Expand();
+	const int32 LocalX = SampleX % GDualContourChunkSize;
+	const int32 LocalY = SampleY % GDualContourChunkSize;
+	const int32 LocalZ = SampleZ % GDualContourChunkSize;
+	Chunk.DenseSamples[LocalX + LocalY * GDualContourChunkSize + LocalZ * GDualContourChunkSize * GDualContourChunkSize] = Value;
+}
+
+const FDualContourCell* ADualContourMeshActor::GetContourCell(int32 CellX, int32 CellY, int32 CellZ) const
+{
+	const FIntVector ChunkCoord(CellX / GDualContourChunkSize, CellY / GDualContourChunkSize, CellZ / GDualContourChunkSize);
+	const FContourChunk* Chunk = ContourChunks.Find(ChunkCoord);
+	if (!Chunk)
+		return nullptr;
+	return Chunk->ActiveCells.Find(PackLocalContourKey(CellX, CellY, CellZ));
+}
+
+void ADualContourMeshActor::SetContourCell(int32 CellX, int32 CellY, int32 CellZ, const FDualContourCell& Cell)
+{
+	const FIntVector ChunkCoord(CellX / GDualContourChunkSize, CellY / GDualContourChunkSize, CellZ / GDualContourChunkSize);
+	if (!Cell.bActive)
+	{
+		if (FContourChunk* Chunk = ContourChunks.Find(ChunkCoord))
+		{
+			Chunk->ActiveCells.Remove(PackLocalContourKey(CellX, CellY, CellZ));
+			if (Chunk->ActiveCells.IsEmpty())
+				ContourChunks.Remove(ChunkCoord);
+		}
+		return;
+	}
+	FContourChunk& Chunk = ContourChunks.FindOrAdd(ChunkCoord);
+	Chunk.ActiveCells.Add(PackLocalContourKey(CellX, CellY, CellZ), Cell);
+}
+
+bool ADualContourMeshActor::HasActiveCellInRange(FVectorInt CellMin, FVectorInt CellMax) const
+{
+	const int32 ChunkMinX = CellMin.X / GDualContourChunkSize;
+	const int32 ChunkMinY = CellMin.Y / GDualContourChunkSize;
+	const int32 ChunkMinZ = CellMin.Z / GDualContourChunkSize;
+	const int32 ChunkMaxX = (CellMax.X - 1) / GDualContourChunkSize;
+	const int32 ChunkMaxY = (CellMax.Y - 1) / GDualContourChunkSize;
+	const int32 ChunkMaxZ = (CellMax.Z - 1) / GDualContourChunkSize;
+
+	for (int32 ChunkZ = ChunkMinZ; ChunkZ <= ChunkMaxZ; ChunkZ++)
+		for (int32 ChunkY = ChunkMinY; ChunkY <= ChunkMaxY; ChunkY++)
+			for (int32 ChunkX = ChunkMinX; ChunkX <= ChunkMaxX; ChunkX++)
+			{
+				const FContourChunk* Chunk = ContourChunks.Find(FIntVector(ChunkX, ChunkY, ChunkZ));
+				if (!Chunk)
+					continue;
+				for (const auto& Pair : Chunk->ActiveCells)
+				{
+					const int32 AbsX = ChunkX * GDualContourChunkSize + (Pair.Key & 0xF);
+					const int32 AbsY = ChunkY * GDualContourChunkSize + ((Pair.Key >> 4) & 0xF);
+					const int32 AbsZ = ChunkZ * GDualContourChunkSize + ((Pair.Key >> 8) & 0xF);
+					if (AbsX >= CellMin.X && AbsX < CellMax.X &&
+					    AbsY >= CellMin.Y && AbsY < CellMax.Y &&
+					    AbsZ >= CellMin.Z && AbsZ < CellMax.Z)
+						return true;
+				}
+			}
+	return false;
 }
 
 float ADualContourMeshActor::TrilinearSample(FVector GridPos) const
@@ -127,14 +193,14 @@ float ADualContourMeshActor::TrilinearSample(FVector GridPos) const
 
 	float BlendX = GridX - LowerX, BlendY = GridY - LowerY, BlendZ = GridZ - LowerZ;
 
-	float Density000 = (float)SamplePointGrid[SampleIndex(LowerX, LowerY, LowerZ)];
-	float Density100 = (float)SamplePointGrid[SampleIndex(UpperX, LowerY, LowerZ)];
-	float Density010 = (float)SamplePointGrid[SampleIndex(LowerX, UpperY, LowerZ)];
-	float Density110 = (float)SamplePointGrid[SampleIndex(UpperX, UpperY, LowerZ)];
-	float Density001 = (float)SamplePointGrid[SampleIndex(LowerX, LowerY, UpperZ)];
-	float Density101 = (float)SamplePointGrid[SampleIndex(UpperX, LowerY, UpperZ)];
-	float Density011 = (float)SamplePointGrid[SampleIndex(LowerX, UpperY, UpperZ)];
-	float Density111 = (float)SamplePointGrid[SampleIndex(UpperX, UpperY, UpperZ)];
+	float Density000 = (float)GetSample(LowerX, LowerY, LowerZ);
+	float Density100 = (float)GetSample(UpperX, LowerY, LowerZ);
+	float Density010 = (float)GetSample(LowerX, UpperY, LowerZ);
+	float Density110 = (float)GetSample(UpperX, UpperY, LowerZ);
+	float Density001 = (float)GetSample(LowerX, LowerY, UpperZ);
+	float Density101 = (float)GetSample(UpperX, LowerY, UpperZ);
+	float Density011 = (float)GetSample(LowerX, UpperY, UpperZ);
+	float Density111 = (float)GetSample(UpperX, UpperY, UpperZ);
 
 	return FMath::Lerp(FMath::Lerp(FMath::Lerp(Density000, Density100, BlendX), FMath::Lerp(Density010, Density110, BlendX), BlendY),
 		FMath::Lerp(FMath::Lerp(Density001, Density101, BlendX), FMath::Lerp(Density011, Density111, BlendX), BlendY), BlendZ);
@@ -151,8 +217,8 @@ FVector ADualContourMeshActor::ComputeGradient(FVector GridPos) const
 
 void ADualContourMeshActor::FillSphereDensity()
 {
+	DensityChunks.Reset();
 	FVectorInt SampleDimensions = GetSampleDims();
-	SamplePointGrid.SetNumUninitialized(SampleDimensions.Volume());
 
 	for (int32 SampleZ = 0; SampleZ < SampleDimensions.Z; SampleZ++)
 		for (int32 SampleY = 0; SampleY < SampleDimensions.Y; SampleY++)
@@ -162,13 +228,15 @@ void ADualContourMeshActor::FillSphereDensity()
 				float SignedDistance = SphereRadius - (float)FVector::Dist(WorldPosition, SphereCenter);
 				const float IsoValue = static_cast<float>(GDualContourIsoValue);
 				const float DensityValue = FMath::Clamp(IsoValue + SignedDistance * IsoValue / CellSize, 0.f, 255.f);
-				SamplePointGrid[SampleIndex(SampleX, SampleY, SampleZ)] = (uint8)FMath::RoundToInt(DensityValue);
+				const uint8 Sample = (uint8)FMath::RoundToInt(DensityValue);
+				if (Sample != 0)
+					SetDensitySample(SampleX, SampleY, SampleZ, Sample);
 			}
 }
 
 void ADualContourMeshActor::BuildCells()
 {
-	DualContourGrid.SetNum(CellCount.Volume());
+	ContourChunks.Reset();
 	RebuildCellsInRange(FVectorInt(0, 0, 0), CellCount);
 }
 
@@ -183,14 +251,13 @@ void ADualContourMeshActor::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt 
 		for (int32 CellY = RangeMin.Y; CellY < RangeMax.Y; CellY++)
 			for (int32 CellX = RangeMin.X; CellX < RangeMax.X; CellX++)
 			{
-				FDualContourCell& Cell = DualContourGrid[CellIndex(CellX, CellY, CellZ)];
-				Cell.bActive = false;
-				Cell.Normal = FVector::UpVector;
+				FDualContourCell TempCell;
+				TempCell.Normal = FVector::UpVector;
 
 				FVector CellMin = FVector((double)CellX, (double)CellY, (double)CellZ) * (double)CellSize;
 				FVector CellMax = FVector((double)CellX + 1., (double)CellY + 1., (double)CellZ + 1.) * (double)CellSize;
 				FVector CellCenter = (CellMin + CellMax) * 0.5;
-				Cell.Center = CellCenter;
+				TempCell.Center = CellCenter;
 
 				bool bHasInside = false, bHasOutside = false;
 				for (int32 CornerOffsetZ = 0; CornerOffsetZ <= 1; CornerOffsetZ++)
@@ -203,9 +270,12 @@ void ADualContourMeshActor::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt 
 							else
 								bHasOutside = true;
 						}
-				Cell.bActive = bHasInside && bHasOutside;
-				if (!Cell.bActive)
+				TempCell.bActive = bHasInside && bHasOutside;
+				if (!TempCell.bActive)
+				{
+					SetContourCell(CellX, CellY, CellZ, TempCell);
 					continue;
+				}
 
 				double NormalEquationMatrix[3][3] = {};
 				double NormalEquationVector[3] = {};
@@ -259,7 +329,11 @@ void ADualContourMeshActor::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt 
 				}
 
 				if (NumIntersections == 0)
+				{
+					// Active cell with no resolved intersections: store with default geometric center.
+					SetContourCell(CellX, CellY, CellZ, TempCell);
 					continue;
+				}
 
 				NormalEquationMatrix[0][0] += Lambda;
 				NormalEquationMatrix[1][1] += Lambda;
@@ -271,14 +345,16 @@ void ADualContourMeshActor::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt 
 				double SolvedPosition[3];
 				if (Solve3x3(NormalEquationMatrix, NormalEquationVector, SolvedPosition))
 				{
-					Cell.Center.X = FMath::Clamp((float)SolvedPosition[0], (float)CellMin.X, (float)CellMax.X);
-					Cell.Center.Y = FMath::Clamp((float)SolvedPosition[1], (float)CellMin.Y, (float)CellMax.Y);
-					Cell.Center.Z = FMath::Clamp((float)SolvedPosition[2], (float)CellMin.Z, (float)CellMax.Z);
+					TempCell.Center.X = FMath::Clamp((float)SolvedPosition[0], (float)CellMin.X, (float)CellMax.X);
+					TempCell.Center.Y = FMath::Clamp((float)SolvedPosition[1], (float)CellMin.Y, (float)CellMax.Y);
+					TempCell.Center.Z = FMath::Clamp((float)SolvedPosition[2], (float)CellMin.Z, (float)CellMax.Z);
 				}
 
-				Cell.Normal = AccumNormal.GetSafeNormal();
-				if (Cell.Normal.IsNearlyZero())
-					Cell.Normal = FVector::UpVector;
+				TempCell.Normal = AccumNormal.GetSafeNormal();
+				if (TempCell.Normal.IsNearlyZero())
+					TempCell.Normal = FVector::UpVector;
+
+				SetContourCell(CellX, CellY, CellZ, TempCell);
 			}
 }
 
@@ -301,7 +377,7 @@ void ADualContourMeshActor::RefreshDebugComponent()
 {
 	if (DebugComponent)
 	{
-		DebugComponent->UpdateFromGrid(DualContourGrid, CellCount, CellSize);
+		DebugComponent->UpdateFromGrid(ContourChunks, CellCount, CellSize);
 		DebugComponent->MarkRenderStateDirty();
 	}
 }
@@ -378,6 +454,7 @@ void ADualContourMeshActor::RebuildMesh()
 	BuildCells();
 
 	bMeshRebuildRequired = false;
+	LastBuiltCellCount = CellCount;
 
 #if WITH_EDITOR
 	RefreshDebugComponent();
@@ -395,12 +472,7 @@ void ADualContourMeshActor::RebuildMesh()
 				FVectorInt CellMin = DivisionCellMin(DivisionX, DivisionY, DivisionZ);
 				FVectorInt CellMax = DivisionCellMax(DivisionX, DivisionY, DivisionZ);
 
-				bool bHasActive = false;
-				for (int32 CellZ = CellMin.Z; CellZ < CellMax.Z && !bHasActive; CellZ++)
-					for (int32 CellY = CellMin.Y; CellY < CellMax.Y && !bHasActive; CellY++)
-						for (int32 CellX = CellMin.X; CellX < CellMax.X && !bHasActive; CellX++)
-							bHasActive = DualContourGrid[CellIndex(CellX, CellY, CellZ)].bActive;
-				if (!bHasActive)
+				if (!HasActiveCellInRange(CellMin, CellMax))
 					continue;
 
 				MeshComponents.Add(DivisionIndex(DivisionX, DivisionY, DivisionZ), CreateMeshComponent(CellMin, CellMax));
@@ -463,11 +535,7 @@ void ADualContourMeshActor::PartialUpdateComponents(const TSet<int32>& AffectedD
 		FVectorInt CellMin = DivisionCellMin(DivX, DivY, DivZ);
 		FVectorInt CellMax = DivisionCellMax(DivX, DivY, DivZ);
 
-		bool bHasActive = false;
-		for (int32 CellZ = CellMin.Z; CellZ < CellMax.Z && !bHasActive; CellZ++)
-			for (int32 CellY = CellMin.Y; CellY < CellMax.Y && !bHasActive; CellY++)
-				for (int32 CellX = CellMin.X; CellX < CellMax.X && !bHasActive; CellX++)
-					bHasActive = DualContourGrid[CellIndex(CellX, CellY, CellZ)].bActive;
+		const bool bHasActive = HasActiveCellInRange(CellMin, CellMax);
 
 		TObjectPtr<UDualContourMeshComponent>* ExistingComp = MeshComponents.Find(DivIdx);
 		if (ExistingComp && *ExistingComp)
@@ -528,10 +596,10 @@ void ADualContourMeshActor::ModifyDensityWithHemisphere(
 
 				const int32 FalloffAmount = FMath::Max(
 					1, FMath::RoundToInt(static_cast<float>(GDualContourIsoValue) * (1.f - Dist / Radius)));
-				const int32 Idx = SampleIndex(SampleX, SampleY, SampleZ);
-				const int32 OldVal = SamplePointGrid[Idx];
-				SamplePointGrid[Idx] = (uint8)FMath::Clamp(
+				const int32 OldVal = GetSample(SampleX, SampleY, SampleZ);
+				const uint8 NewVal = (uint8)FMath::Clamp(
 					bExcavate ? OldVal - FalloffAmount : OldVal + FalloffAmount, 0, 255);
+				SetDensitySample(SampleX, SampleY, SampleZ, NewVal);
 				bModified = true;
 			}
 

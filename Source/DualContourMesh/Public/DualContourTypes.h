@@ -3,6 +3,7 @@
 #include "DualContourTypes.generated.h"
 
 inline constexpr uint8 GDualContourIsoValue = 127;
+inline constexpr int32 GDualContourChunkSize = 16;
 
 USTRUCT(BlueprintType)
 struct DUALCONTOURMESH_API FVectorInt
@@ -41,4 +42,29 @@ struct DUALCONTOURMESH_API FDualContourCell
 
 	UPROPERTY(BlueprintReadOnly)
 	FVector Normal = FVector::UpVector;
+};
+
+// Sparse density chunk. Empty DenseSamples means the whole chunk has UniformValue.
+struct FDensityChunk
+{
+	uint8 UniformValue = 0;
+	TArray<uint8> DenseSamples; // size = ChunkSize^3 when expanded
+
+	bool IsUniform() const { return DenseSamples.IsEmpty(); }
+
+	void Expand()
+	{
+		if (!IsUniform())
+			return;
+		const int32 N = GDualContourChunkSize * GDualContourChunkSize * GDualContourChunkSize;
+		DenseSamples.SetNumUninitialized(N);
+		FMemory::Memset(DenseSamples.GetData(), UniformValue, N);
+	}
+};
+
+// Sparse contour chunk. Only active (surface-crossing) cells are stored.
+struct FContourChunk
+{
+	// Key: LocalX | (LocalY << 4) | (LocalZ << 8), each in [0, ChunkSize).
+	TMap<uint16, FDualContourCell> ActiveCells;
 };

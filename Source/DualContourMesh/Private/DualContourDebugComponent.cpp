@@ -134,6 +134,7 @@ public:
 	}
 
 	virtual SIZE_T GetTypeHash() const override { return (SIZE_T)this; }
+
 	virtual uint32 GetMemoryFootprint() const override
 	{
 		return sizeof(*this) + GreenEdges.GetAllocatedSize() + RedEdges.GetAllocatedSize();
@@ -157,32 +158,32 @@ private:
 };
 
 void UDualContourDebugComponent::UpdateFromGrid(
-	const TArray<FDualContourCell>& Grid, FVectorInt InCellCount, float CellSize)
+	const TMap<FIntVector, FContourChunk>& Chunks, FVectorInt InCellCount, float CellSize)
 {
-	CellEntries.Reset(Grid.Num());
+	CellEntries.Reset();
 	const FVector HalfExtent(CellSize * 0.5f);
 	FBox TotalBox(ForceInit);
 
-	for (int32 CellZ = 0; CellZ < InCellCount.Z; CellZ++)
-		for (int32 CellY = 0; CellY < InCellCount.Y; CellY++)
-			for (int32 CellX = 0; CellX < InCellCount.X; CellX++)
-			{
-				const int32 Idx = InCellCount.LinearIndex(CellX, CellY, CellZ);
-				if (!Grid.IsValidIndex(Idx))
-					continue;
-				const FVector Center(
-					(CellX + 0.5f) * CellSize,
-					(CellY + 0.5f) * CellSize,
-					(CellZ + 0.5f) * CellSize);
-				const FBox Box(Center - HalfExtent, Center + HalfExtent);
-				const bool bActive = Grid[Idx].bActive;
-				CellEntries.Add({FIntVector(CellX, CellY, CellZ), Box, bActive});
-				TotalBox += Box;
-			}
+	for (const auto& ChunkPair : Chunks)
+	{
+		const FIntVector& ChunkCoord = ChunkPair.Key;
+		for (const auto& CellPair : ChunkPair.Value.ActiveCells)
+		{
+			const int32 AbsX = ChunkCoord.X * GDualContourChunkSize + (CellPair.Key & 0xF);
+			const int32 AbsY = ChunkCoord.Y * GDualContourChunkSize + ((CellPair.Key >> 4) & 0xF);
+			const int32 AbsZ = ChunkCoord.Z * GDualContourChunkSize + ((CellPair.Key >> 8) & 0xF);
+			if (AbsX >= InCellCount.X || AbsY >= InCellCount.Y || AbsZ >= InCellCount.Z)
+				continue;
+			const FVector Center((AbsX + 0.5f) * CellSize, (AbsY + 0.5f) * CellSize, (AbsZ + 0.5f) * CellSize);
+			const FBox Box(Center - HalfExtent, Center + HalfExtent);
+			CellEntries.Add({FIntVector(AbsX, AbsY, AbsZ), Box, true});
+			TotalBox += Box;
+		}
+	}
 
 	CachedLocalBounds = CellEntries.IsEmpty()
-		? FBoxSphereBounds(FVector::ZeroVector, FVector::ZeroVector, 0.f)
-		: FBoxSphereBounds(TotalBox);
+		                    ? FBoxSphereBounds(FVector::ZeroVector, FVector::ZeroVector, 0.f)
+		                    : FBoxSphereBounds(TotalBox);
 }
 
 #endif // WITH_EDITOR

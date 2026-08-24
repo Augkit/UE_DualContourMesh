@@ -349,11 +349,7 @@ void UDualContourMeshComponent::GenerateQuadsForCell(int32 CellX, int32 CellY, i
 	{
 		if (!CellCounts.IsValid(QueryCellX, QueryCellY, QueryCellZ))
 			return nullptr;
-		const int32 Index = CellCounts.LinearIndex(QueryCellX, QueryCellY, QueryCellZ);
-		if (!Owner->DualContourGrid.IsValidIndex(Index))
-			return nullptr;
-		const FDualContourCell& Cell = Owner->DualContourGrid[Index];
-		return Cell.bActive ? &Cell : nullptr;
+		return Owner->GetContourCell(QueryCellX, QueryCellY, QueryCellZ);
 	};
 
 	// Reversed winding, (0,2,1) + (0,3,2), makes faces visible from the outward side in UE.
