@@ -21,9 +21,6 @@ static const int32 GEdgeCorners[12][2][3] = {
 	{{1, 1, 0}, {1, 1, 1}}
 };
 
-// Sample densities are uint8, so a half-integer threshold avoids ambiguous samples exactly on the isosurface.
-static constexpr float GDualContourIsoValue = 127.5f;
-
 static bool Solve3x3(const double Matrix[3][3], const double RightHandSide[3], double Solution[3])
 {
 	double C00 = Matrix[1][1] * Matrix[2][2] - Matrix[1][2] * Matrix[2][1];
@@ -163,7 +160,8 @@ void ADualContourMeshActor::FillSphereDensity()
 			{
 				FVector WorldPosition = GetSampleWorldPos(SampleX, SampleY, SampleZ);
 				float SignedDistance = SphereRadius - (float)FVector::Dist(WorldPosition, SphereCenter);
-				float DensityValue = FMath::Clamp(127.5f + SignedDistance * 127.5f / CellSize, 0.f, 255.f);
+				const float IsoValue = static_cast<float>(GDualContourIsoValue);
+				const float DensityValue = FMath::Clamp(IsoValue + SignedDistance * IsoValue / CellSize, 0.f, 255.f);
 				SamplePointGrid[SampleIndex(SampleX, SampleY, SampleZ)] = (uint8)FMath::RoundToInt(DensityValue);
 			}
 }
@@ -227,7 +225,9 @@ void ADualContourMeshActor::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt 
 					if ((DensityA < GDualContourIsoValue) == (DensityB < GDualContourIsoValue))
 						continue;
 
-					float InterpolationAlpha = (GDualContourIsoValue - DensityA) / (float)(DensityB - DensityA);
+					const float InterpolationAlpha =
+						(static_cast<float>(GDualContourIsoValue) - static_cast<float>(DensityA))
+						/ static_cast<float>(DensityB - DensityA);
 
 					FVector GridPositionA((double)SampleAX, (double)SampleAY, (double)SampleAZ);
 					FVector GridPositionB((double)SampleBX, (double)SampleBY, (double)SampleBZ);
@@ -526,7 +526,8 @@ void ADualContourMeshActor::ModifyDensityWithHemisphere(
 				if (FVector::DotProduct(Delta, LocalHitNormal) < 0.f)
 					continue;
 
-				const int32 FalloffAmount = FMath::Max(1, FMath::RoundToInt(127.f * (1.f - Dist / Radius)));
+				const int32 FalloffAmount = FMath::Max(
+					1, FMath::RoundToInt(static_cast<float>(GDualContourIsoValue) * (1.f - Dist / Radius)));
 				const int32 Idx = SampleIndex(SampleX, SampleY, SampleZ);
 				const int32 OldVal = SamplePointGrid[Idx];
 				SamplePointGrid[Idx] = (uint8)FMath::Clamp(
@@ -553,7 +554,8 @@ void ADualContourMeshActor::ModifyDensityWithHemisphere(
 	RefreshDebugComponent();
 #endif
 
-	// Collect own division + any -X/-Y/-Z neighbor whose borrowed +X/+Y/+Z ring includes a changed cell
+	// Collect the owning division, negative-axis face neighbors, and negative-axis edge-diagonal
+	// neighbors whose borrowed positive-axis rings include a changed cell.
 	TSet<int32> AffectedDivisions;
 	for (int32 CellZ = CellRangeMin.Z; CellZ < CellRangeMax.Z; CellZ++)
 		for (int32 CellY = CellRangeMin.Y; CellY < CellRangeMax.Y; CellY++)
@@ -562,12 +564,26 @@ void ADualContourMeshActor::ModifyDensityWithHemisphere(
 				const FVectorInt Div = DivisionFromCell(CellX, CellY, CellZ);
 				AffectedDivisions.Add(DivisionIndex(Div.X, Div.Y, Div.Z));
 
-				if (Div.X > 0 && CellX == DivisionCellMax(Div.X - 1, Div.Y, Div.Z).X)
+				const bool bTouchesNegativeXDivision =
+					Div.X > 0 && CellX == DivisionCellMax(Div.X - 1, Div.Y, Div.Z).X;
+				const bool bTouchesNegativeYDivision =
+					Div.Y > 0 && CellY == DivisionCellMax(Div.X, Div.Y - 1, Div.Z).Y;
+				const bool bTouchesNegativeZDivision =
+					Div.Z > 0 && CellZ == DivisionCellMax(Div.X, Div.Y, Div.Z - 1).Z;
+
+				if (bTouchesNegativeXDivision)
 					AffectedDivisions.Add(DivisionIndex(Div.X - 1, Div.Y, Div.Z));
-				if (Div.Y > 0 && CellY == DivisionCellMax(Div.X, Div.Y - 1, Div.Z).Y)
+				if (bTouchesNegativeYDivision)
 					AffectedDivisions.Add(DivisionIndex(Div.X, Div.Y - 1, Div.Z));
-				if (Div.Z > 0 && CellZ == DivisionCellMax(Div.X, Div.Y, Div.Z - 1).Z)
+				if (bTouchesNegativeZDivision)
 					AffectedDivisions.Add(DivisionIndex(Div.X, Div.Y, Div.Z - 1));
+
+				if (bTouchesNegativeXDivision && bTouchesNegativeYDivision)
+					AffectedDivisions.Add(DivisionIndex(Div.X - 1, Div.Y - 1, Div.Z));
+				if (bTouchesNegativeXDivision && bTouchesNegativeZDivision)
+					AffectedDivisions.Add(DivisionIndex(Div.X - 1, Div.Y, Div.Z - 1));
+				if (bTouchesNegativeYDivision && bTouchesNegativeZDivision)
+					AffectedDivisions.Add(DivisionIndex(Div.X, Div.Y - 1, Div.Z - 1));
 			}
 
 	PartialUpdateComponents(AffectedDivisions);

@@ -2,6 +2,8 @@
 #include "CoreMinimal.h"
 #include "DualContourTypes.generated.h"
 
+inline constexpr uint8 GDualContourIsoValue = 127;
+
 USTRUCT(BlueprintType)
 struct DUALCONTOURMESH_API FVectorInt
 {
