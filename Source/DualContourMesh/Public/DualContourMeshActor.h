@@ -9,6 +9,8 @@
 #include "DualContourDebugComponent.h"
 #include "DualContourMeshActor.generated.h"
 
+class USVTDensityField;
+
 UCLASS()
 class DUALCONTOURMESH_API ADualContourMeshActor : public AActor
 {
@@ -24,6 +26,10 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Instanced, Category = "DualContour")
 	TObjectPtr<UDualContour> DualContour;
 
+	/** Optional asset copied into DualContour whenever the mesh is rebuilt. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DualContour")
+	TObjectPtr<USVTDensityField> InitialDensityField;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour")
 	TObjectPtr<UMaterialInterface> MeshMaterial = nullptr;
 
@@ -37,7 +43,7 @@ public:
 	UFUNCTION(CallInEditor, Category = "DualContour")
 	void RebuildMesh();
 
-	/** Uses already generated density/contour data without replacing it with the test sphere. */
+	/** Uses already generated density/contour data without rebuilding it. */
 	void RefreshMeshFromCurrentData();
 	void SetDualContour(UDualContour* InDualContour);
 

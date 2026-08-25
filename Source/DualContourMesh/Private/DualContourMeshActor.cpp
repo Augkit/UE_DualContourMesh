@@ -1,5 +1,6 @@
 #include "DualContourMeshActor.h"
 #include "Engine/CollisionProfile.h"
+#include "SVTDensityField.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDualContourMesh, Log, All);
 
@@ -78,6 +79,28 @@ void ADualContourMeshActor::RefreshDebugComponent()
 
 void ADualContourMeshActor::RebuildMesh()
 {
+	if (InitialDensityField)
+	{
+		if (!InitialDensityField->DualContour)
+		{
+			UE_LOG(LogDualContourMesh, Warning,
+				TEXT("Mesh rebuild aborted for %s because InitialDensityField has no DualContour data."), *GetName());
+			return;
+		}
+
+		const FName DuplicateName = MakeUniqueObjectName(this, UDualContour::StaticClass(), TEXT("DualContour"));
+		UDualContour* DensityCopy = DuplicateObject<UDualContour>(InitialDensityField->DualContour, this, DuplicateName);
+		if (!DensityCopy)
+		{
+			UE_LOG(LogDualContourMesh, Error,
+				TEXT("Mesh rebuild aborted for %s because InitialDensityField could not be copied."), *GetName());
+			return;
+		}
+
+		DensityCopy->SetFlags(RF_Transactional);
+		SetDualContour(DensityCopy);
+	}
+
 	if (!DualContour || !DualContour->Rebuild())
 		return;
 	RecreateMeshComponents();

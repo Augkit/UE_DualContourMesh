@@ -21,12 +21,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid")
 	FVectorInt Divisions = FVectorInt(1, 1, 1);
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "TestSphere")
-	FVector SphereCenter = FVector(80.f, 80.f, 80.f);
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "TestSphere")
-	float SphereRadius = 60.f;
-
 	/** True when generation settings have changed since the last successful rebuild. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DualContour")
 	bool bRebuildRequired = true;
@@ -37,7 +31,6 @@ public:
 	bool ModifyDensityWithHemisphere(const FVector& LocalHitPos, const FVector& LocalHitNormal, float Radius,
 		bool bExcavate, TSet<int32>& OutAffectedDivisions);
 
-	void FillSphereDensity();
 	void BuildCells();
 	uint8 GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
 	const FDualContourCell* GetContourCell(int32 CellX, int32 CellY, int32 CellZ) const;

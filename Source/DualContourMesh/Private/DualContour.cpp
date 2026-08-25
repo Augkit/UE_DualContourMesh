@@ -89,7 +89,6 @@ bool UDualContour::Rebuild()
 	if (!ValidateGenerationSettings())
 		return false;
 
-	FillSphereDensity();
 	BuildCells();
 	LastBuiltCellCount = CellCount;
 	bRebuildRequired = false;
@@ -241,23 +240,6 @@ FVector UDualContour::ComputeGradient(FVector GridPos) const
 		TrilinearDensity(GridPos + FVector(Step, 0, 0)) - TrilinearDensity(GridPos - FVector(Step, 0, 0)),
 		TrilinearDensity(GridPos + FVector(0, Step, 0)) - TrilinearDensity(GridPos - FVector(0, Step, 0)),
 		TrilinearDensity(GridPos + FVector(0, 0, Step)) - TrilinearDensity(GridPos - FVector(0, 0, Step)));
-}
-
-void UDualContour::FillSphereDensity()
-{
-	DensityChunks.Reset();
-	const FVectorInt Dims = GetSampleDims();
-	for (int32 Z = 0; Z < Dims.Z; ++Z)
-		for (int32 Y = 0; Y < Dims.Y; ++Y)
-			for (int32 X = 0; X < Dims.X; ++X)
-			{
-				const float SignedDistance = SphereRadius - static_cast<float>(FVector::Dist(GetSampleLocalPosition(X, Y, Z), SphereCenter));
-				const float IsoValue = static_cast<float>(GDualContourIsoValue);
-				const uint8 Density = static_cast<uint8>(FMath::RoundToInt(FMath::Clamp(
-					IsoValue + SignedDistance * IsoValue / CellSize, 0.f, 255.f)));
-				if (Density != 0)
-					SetDensity(X, Y, Z, Density);
-			}
 }
 
 void UDualContour::BuildCells()
