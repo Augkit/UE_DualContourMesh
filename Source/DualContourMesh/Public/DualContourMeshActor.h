@@ -43,9 +43,8 @@ public:
 	UFUNCTION(CallInEditor, Category = "DualContour")
 	void RebuildMesh();
 
-	/** Uses already generated density/contour data without rebuilding it. */
-	void RefreshMeshFromCurrentData();
-	void SetDualContour(UDualContour* InDualContour);
+	/** Sets generated contour data and immediately recreates the mesh components from it. */
+	bool SetGeneratedDualContour(UDualContour* InDualContour);
 
 	UFUNCTION(BlueprintCallable, Category = "Collision")
 	void RefreshCollisionSettings();

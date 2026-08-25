@@ -29,9 +29,6 @@ public:
 	TArray<uint32> Indices;
 	FBox LocalBounds = FBox(ForceInit);
 
-	UFUNCTION(CallInEditor, Category = "DualContour")
-	void RebuildMesh();
-
 	void BuildAndRefreshMesh();
 
 	virtual FPrimitiveSceneProxy* CreateSceneProxy() override;

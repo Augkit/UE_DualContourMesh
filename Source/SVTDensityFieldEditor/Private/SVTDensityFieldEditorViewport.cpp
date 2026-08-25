@@ -115,9 +115,8 @@ void SSVTDensityFieldViewport::RefreshPreview()
 	{
 		if (bPreviewDensityField)
 		{
-			DensityActor->SetDualContour(Asset->DualContour);
 			DensityActor->SetActorLocation(FVector(-FieldSize.X * 0.5f, -FieldSize.Y * 0.5f, 0.f));
-			DensityActor->RefreshMeshFromCurrentData();
+			DensityActor->SetGeneratedDualContour(Asset->DualContour);
 		}
 		SetPreviewActorVisible(DensityActor, bPreviewDensityField);
 	}

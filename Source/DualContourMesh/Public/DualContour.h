@@ -31,7 +31,6 @@ public:
 	bool ModifyDensityWithHemisphere(const FVector& LocalHitPos, const FVector& LocalHitNormal, float Radius,
 		bool bExcavate, TSet<int32>& OutAffectedDivisions);
 
-	void BuildCells();
 	uint8 GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
 	const FDualContourCell* GetContourCell(int32 CellX, int32 CellY, int32 CellZ) const;
 	float TrilinearDensity(FVector GridPos) const;
@@ -67,6 +66,7 @@ private:
 	FVectorInt LastBuiltCellCount;
 
 	FVectorInt GetSampleDims() const { return FVectorInt(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }
+	void BuildCells();
 	void SetDensity(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Value);
 	void SetContourCell(int32 CellX, int32 CellY, int32 CellZ, const FDualContourCell& Cell);
 	void RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax);

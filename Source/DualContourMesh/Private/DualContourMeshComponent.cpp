@@ -166,12 +166,6 @@ UDualContourMeshComponent::UDualContourMeshComponent(const FObjectInitializer& O
 	SetMobility(EComponentMobility::Static);
 }
 
-void UDualContourMeshComponent::RebuildMesh()
-{
-	if (ADualContourMeshActor* Owner = Cast<ADualContourMeshActor>(GetOwner()))
-		Owner->RebuildMesh();
-}
-
 void UDualContourMeshComponent::BuildAndRefreshMesh()
 {
 	BuildMesh();

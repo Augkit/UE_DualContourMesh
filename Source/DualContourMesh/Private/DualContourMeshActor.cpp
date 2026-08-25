@@ -98,7 +98,8 @@ void ADualContourMeshActor::RebuildMesh()
 		}
 
 		DensityCopy->SetFlags(RF_Transactional);
-		SetDualContour(DensityCopy);
+		SetGeneratedDualContour(DensityCopy);
+		return;
 	}
 
 	if (!DualContour || !DualContour->Rebuild())
@@ -106,26 +107,28 @@ void ADualContourMeshActor::RebuildMesh()
 	RecreateMeshComponents();
 }
 
-void ADualContourMeshActor::SetDualContour(UDualContour* InDualContour)
+bool ADualContourMeshActor::SetGeneratedDualContour(UDualContour* InDualContour)
 {
-	if (!InDualContour || DualContour == InDualContour)
-		return;
+	if (!InDualContour || !InDualContour->HasCurrentGeneratedData())
+	{
+		UE_LOG(LogDualContourMesh, Warning,
+			TEXT("Generated contour data was not applied to %s because it is missing or requires a rebuild."), *GetName());
+		return false;
+	}
+
+	if (DualContour == InDualContour)
+		return true;
 
 	DualContour = InDualContour;
-	for (TPair<int32, TObjectPtr<UDualContourMeshComponent>>& Pair : MeshComponents)
-		if (Pair.Value)
-			Pair.Value->DualContour = DualContour;
-}
 
-void ADualContourMeshActor::RefreshMeshFromCurrentData()
-{
-	if (!DualContour || !DualContour->HasCurrentGeneratedData())
-		return;
 	RecreateMeshComponents();
+	return true;
 }
 
 void ADualContourMeshActor::RecreateMeshComponents()
 {
+	if (!DualContour || !DualContour->HasCurrentGeneratedData())
+		return;
 
 #if WITH_EDITOR
 	RefreshDebugComponent();
