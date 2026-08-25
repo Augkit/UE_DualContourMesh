@@ -45,9 +45,15 @@ struct DUALCONTOURMESH_API FDualContourCell
 };
 
 // Sparse density chunk. Empty DensitySamples means the whole chunk has UniformValue.
-struct FDensityChunk
+USTRUCT(BlueprintType)
+struct DUALCONTOURMESH_API FDensityChunk
 {
+	GENERATED_BODY()
+
+	UPROPERTY()
 	uint8 UniformValue = 0;
+
+	UPROPERTY()
 	TArray<uint8> DensitySamples; // size = ChunkSize^3 when expanded
 
 	bool IsUniform() const { return DensitySamples.IsEmpty(); }
@@ -63,8 +69,12 @@ struct FDensityChunk
 };
 
 // Sparse contour chunk. Only active (surface-crossing) cells are stored.
-struct FContourChunk
+USTRUCT(BlueprintType)
+struct DUALCONTOURMESH_API FContourChunk
 {
+	GENERATED_BODY()
+
 	// Key: LocalX | (LocalY << 4) | (LocalZ << 8), each in [0, ChunkSize).
+	UPROPERTY()
 	TMap<uint16, FDualContourCell> ActiveCells;
 };

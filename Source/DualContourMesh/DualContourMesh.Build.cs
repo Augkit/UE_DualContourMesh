@@ -39,6 +39,7 @@ public class DualContourMesh : ModuleRules
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
+				"Projects",
 				"Slate",
 				"SlateCore",
 			}

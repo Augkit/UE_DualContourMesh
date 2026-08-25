@@ -37,13 +37,13 @@ bool Solve3x3(const double Matrix[3][3], const double RightHandSide[3], double S
 uint16 UDualContour::PackLocalContourKey(int32 CellX, int32 CellY, int32 CellZ)
 {
 	return static_cast<uint16>((CellX % GDualContourChunkSize) | ((CellY % GDualContourChunkSize) << 4)
-		| ((CellZ % GDualContourChunkSize) << 8));
+	                           | ((CellZ % GDualContourChunkSize) << 8));
 }
 
 bool UDualContour::HasCurrentGeneratedData() const
 {
 	return !bRebuildRequired && LastBuiltCellCount.X == CellCount.X && LastBuiltCellCount.Y == CellCount.Y
-		&& LastBuiltCellCount.Z == CellCount.Z;
+	       && LastBuiltCellCount.Z == CellCount.Z;
 }
 
 bool UDualContour::ValidateGenerationSettings() const
@@ -70,11 +70,11 @@ bool UDualContour::ValidateGenerationSettings() const
 	const auto FitsInArray = [](int64 SizeX, int64 SizeY, int64 SizeZ)
 	{
 		return SizeX <= MAX_int32 && SizeY <= MAX_int32 && SizeZ <= MAX_int32 && SizeX <= MAX_int32 / SizeY
-			&& SizeX * SizeY <= MAX_int32 / SizeZ;
+		       && SizeX * SizeY <= MAX_int32 / SizeZ;
 	};
 	if (!FitsInArray(CellCount.X, CellCount.Y, CellCount.Z)
-		|| !FitsInArray(static_cast<int64>(CellCount.X) + 1, static_cast<int64>(CellCount.Y) + 1,
-			static_cast<int64>(CellCount.Z) + 1))
+	    || !FitsInArray(static_cast<int64>(CellCount.X) + 1, static_cast<int64>(CellCount.Y) + 1,
+		    static_cast<int64>(CellCount.Z) + 1))
 	{
 		UE_LOG(LogDualContour, Error, TEXT("Rebuild aborted for %s: requested grid exceeds TArray's int32 capacity."),
 			*GetNameSafe(GetOuter()));
@@ -90,6 +90,37 @@ bool UDualContour::Rebuild()
 		return false;
 
 	FillSphereDensity();
+	BuildCells();
+	LastBuiltCellCount = CellCount;
+	bRebuildRequired = false;
+	return true;
+}
+
+bool UDualContour::SetDensitySamples(const TArray<uint8>& Samples)
+{
+	bRebuildRequired = true;
+	if (!ValidateGenerationSettings())
+		return false;
+
+	const FVectorInt SampleDimensions = GetSampleDims();
+	if (Samples.Num() != SampleDimensions.Volume())
+	{
+		UE_LOG(LogDualContour, Error,
+			TEXT("SetDensitySamples aborted for %s: expected %d samples but received %d."),
+			*GetNameSafe(GetOuter()), SampleDimensions.Volume(), Samples.Num());
+		return false;
+	}
+
+	DensityChunks.Reset();
+	for (int32 Z = 0; Z < SampleDimensions.Z; ++Z)
+		for (int32 Y = 0; Y < SampleDimensions.Y; ++Y)
+			for (int32 X = 0; X < SampleDimensions.X; ++X)
+			{
+				const uint8 Density = Samples[SampleDimensions.LinearIndex(X, Y, Z)];
+				if (Density != 0)
+					SetDensity(X, Y, Z, Density);
+			}
+
 	BuildCells();
 	LastBuiltCellCount = CellCount;
 	bRebuildRequired = false;
@@ -113,7 +144,7 @@ uint8 UDualContour::GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) cons
 	const int32 LocalY = SampleY % GDualContourChunkSize;
 	const int32 LocalZ = SampleZ % GDualContourChunkSize;
 	return Chunk->DensitySamples[LocalX + LocalY * GDualContourChunkSize
-		+ LocalZ * GDualContourChunkSize * GDualContourChunkSize];
+	                             + LocalZ * GDualContourChunkSize * GDualContourChunkSize];
 }
 
 void UDualContour::SetDensity(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Value)
@@ -125,7 +156,7 @@ void UDualContour::SetDensity(int32 SampleX, int32 SampleY, int32 SampleZ, uint8
 	const int32 LocalY = SampleY % GDualContourChunkSize;
 	const int32 LocalZ = SampleZ % GDualContourChunkSize;
 	Chunk.DensitySamples[LocalX + LocalY * GDualContourChunkSize
-		+ LocalZ * GDualContourChunkSize * GDualContourChunkSize] = Value;
+	                     + LocalZ * GDualContourChunkSize * GDualContourChunkSize] = Value;
 }
 
 const FDualContourCell* UDualContour::GetContourCell(int32 CellX, int32 CellY, int32 CellZ) const
@@ -173,7 +204,7 @@ bool UDualContour::HasActiveCellInRange(FVectorInt CellMin, FVectorInt CellMax) 
 					const int32 AbsY = ChunkY * GDualContourChunkSize + ((Pair.Key >> 4) & 0xF);
 					const int32 AbsZ = ChunkZ * GDualContourChunkSize + ((Pair.Key >> 8) & 0xF);
 					if (AbsX >= CellMin.X && AbsX < CellMax.X && AbsY >= CellMin.Y && AbsY < CellMax.Y
-						&& AbsZ >= CellMin.Z && AbsZ < CellMax.Z)
+					    && AbsZ >= CellMin.Z && AbsZ < CellMax.Z)
 						return true;
 				}
 			}
@@ -193,10 +224,14 @@ float UDualContour::TrilinearDensity(FVector GridPos) const
 	const float BlendX = GridX - LowerX, BlendY = GridY - LowerY, BlendZ = GridZ - LowerZ;
 
 	return FMath::Lerp(
-		FMath::Lerp(FMath::Lerp(static_cast<float>(GetDensity(LowerX, LowerY, LowerZ)), static_cast<float>(GetDensity(UpperX, LowerY, LowerZ)), BlendX),
-			FMath::Lerp(static_cast<float>(GetDensity(LowerX, UpperY, LowerZ)), static_cast<float>(GetDensity(UpperX, UpperY, LowerZ)), BlendX), BlendY),
-		FMath::Lerp(FMath::Lerp(static_cast<float>(GetDensity(LowerX, LowerY, UpperZ)), static_cast<float>(GetDensity(UpperX, LowerY, UpperZ)), BlendX),
-			FMath::Lerp(static_cast<float>(GetDensity(LowerX, UpperY, UpperZ)), static_cast<float>(GetDensity(UpperX, UpperY, UpperZ)), BlendX), BlendY), BlendZ);
+		FMath::Lerp(FMath::Lerp(static_cast<float>(GetDensity(LowerX, LowerY, LowerZ)), static_cast<float>(GetDensity(UpperX, LowerY, LowerZ)),
+				BlendX),
+			FMath::Lerp(static_cast<float>(GetDensity(LowerX, UpperY, LowerZ)), static_cast<float>(GetDensity(UpperX, UpperY, LowerZ)), BlendX),
+			BlendY),
+		FMath::Lerp(FMath::Lerp(static_cast<float>(GetDensity(LowerX, LowerY, UpperZ)), static_cast<float>(GetDensity(UpperX, LowerY, UpperZ)),
+				BlendX),
+			FMath::Lerp(static_cast<float>(GetDensity(LowerX, UpperY, UpperZ)), static_cast<float>(GetDensity(UpperX, UpperY, UpperZ)), BlendX),
+			BlendY), BlendZ);
 }
 
 FVector UDualContour::ComputeGradient(FVector GridPos) const
@@ -282,18 +317,30 @@ void UDualContour::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax)
 
 					const double NX = Normal.X, NY = Normal.Y, NZ = Normal.Z;
 					const double Distance = FVector::DotProduct(Normal, WorldPosition);
-					Matrix[0][0] += NX * NX; Matrix[0][1] += NX * NY; Matrix[0][2] += NX * NZ;
-					Matrix[1][0] += NY * NX; Matrix[1][1] += NY * NY; Matrix[1][2] += NY * NZ;
-					Matrix[2][0] += NZ * NX; Matrix[2][1] += NZ * NY; Matrix[2][2] += NZ * NZ;
-					Vector[0] += NX * Distance; Vector[1] += NY * Distance; Vector[2] += NZ * Distance;
+					Matrix[0][0] += NX * NX;
+					Matrix[0][1] += NX * NY;
+					Matrix[0][2] += NX * NZ;
+					Matrix[1][0] += NY * NX;
+					Matrix[1][1] += NY * NY;
+					Matrix[1][2] += NY * NZ;
+					Matrix[2][0] += NZ * NX;
+					Matrix[2][1] += NZ * NY;
+					Matrix[2][2] += NZ * NZ;
+					Vector[0] += NX * Distance;
+					Vector[1] += NY * Distance;
+					Vector[2] += NZ * Distance;
 					AccumNormal += Normal;
 					++NumIntersections;
 				}
 
 				if (NumIntersections > 0)
 				{
-					Matrix[0][0] += Lambda; Matrix[1][1] += Lambda; Matrix[2][2] += Lambda;
-					Vector[0] += Lambda * CellCenter.X; Vector[1] += Lambda * CellCenter.Y; Vector[2] += Lambda * CellCenter.Z;
+					Matrix[0][0] += Lambda;
+					Matrix[1][1] += Lambda;
+					Matrix[2][2] += Lambda;
+					Vector[0] += Lambda * CellCenter.X;
+					Vector[1] += Lambda * CellCenter.Y;
+					Vector[2] += Lambda * CellCenter.Z;
 					double Position[3];
 					if (Solve3x3(Matrix, Vector, Position))
 					{
@@ -379,12 +426,18 @@ bool UDualContour::ModifyDensityWithHemisphere(const FVector& LocalHitPos, const
 				const bool bNegX = Div.X > 0 && X == DivisionCellMax(Div.X - 1, Div.Y, Div.Z).X;
 				const bool bNegY = Div.Y > 0 && Y == DivisionCellMax(Div.X, Div.Y - 1, Div.Z).Y;
 				const bool bNegZ = Div.Z > 0 && Z == DivisionCellMax(Div.X, Div.Y, Div.Z - 1).Z;
-				if (bNegX) OutAffectedDivisions.Add(DivisionIndex(Div.X - 1, Div.Y, Div.Z));
-				if (bNegY) OutAffectedDivisions.Add(DivisionIndex(Div.X, Div.Y - 1, Div.Z));
-				if (bNegZ) OutAffectedDivisions.Add(DivisionIndex(Div.X, Div.Y, Div.Z - 1));
-				if (bNegX && bNegY) OutAffectedDivisions.Add(DivisionIndex(Div.X - 1, Div.Y - 1, Div.Z));
-				if (bNegX && bNegZ) OutAffectedDivisions.Add(DivisionIndex(Div.X - 1, Div.Y, Div.Z - 1));
-				if (bNegY && bNegZ) OutAffectedDivisions.Add(DivisionIndex(Div.X, Div.Y - 1, Div.Z - 1));
+				if (bNegX)
+					OutAffectedDivisions.Add(DivisionIndex(Div.X - 1, Div.Y, Div.Z));
+				if (bNegY)
+					OutAffectedDivisions.Add(DivisionIndex(Div.X, Div.Y - 1, Div.Z));
+				if (bNegZ)
+					OutAffectedDivisions.Add(DivisionIndex(Div.X, Div.Y, Div.Z - 1));
+				if (bNegX && bNegY)
+					OutAffectedDivisions.Add(DivisionIndex(Div.X - 1, Div.Y - 1, Div.Z));
+				if (bNegX && bNegZ)
+					OutAffectedDivisions.Add(DivisionIndex(Div.X - 1, Div.Y, Div.Z - 1));
+				if (bNegY && bNegZ)
+					OutAffectedDivisions.Add(DivisionIndex(Div.X, Div.Y - 1, Div.Z - 1));
 			}
 	return true;
 }

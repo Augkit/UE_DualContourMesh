@@ -18,6 +18,11 @@
 		{
 			"Name": "DualContourMesh",
 			"Type": "Runtime",
+			"LoadingPhase": "PostConfigInit"
+		},
+		{
+			"Name": "SVTDensityFieldEditor",
+			"Type": "Editor",
 			"LoadingPhase": "Default"
 		}
 	]

@@ -80,6 +80,29 @@ void ADualContourMeshActor::RebuildMesh()
 {
 	if (!DualContour || !DualContour->Rebuild())
 		return;
+	RecreateMeshComponents();
+}
+
+void ADualContourMeshActor::SetDualContour(UDualContour* InDualContour)
+{
+	if (!InDualContour || DualContour == InDualContour)
+		return;
+
+	DualContour = InDualContour;
+	for (TPair<int32, TObjectPtr<UDualContourMeshComponent>>& Pair : MeshComponents)
+		if (Pair.Value)
+			Pair.Value->DualContour = DualContour;
+}
+
+void ADualContourMeshActor::RefreshMeshFromCurrentData()
+{
+	if (!DualContour || !DualContour->HasCurrentGeneratedData())
+		return;
+	RecreateMeshComponents();
+}
+
+void ADualContourMeshActor::RecreateMeshComponents()
+{
 
 #if WITH_EDITOR
 	RefreshDebugComponent();
@@ -128,7 +151,7 @@ void ADualContourMeshActor::PartialUpdateComponents(const TSet<int32>& AffectedD
 		const int32 DivisionY = (DivisionIndex / DualContour->Divisions.X) % DualContour->Divisions.Y;
 		const int32 DivisionZ = DivisionIndex / (DualContour->Divisions.X * DualContour->Divisions.Y);
 		if (DivisionX < 0 || DivisionX >= DualContour->Divisions.X || DivisionY < 0
-			|| DivisionY >= DualContour->Divisions.Y || DivisionZ < 0 || DivisionZ >= DualContour->Divisions.Z)
+		    || DivisionY >= DualContour->Divisions.Y || DivisionZ < 0 || DivisionZ >= DualContour->Divisions.Z)
 			continue;
 
 		const FVectorInt CellMin = DualContour->DivisionCellMin(DivisionX, DivisionY, DivisionZ);

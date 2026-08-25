@@ -37,6 +37,10 @@ public:
 	UFUNCTION(CallInEditor, Category = "DualContour")
 	void RebuildMesh();
 
+	/** Uses already generated density/contour data without replacing it with the test sphere. */
+	void RefreshMeshFromCurrentData();
+	void SetDualContour(UDualContour* InDualContour);
+
 	UFUNCTION(BlueprintCallable, Category = "Collision")
 	void RefreshCollisionSettings();
 
@@ -54,6 +58,7 @@ public:
 #endif
 
 private:
+	void RecreateMeshComponents();
 	void ApplyCollisionSettings(UDualContourMeshComponent* MeshComponent) const;
 	void PartialUpdateComponents(const TSet<int32>& AffectedDivisions);
 	UDualContourMeshComponent* CreateMeshComponent(FVectorInt CellMin, FVectorInt CellMax);

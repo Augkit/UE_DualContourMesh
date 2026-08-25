@@ -32,6 +32,8 @@ public:
 	bool bRebuildRequired = true;
 
 	bool Rebuild();
+	/** Replaces the complete sample grid and rebuilds contour cells. Samples are X-major. */
+	bool SetDensitySamples(const TArray<uint8>& Samples);
 	bool ModifyDensityWithHemisphere(const FVector& LocalHitPos, const FVector& LocalHitNormal, float Radius,
 		bool bExcavate, TSet<int32>& OutAffectedDivisions);
 
@@ -62,9 +64,13 @@ public:
 #endif
 
 private:
+	UPROPERTY()
 	TMap<FIntVector, FDensityChunk> DensityChunks;
+
+	UPROPERTY()
 	TMap<FIntVector, FContourChunk> ContourChunks;
 
+	UPROPERTY()
 	FVectorInt LastBuiltCellCount;
 
 	FVectorInt GetSampleDims() const { return FVectorInt(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }

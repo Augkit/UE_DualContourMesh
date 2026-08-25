@@ -1,0 +1,52 @@
+#include "/Engine/Public/Platform.ush"
+#include "/Engine/Private/SparseVolumeTexture/SparseVolumeTextureCommon.ush"
+
+SamplerState TileDataTextureSampler;
+Texture3D<uint> SparseVolumeTexturePageTable;
+Texture3D<float4> SparseVolumeTextureA;
+Texture3D<float4> SparseVolumeTextureB;
+uint4 PackedSVTUniforms0;
+uint4 PackedSVTUniforms1;
+uint3 TargetResolution;
+float3 UVScale;
+float3 UVBias;
+uint AttributeIndex;
+float DensityScale;
+float DensityBias;
+float4 FallbackValueA;
+float4 FallbackValueB;
+RWStructuredBuffer<uint> OutputDensities;
+
+[numthreads(4, 4, 4)]
+void SampleSparseVolumeTextureCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	if (any(DispatchThreadId >= TargetResolution))
+		return;
+
+	const uint LinearIndex = DispatchThreadId.x
+		+ DispatchThreadId.y * TargetResolution.x
+		+ DispatchThreadId.z * TargetResolution.x * TargetResolution.y;
+	const float3 Denominator = max(float3(TargetResolution) - 1.0f, 1.0f);
+	const float3 TargetUVW = float3(DispatchThreadId) / Denominator;
+	const float3 SourceUVW = TargetUVW * UVScale + UVBias;
+	if (any(SourceUVW < 0.0f) || any(SourceUVW > 1.0f))
+	{
+		OutputDensities[LinearIndex] = 0;
+		return;
+	}
+
+	const FSparseVolumeTextureUniforms Uniforms = SparseVolumeTextureUnpackUniforms(PackedSVTUniforms0, PackedSVTUniforms1);
+	const float3 VoxelUVW = SparseVolumeTextureSamplePageTable(
+		SparseVolumeTexturePageTable, Uniforms, SourceUVW,
+		SVTADDRESSMODE_CLAMP, SVTADDRESSMODE_CLAMP, SVTADDRESSMODE_CLAMP, 0);
+	const float3 ValidTileUVW = float(SPARSE_VOLUME_TILE_RES_PADDED) * Uniforms.TileDataTexelSize;
+	float Value = AttributeIndex < 4 ? FallbackValueA[AttributeIndex] : FallbackValueB[AttributeIndex - 4];
+	if (any(VoxelUVW >= ValidTileUVW))
+	{
+		const float4 Attributes = SparseVolumeTextureSamplePhysicalTileData(
+			SparseVolumeTextureA, SparseVolumeTextureB, TileDataTextureSampler, VoxelUVW, AttributeIndex < 4 ? 0 : 1);
+		Value = Attributes[AttributeIndex & 3];
+	}
+
+	OutputDensities[LinearIndex] = (uint)round(saturate(Value * DensityScale + DensityBias) * 255.0f);
+}
