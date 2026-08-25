@@ -26,8 +26,8 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Instanced, Category = "DualContour")
 	TObjectPtr<UDualContour> DualContour;
 
-	/** Number of independently generated mesh components along each grid axis. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mesh", meta = (ClampMin = "1"))
+	/** Number of independently generated mesh components along each axis. Each value must divide the corresponding CellCount exactly. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour", meta = (ClampMin = "1"))
 	FVectorInt Divisions = FVectorInt(1, 1, 1);
 
 	/** Optional asset copied into DualContour whenever the mesh is rebuilt. */
@@ -54,6 +54,8 @@ public:
 	void RefreshCollisionSettings();
 
 	void ModifyDensityWithHemisphere(const FVector& WorldHitPos, const FVector& WorldHitNormal, float Radius, bool bExcavate);
+	/** Returns whether every Divisions value divides its corresponding CellCount value and describes the result. */
+	bool ValidateDivisions(FString& OutStatus) const;
 
 	virtual void PostRegisterAllComponents() override;
 

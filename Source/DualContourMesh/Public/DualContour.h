@@ -13,7 +13,7 @@ class DUALCONTOURMESH_API UDualContour : public UObject
 
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid")
-	FVectorInt CellCount = FVectorInt(16, 16, 16);
+	FVectorInt CellCount = FVectorInt(64, 64, 64);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid")
 	float CellSize = 10.f;

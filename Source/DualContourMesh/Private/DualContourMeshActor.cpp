@@ -80,6 +80,7 @@ void ADualContourMeshActor::RefreshDebugComponent()
 		DebugComponent->MarkRenderStateDirty();
 	}
 }
+
 #endif
 
 void ADualContourMeshActor::RebuildMesh()
@@ -179,18 +180,49 @@ UDualContourMeshComponent* ADualContourMeshActor::CreateMeshComponent(FVectorInt
 	return NewComponent;
 }
 
+bool ADualContourMeshActor::ValidateDivisions(FString& OutStatus) const
+{
+	if (!DualContour)
+	{
+		OutStatus = TEXT("Invalid: DualContour is missing.");
+		return false;
+	}
+
+	TArray<FString> Errors;
+	const auto ValidateAxis = [&Errors](const TCHAR* Axis, int32 CellCount, int32 DivisionCount)
+	{
+		if (DivisionCount <= 0)
+			Errors.Add(FString::Printf(TEXT("%s must be greater than zero"), Axis));
+		else if (CellCount <= 0)
+			Errors.Add(FString::Printf(TEXT("CellCount.%s must be greater than zero"), Axis));
+		else if (CellCount % DivisionCount != 0)
+			Errors.Add(FString::Printf(TEXT("CellCount.%s (%d) is not divisible by Divisions.%s (%d)"),
+				Axis, CellCount, Axis, DivisionCount));
+	};
+
+	ValidateAxis(TEXT("X"), DualContour->CellCount.X, Divisions.X);
+	ValidateAxis(TEXT("Y"), DualContour->CellCount.Y, Divisions.Y);
+	ValidateAxis(TEXT("Z"), DualContour->CellCount.Z, Divisions.Z);
+
+	if (Errors.IsEmpty())
+	{
+		OutStatus = FString::Printf(TEXT("Valid - cells per component: (%d, %d, %d)"),
+			DualContour->CellCount.X / Divisions.X, DualContour->CellCount.Y / Divisions.Y,
+			DualContour->CellCount.Z / Divisions.Z);
+		return true;
+	}
+
+	OutStatus = FString::Printf(TEXT("Invalid - %s"), *FString::Join(Errors, TEXT("; ")));
+	return false;
+}
+
 bool ADualContourMeshActor::HasValidDivisions() const
 {
-	if (DualContour && Divisions.X > 0 && Divisions.Y > 0 && Divisions.Z > 0
-	    && Divisions.X <= DualContour->CellCount.X && Divisions.Y <= DualContour->CellCount.Y
-	    && Divisions.Z <= DualContour->CellCount.Z)
+	FString Status;
+	if (ValidateDivisions(Status))
 		return true;
 
-	UE_LOG(LogDualContourMesh, Error,
-		TEXT("Mesh component generation aborted for %s: Divisions must be positive and no greater than CellCount "
-			"(Divisions: %d, %d, %d; CellCount: %d, %d, %d)."),
-		*GetName(), Divisions.X, Divisions.Y, Divisions.Z, DualContour ? DualContour->CellCount.X : 0,
-		DualContour ? DualContour->CellCount.Y : 0, DualContour ? DualContour->CellCount.Z : 0);
+	UE_LOG(LogDualContourMesh, Error, TEXT("Mesh component generation aborted for %s: %s"), *GetName(), *Status);
 	return false;
 }
 
