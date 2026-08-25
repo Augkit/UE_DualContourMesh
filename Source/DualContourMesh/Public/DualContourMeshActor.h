@@ -26,6 +26,10 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Instanced, Category = "DualContour")
 	TObjectPtr<UDualContour> DualContour;
 
+	/** Number of independently generated mesh components along each grid axis. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mesh", meta = (ClampMin = "1"))
+	FVectorInt Divisions = FVectorInt(1, 1, 1);
+
 	/** Optional asset copied into DualContour whenever the mesh is rebuilt. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DualContour")
 	TObjectPtr<USVTDensityField> InitialDensityField;
@@ -65,8 +69,13 @@ public:
 private:
 	void RecreateMeshComponents();
 	void ApplyCollisionSettings(UDualContourMeshComponent* MeshComponent) const;
-	void PartialUpdateComponents(const TSet<int32>& AffectedDivisions);
+	void PartialUpdateComponents(FVectorInt AffectedCellMin, FVectorInt AffectedCellMax);
 	UDualContourMeshComponent* CreateMeshComponent(FVectorInt CellMin, FVectorInt CellMax);
+	bool HasValidDivisions() const;
+	int32 DivisionIndex(int32 DivX, int32 DivY, int32 DivZ) const;
+	FVectorInt DivisionFromCell(int32 CellX, int32 CellY, int32 CellZ) const;
+	FVectorInt DivisionCellMin(int32 DivX, int32 DivY, int32 DivZ) const;
+	FVectorInt DivisionCellMax(int32 DivX, int32 DivY, int32 DivZ) const;
 #if WITH_EDITOR
 	void RefreshDebugComponent();
 #endif

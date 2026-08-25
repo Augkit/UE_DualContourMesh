@@ -64,6 +64,11 @@ void ADualContourMeshActor::PostRegisterAllComponents()
 void ADualContourMeshActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
+	if (PropertyChangedEvent.MemberProperty
+	    && PropertyChangedEvent.MemberProperty->GetFName() == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, Divisions))
+	{
+		RecreateMeshComponents();
+	}
 	RefreshCollisionSettings();
 }
 
@@ -129,6 +134,14 @@ void ADualContourMeshActor::RecreateMeshComponents()
 {
 	if (!DualContour || !DualContour->HasCurrentGeneratedData())
 		return;
+	if (!HasValidDivisions())
+	{
+		for (TPair<int32, TObjectPtr<UDualContourMeshComponent>>& Pair : MeshComponents)
+			if (Pair.Value)
+				Pair.Value->DestroyComponent();
+		MeshComponents.Reset();
+		return;
+	}
 
 #if WITH_EDITOR
 	RefreshDebugComponent();
@@ -139,15 +152,15 @@ void ADualContourMeshActor::RecreateMeshComponents()
 			Pair.Value->DestroyComponent();
 	MeshComponents.Reset();
 
-	for (int32 DivisionZ = 0; DivisionZ < DualContour->Divisions.Z; ++DivisionZ)
-		for (int32 DivisionY = 0; DivisionY < DualContour->Divisions.Y; ++DivisionY)
-			for (int32 DivisionX = 0; DivisionX < DualContour->Divisions.X; ++DivisionX)
+	for (int32 DivisionZ = 0; DivisionZ < Divisions.Z; ++DivisionZ)
+		for (int32 DivisionY = 0; DivisionY < Divisions.Y; ++DivisionY)
+			for (int32 DivisionX = 0; DivisionX < Divisions.X; ++DivisionX)
 			{
-				const FVectorInt CellMin = DualContour->DivisionCellMin(DivisionX, DivisionY, DivisionZ);
-				const FVectorInt CellMax = DualContour->DivisionCellMax(DivisionX, DivisionY, DivisionZ);
+				const FVectorInt CellMin = DivisionCellMin(DivisionX, DivisionY, DivisionZ);
+				const FVectorInt CellMax = DivisionCellMax(DivisionX, DivisionY, DivisionZ);
 				if (!DualContour->HasActiveCellInRange(CellMin, CellMax))
 					continue;
-				MeshComponents.Add(DualContour->DivisionIndex(DivisionX, DivisionY, DivisionZ),
+				MeshComponents.Add(DivisionIndex(DivisionX, DivisionY, DivisionZ),
 					CreateMeshComponent(CellMin, CellMax));
 			}
 }
@@ -166,22 +179,85 @@ UDualContourMeshComponent* ADualContourMeshActor::CreateMeshComponent(FVectorInt
 	return NewComponent;
 }
 
-void ADualContourMeshActor::PartialUpdateComponents(const TSet<int32>& AffectedDivisions)
+bool ADualContourMeshActor::HasValidDivisions() const
 {
-	if (!DualContour)
+	if (DualContour && Divisions.X > 0 && Divisions.Y > 0 && Divisions.Z > 0
+	    && Divisions.X <= DualContour->CellCount.X && Divisions.Y <= DualContour->CellCount.Y
+	    && Divisions.Z <= DualContour->CellCount.Z)
+		return true;
+
+	UE_LOG(LogDualContourMesh, Error,
+		TEXT("Mesh component generation aborted for %s: Divisions must be positive and no greater than CellCount "
+			"(Divisions: %d, %d, %d; CellCount: %d, %d, %d)."),
+		*GetName(), Divisions.X, Divisions.Y, Divisions.Z, DualContour ? DualContour->CellCount.X : 0,
+		DualContour ? DualContour->CellCount.Y : 0, DualContour ? DualContour->CellCount.Z : 0);
+	return false;
+}
+
+int32 ADualContourMeshActor::DivisionIndex(int32 DivX, int32 DivY, int32 DivZ) const
+{
+	return DivX + DivY * Divisions.X + DivZ * Divisions.X * Divisions.Y;
+}
+
+FVectorInt ADualContourMeshActor::DivisionFromCell(int32 CellX, int32 CellY, int32 CellZ) const
+{
+	return FVectorInt(FMath::Clamp(CellX * Divisions.X / DualContour->CellCount.X, 0, Divisions.X - 1),
+		FMath::Clamp(CellY * Divisions.Y / DualContour->CellCount.Y, 0, Divisions.Y - 1),
+		FMath::Clamp(CellZ * Divisions.Z / DualContour->CellCount.Z, 0, Divisions.Z - 1));
+}
+
+FVectorInt ADualContourMeshActor::DivisionCellMin(int32 DivX, int32 DivY, int32 DivZ) const
+{
+	return FVectorInt(DivX * DualContour->CellCount.X / Divisions.X, DivY * DualContour->CellCount.Y / Divisions.Y,
+		DivZ * DualContour->CellCount.Z / Divisions.Z);
+}
+
+FVectorInt ADualContourMeshActor::DivisionCellMax(int32 DivX, int32 DivY, int32 DivZ) const
+{
+	return FVectorInt((DivX + 1) * DualContour->CellCount.X / Divisions.X,
+		(DivY + 1) * DualContour->CellCount.Y / Divisions.Y, (DivZ + 1) * DualContour->CellCount.Z / Divisions.Z);
+}
+
+void ADualContourMeshActor::PartialUpdateComponents(FVectorInt AffectedCellMin, FVectorInt AffectedCellMax)
+{
+	if (!DualContour || !HasValidDivisions())
 		return;
+
+	TSet<int32> AffectedDivisions;
+	for (int32 Z = AffectedCellMin.Z; Z < AffectedCellMax.Z; ++Z)
+		for (int32 Y = AffectedCellMin.Y; Y < AffectedCellMax.Y; ++Y)
+			for (int32 X = AffectedCellMin.X; X < AffectedCellMax.X; ++X)
+			{
+				const FVectorInt Div = DivisionFromCell(X, Y, Z);
+				AffectedDivisions.Add(DivisionIndex(Div.X, Div.Y, Div.Z));
+				const bool bNegX = Div.X > 0 && X == DivisionCellMax(Div.X - 1, Div.Y, Div.Z).X;
+				const bool bNegY = Div.Y > 0 && Y == DivisionCellMax(Div.X, Div.Y - 1, Div.Z).Y;
+				const bool bNegZ = Div.Z > 0 && Z == DivisionCellMax(Div.X, Div.Y, Div.Z - 1).Z;
+				if (bNegX)
+					AffectedDivisions.Add(DivisionIndex(Div.X - 1, Div.Y, Div.Z));
+				if (bNegY)
+					AffectedDivisions.Add(DivisionIndex(Div.X, Div.Y - 1, Div.Z));
+				if (bNegZ)
+					AffectedDivisions.Add(DivisionIndex(Div.X, Div.Y, Div.Z - 1));
+				if (bNegX && bNegY)
+					AffectedDivisions.Add(DivisionIndex(Div.X - 1, Div.Y - 1, Div.Z));
+				if (bNegX && bNegZ)
+					AffectedDivisions.Add(DivisionIndex(Div.X - 1, Div.Y, Div.Z - 1));
+				if (bNegY && bNegZ)
+					AffectedDivisions.Add(DivisionIndex(Div.X, Div.Y - 1, Div.Z - 1));
+			}
 
 	for (const int32 DivisionIndex : AffectedDivisions)
 	{
-		const int32 DivisionX = DivisionIndex % DualContour->Divisions.X;
-		const int32 DivisionY = (DivisionIndex / DualContour->Divisions.X) % DualContour->Divisions.Y;
-		const int32 DivisionZ = DivisionIndex / (DualContour->Divisions.X * DualContour->Divisions.Y);
-		if (DivisionX < 0 || DivisionX >= DualContour->Divisions.X || DivisionY < 0
-		    || DivisionY >= DualContour->Divisions.Y || DivisionZ < 0 || DivisionZ >= DualContour->Divisions.Z)
+		const int32 DivisionX = DivisionIndex % Divisions.X;
+		const int32 DivisionY = (DivisionIndex / Divisions.X) % Divisions.Y;
+		const int32 DivisionZ = DivisionIndex / (Divisions.X * Divisions.Y);
+		if (DivisionX < 0 || DivisionX >= Divisions.X || DivisionY < 0
+		    || DivisionY >= Divisions.Y || DivisionZ < 0 || DivisionZ >= Divisions.Z)
 			continue;
 
-		const FVectorInt CellMin = DualContour->DivisionCellMin(DivisionX, DivisionY, DivisionZ);
-		const FVectorInt CellMax = DualContour->DivisionCellMax(DivisionX, DivisionY, DivisionZ);
+		const FVectorInt CellMin = DivisionCellMin(DivisionX, DivisionY, DivisionZ);
+		const FVectorInt CellMax = DivisionCellMax(DivisionX, DivisionY, DivisionZ);
 		const bool bHasActiveCells = DualContour->HasActiveCellInRange(CellMin, CellMax);
 		TObjectPtr<UDualContourMeshComponent>* ExistingComponent = MeshComponents.Find(DivisionIndex);
 		if (ExistingComponent && *ExistingComponent)
@@ -216,12 +292,17 @@ void ADualContourMeshActor::ModifyDensityWithHemisphere(
 	const FTransform& ActorTransform = GetActorTransform();
 	const FVector LocalHitPosition = ActorTransform.InverseTransformPosition(WorldHitPos);
 	const FVector LocalHitNormal = ActorTransform.InverseTransformVectorNoScale(WorldHitNormal).GetSafeNormal();
-	TSet<int32> AffectedDivisions;
-	if (!DualContour->ModifyDensityWithHemisphere(LocalHitPosition, LocalHitNormal, Radius, bExcavate, AffectedDivisions))
+	if (!HasValidDivisions())
+		return;
+
+	FVectorInt AffectedCellMin;
+	FVectorInt AffectedCellMax;
+	if (!DualContour->ModifyDensityWithHemisphere(
+		LocalHitPosition, LocalHitNormal, Radius, bExcavate, AffectedCellMin, AffectedCellMax))
 		return;
 
 #if WITH_EDITOR
 	RefreshDebugComponent();
 #endif
-	PartialUpdateComponents(AffectedDivisions);
+	PartialUpdateComponents(AffectedCellMin, AffectedCellMax);
 }

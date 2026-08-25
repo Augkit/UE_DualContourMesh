@@ -18,9 +18,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid")
 	float CellSize = 10.f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid")
-	FVectorInt Divisions = FVectorInt(1, 1, 1);
-
 	/** True when generation settings have changed since the last successful rebuild. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DualContour")
 	bool bRebuildRequired = true;
@@ -28,8 +25,9 @@ public:
 	bool Rebuild();
 	/** Replaces the complete sample grid and rebuilds contour cells. Samples are X-major. */
 	bool SetDensitySamples(const TArray<uint8>& Samples);
+	/** Modifies density and returns the half-open range of contour cells rebuilt by the operation. */
 	bool ModifyDensityWithHemisphere(const FVector& LocalHitPos, const FVector& LocalHitNormal, float Radius,
-		bool bExcavate, TSet<int32>& OutAffectedDivisions);
+		bool bExcavate, FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax);
 
 	uint8 GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
 	const FDualContourCell* GetContourCell(int32 CellX, int32 CellY, int32 CellZ) const;
@@ -37,11 +35,6 @@ public:
 	FVector ComputeGradient(FVector GridPos) const;
 	bool HasCurrentGeneratedData() const;
 	bool HasActiveCellInRange(FVectorInt CellMin, FVectorInt CellMax) const;
-
-	int32 DivisionIndex(int32 DivX, int32 DivY, int32 DivZ) const;
-	FVectorInt DivisionFromCell(int32 CellX, int32 CellY, int32 CellZ) const;
-	FVectorInt DivisionCellMin(int32 DivX, int32 DivY, int32 DivZ) const;
-	FVectorInt DivisionCellMax(int32 DivX, int32 DivY, int32 DivZ) const;
 
 	FVector GetSampleLocalPosition(int32 SampleX, int32 SampleY, int32 SampleZ) const
 	{

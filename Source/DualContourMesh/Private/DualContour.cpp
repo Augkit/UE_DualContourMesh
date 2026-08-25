@@ -54,12 +54,6 @@ bool UDualContour::ValidateGenerationSettings() const
 			*GetNameSafe(GetOuter()), CellCount.X, CellCount.Y, CellCount.Z);
 		return false;
 	}
-	if (Divisions.X <= 0 || Divisions.Y <= 0 || Divisions.Z <= 0)
-	{
-		UE_LOG(LogDualContour, Error, TEXT("Rebuild aborted for %s: Divisions must be positive (current: %d, %d, %d)."),
-			*GetNameSafe(GetOuter()), Divisions.X, Divisions.Y, Divisions.Z);
-		return false;
-	}
 	if (CellSize <= 0.f)
 	{
 		UE_LOG(LogDualContour, Error, TEXT("Rebuild aborted for %s: CellSize must be greater than zero (current: %g)."),
@@ -338,33 +332,11 @@ void UDualContour::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax)
 			}
 }
 
-int32 UDualContour::DivisionIndex(int32 DivX, int32 DivY, int32 DivZ) const
-{
-	return DivX + DivY * Divisions.X + DivZ * Divisions.X * Divisions.Y;
-}
-
-FVectorInt UDualContour::DivisionFromCell(int32 CellX, int32 CellY, int32 CellZ) const
-{
-	return FVectorInt(FMath::Clamp(CellX * Divisions.X / CellCount.X, 0, Divisions.X - 1),
-		FMath::Clamp(CellY * Divisions.Y / CellCount.Y, 0, Divisions.Y - 1),
-		FMath::Clamp(CellZ * Divisions.Z / CellCount.Z, 0, Divisions.Z - 1));
-}
-
-FVectorInt UDualContour::DivisionCellMin(int32 DivX, int32 DivY, int32 DivZ) const
-{
-	return FVectorInt(DivX * CellCount.X / Divisions.X, DivY * CellCount.Y / Divisions.Y, DivZ * CellCount.Z / Divisions.Z);
-}
-
-FVectorInt UDualContour::DivisionCellMax(int32 DivX, int32 DivY, int32 DivZ) const
-{
-	return FVectorInt((DivX + 1) * CellCount.X / Divisions.X, (DivY + 1) * CellCount.Y / Divisions.Y,
-		(DivZ + 1) * CellCount.Z / Divisions.Z);
-}
-
 bool UDualContour::ModifyDensityWithHemisphere(const FVector& LocalHitPos, const FVector& LocalHitNormal, float Radius,
-	bool bExcavate, TSet<int32>& OutAffectedDivisions)
+	bool bExcavate, FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax)
 {
-	OutAffectedDivisions.Reset();
+	OutAffectedCellMin = FVectorInt();
+	OutAffectedCellMax = FVectorInt();
 	if (!HasCurrentGeneratedData() || Radius <= 0.f)
 		return false;
 
@@ -398,29 +370,8 @@ bool UDualContour::ModifyDensityWithHemisphere(const FVector& LocalHitPos, const
 	const FVectorInt CellRangeMin(FMath::Max(0, MinX - 1), FMath::Max(0, MinY - 1), FMath::Max(0, MinZ - 1));
 	const FVectorInt CellRangeMax(FMath::Min(CellCount.X, MaxX + 1), FMath::Min(CellCount.Y, MaxY + 1), FMath::Min(CellCount.Z, MaxZ + 1));
 	RebuildCellsInRange(CellRangeMin, CellRangeMax);
-
-	for (int32 Z = CellRangeMin.Z; Z < CellRangeMax.Z; ++Z)
-		for (int32 Y = CellRangeMin.Y; Y < CellRangeMax.Y; ++Y)
-			for (int32 X = CellRangeMin.X; X < CellRangeMax.X; ++X)
-			{
-				const FVectorInt Div = DivisionFromCell(X, Y, Z);
-				OutAffectedDivisions.Add(DivisionIndex(Div.X, Div.Y, Div.Z));
-				const bool bNegX = Div.X > 0 && X == DivisionCellMax(Div.X - 1, Div.Y, Div.Z).X;
-				const bool bNegY = Div.Y > 0 && Y == DivisionCellMax(Div.X, Div.Y - 1, Div.Z).Y;
-				const bool bNegZ = Div.Z > 0 && Z == DivisionCellMax(Div.X, Div.Y, Div.Z - 1).Z;
-				if (bNegX)
-					OutAffectedDivisions.Add(DivisionIndex(Div.X - 1, Div.Y, Div.Z));
-				if (bNegY)
-					OutAffectedDivisions.Add(DivisionIndex(Div.X, Div.Y - 1, Div.Z));
-				if (bNegZ)
-					OutAffectedDivisions.Add(DivisionIndex(Div.X, Div.Y, Div.Z - 1));
-				if (bNegX && bNegY)
-					OutAffectedDivisions.Add(DivisionIndex(Div.X - 1, Div.Y - 1, Div.Z));
-				if (bNegX && bNegZ)
-					OutAffectedDivisions.Add(DivisionIndex(Div.X - 1, Div.Y, Div.Z - 1));
-				if (bNegY && bNegZ)
-					OutAffectedDivisions.Add(DivisionIndex(Div.X, Div.Y - 1, Div.Z - 1));
-			}
+	OutAffectedCellMin = CellRangeMin;
+	OutAffectedCellMax = CellRangeMax;
 	return true;
 }
 
