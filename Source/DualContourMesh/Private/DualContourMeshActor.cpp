@@ -55,17 +55,51 @@ void ADualContourMeshActor::PostRegisterAllComponents()
 	RefreshCollisionSettings();
 
 #if WITH_EDITOR
+	if (bRebuildInitialDensityFieldAfterLoad && InitialDensityField && GetWorld()
+	    && GetWorld()->WorldType == EWorldType::Editor && !IsTemplate())
+	{
+		bRebuildInitialDensityFieldAfterLoad = false;
+		RebuildMesh();
+	}
+
 	if (DualContour && DualContour->HasCurrentGeneratedData())
 		RefreshDebugComponent();
 #endif
 }
 
+void ADualContourMeshActor::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// InitialDensityField is fully loaded and all actor components are registered at this point.
+	// Avoid doing this from construction/registration callbacks, which can run repeatedly in the editor.
+	if (InitialDensityField)
+		RebuildMesh();
+}
+
 #if WITH_EDITOR
+void ADualContourMeshActor::PostLoad()
+{
+	Super::PostLoad();
+	bRebuildInitialDensityFieldAfterLoad = InitialDensityField != nullptr;
+}
+
 void ADualContourMeshActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
-	if (PropertyChangedEvent.MemberProperty
-	    && PropertyChangedEvent.MemberProperty->GetFName() == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, Divisions))
+	if (!PropertyChangedEvent.MemberProperty)
+	{
+		RefreshCollisionSettings();
+		return;
+	}
+
+	const FName MemberPropertyName = PropertyChangedEvent.MemberProperty->GetFName();
+	if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, InitialDensityField))
+	{
+		if (InitialDensityField)
+			RebuildMesh();
+	}
+	else if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, Divisions))
 	{
 		RecreateMeshComponents();
 	}

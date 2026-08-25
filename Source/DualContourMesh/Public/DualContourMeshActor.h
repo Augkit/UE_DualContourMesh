@@ -58,8 +58,10 @@ public:
 	bool ValidateDivisions(FString& OutStatus) const;
 
 	virtual void PostRegisterAllComponents() override;
+	virtual void BeginPlay() override;
 
 #if WITH_EDITOR
+	virtual void PostLoad() override;
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
 
@@ -80,6 +82,7 @@ private:
 	FVectorInt DivisionCellMax(int32 DivX, int32 DivY, int32 DivZ) const;
 #if WITH_EDITOR
 	void RefreshDebugComponent();
+	bool bRebuildInitialDensityFieldAfterLoad = false;
 #endif
 
 };
