@@ -25,8 +25,14 @@ public:
 	bool Rebuild();
 	/** Replaces the complete sample grid and rebuilds contour cells. Samples are X-major. */
 	bool SetDensitySamples(const TArray<uint8>& Samples);
+	/** Replaces the density grid with an X-major subrange; samples outside the range become zero. */
+	bool SetDensitySamplesInRange(FVectorInt SampleMin, FVectorInt SampleDimensions, TConstArrayView<uint8> Samples);
 	/** Combines a complete sampler grid using density union/difference and rebuilds only changed cells. */
 	bool ModifyDensityWithSamples(const TArray<uint8>& Samples, bool bExcavate,
+		FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax);
+	/** Combines an X-major sampler subrange and rebuilds only changed cells. */
+	bool ModifyDensityWithSamplesInRange(FVectorInt SampleMin, FVectorInt SampleDimensions,
+		TConstArrayView<uint8> Samples, bool bExcavate,
 		FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax);
 
 	uint8 GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;

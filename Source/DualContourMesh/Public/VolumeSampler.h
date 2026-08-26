@@ -43,8 +43,9 @@ protected:
 	virtual float SampleNormalized(const FVector& UVW) const PURE_VIRTUAL(UVolumeSampler::SampleNormalized, return 0.0f;);
 
 private:
-	/** Shared sampling path used by both initialization and density modification. */
+	/** Samples only the transformed volume's conservative grid-aligned subrange. */
 	bool BuildDensitySamples(UDualContour* Target, const FTransform& SampleTransform,
+		FVectorInt& OutSampleMin, FVectorInt& OutSampleDimensions,
 		TArray<uint8>& OutSamples, FText& OutError) const;
 };
 
