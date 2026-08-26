@@ -9,7 +9,7 @@
 #include "DualContourDebugComponent.h"
 #include "DualContourMeshActor.generated.h"
 
-class USVTDensityField;
+class UVolumeSampler;
 
 UCLASS()
 class DUALCONTOURMESH_API ADualContourMeshActor : public AActor
@@ -30,9 +30,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour", meta = (ClampMin = "1"))
 	FVectorInt Divisions = FVectorInt(1, 1, 1);
 
-	/** Optional asset copied into DualContour whenever the mesh is rebuilt. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DualContour")
-	TObjectPtr<USVTDensityField> InitialDensityField;
+	/** Optional polymorphic sampler used to initialize DualContour. Select a subclass and edit it inline. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Instanced, Category = "DualContour", meta = (ShowOnlyInnerProperties))
+	TObjectPtr<UVolumeSampler> InitialDensityField;
+
+	/** Translation, rotation and scale applied to InitialDensityField about its Pivot in actor-local space. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour")
+	FTransform InitialDensityTransform = FTransform::Identity;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour")
 	TObjectPtr<UMaterialInterface> MeshMaterial = nullptr;

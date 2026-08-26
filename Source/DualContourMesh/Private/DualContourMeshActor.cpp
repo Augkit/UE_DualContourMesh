@@ -1,6 +1,6 @@
 #include "DualContourMeshActor.h"
 #include "Engine/CollisionProfile.h"
-#include "SVTDensityField.h"
+#include "VolumeSampler.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDualContourMesh, Log, All);
 
@@ -94,10 +94,10 @@ void ADualContourMeshActor::PostEditChangeProperty(FPropertyChangedEvent& Proper
 	}
 
 	const FName MemberPropertyName = PropertyChangedEvent.MemberProperty->GetFName();
-	if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, InitialDensityField))
+	if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, InitialDensityField)
+	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, InitialDensityTransform))
 	{
-		if (InitialDensityField)
-			RebuildMesh();
+		RebuildMesh();
 	}
 	else if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, Divisions))
 	{
@@ -121,24 +121,23 @@ void ADualContourMeshActor::RebuildMesh()
 {
 	if (InitialDensityField)
 	{
-		if (!InitialDensityField->DualContour)
+		if (!DualContour)
 		{
 			UE_LOG(LogDualContourMesh, Warning,
-				TEXT("Mesh rebuild aborted for %s because InitialDensityField has no DualContour data."), *GetName());
+				TEXT("Mesh rebuild aborted for %s because its target DualContour is missing."), *GetName());
 			return;
 		}
 
-		const FName DuplicateName = MakeUniqueObjectName(this, UDualContour::StaticClass(), TEXT("DualContour"));
-		UDualContour* DensityCopy = DuplicateObject<UDualContour>(InitialDensityField->DualContour, this, DuplicateName);
-		if (!DensityCopy)
+		FText Error;
+		DualContour->Modify();
+		if (!InitialDensityField->SampleToDualContour(DualContour, InitialDensityTransform, Error))
 		{
 			UE_LOG(LogDualContourMesh, Error,
-				TEXT("Mesh rebuild aborted for %s because InitialDensityField could not be copied."), *GetName());
+				TEXT("Mesh rebuild aborted for %s: %s"), *GetName(), *Error.ToString());
 			return;
 		}
 
-		DensityCopy->SetFlags(RF_Transactional);
-		SetGeneratedDualContour(DensityCopy);
+		RecreateMeshComponents();
 		return;
 	}
 
