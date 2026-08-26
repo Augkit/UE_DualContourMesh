@@ -25,9 +25,9 @@ public:
 	bool Rebuild();
 	/** Replaces the complete sample grid and rebuilds contour cells. Samples are X-major. */
 	bool SetDensitySamples(const TArray<uint8>& Samples);
-	/** Modifies density and returns the half-open range of contour cells rebuilt by the operation. */
-	bool ModifyDensityWithHemisphere(const FVector& LocalHitPos, const FVector& LocalHitNormal, float Radius,
-		bool bExcavate, FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax);
+	/** Combines a complete sampler grid using density union/difference and rebuilds only changed cells. */
+	bool ModifyDensityWithSamples(const TArray<uint8>& Samples, bool bExcavate,
+		FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax);
 
 	uint8 GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
 	const FDualContourCell* GetContourCell(int32 CellX, int32 CellY, int32 CellZ) const;

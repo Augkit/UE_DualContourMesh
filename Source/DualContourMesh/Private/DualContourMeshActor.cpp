@@ -344,8 +344,8 @@ void ADualContourMeshActor::PartialUpdateComponents(FVectorInt AffectedCellMin, 
 	}
 }
 
-void ADualContourMeshActor::ModifyDensityWithHemisphere(
-	const FVector& WorldHitPos, const FVector& WorldHitNormal, float Radius, bool bExcavate)
+void ADualContourMeshActor::ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal,
+	UVolumeSampler* Sampler, float UniformScale, bool bExcavate)
 {
 	if (!DualContour || !DualContour->HasCurrentGeneratedData())
 	{
@@ -353,18 +353,33 @@ void ADualContourMeshActor::ModifyDensityWithHemisphere(
 			TEXT("Density edit ignored for %s because generation settings changed. Call RebuildMesh first."), *GetName());
 		return;
 	}
+	if (!Sampler || !FMath::IsFinite(UniformScale) || UniformScale <= UE_SMALL_NUMBER)
+	{
+		UE_LOG(LogDualContourMesh, Warning, TEXT("Density edit ignored for %s because its sampler or scale is invalid."),
+			*GetName());
+		return;
+	}
 
 	const FTransform& ActorTransform = GetActorTransform();
 	const FVector LocalHitPosition = ActorTransform.InverseTransformPosition(WorldHitPos);
 	const FVector LocalHitNormal = ActorTransform.InverseTransformVectorNoScale(WorldHitNormal).GetSafeNormal();
-	if (!HasValidDivisions())
+	if (!HasValidDivisions() || LocalHitNormal.IsNearlyZero())
 		return;
+	const FQuat SamplerRotation = FQuat::FindBetweenNormals(FVector::UpVector, LocalHitNormal);
+	const FVector SamplerPivotPosition = Sampler->Pivot * Sampler->VolumeSize;
+	const FTransform SamplerTransform(
+		SamplerRotation, LocalHitPosition - SamplerPivotPosition, FVector(UniformScale));
 
 	FVectorInt AffectedCellMin;
 	FVectorInt AffectedCellMax;
-	if (!DualContour->ModifyDensityWithHemisphere(
-		LocalHitPosition, LocalHitNormal, Radius, bExcavate, AffectedCellMin, AffectedCellMax))
+	FText Error;
+	if (!Sampler->ModifyDualContour(
+		DualContour, SamplerTransform, bExcavate, AffectedCellMin, AffectedCellMax, Error))
+	{
+		if (!Error.IsEmpty())
+			UE_LOG(LogDualContourMesh, Warning, TEXT("Density edit failed for %s: %s"), *GetName(), *Error.ToString());
 		return;
+	}
 
 #if WITH_EDITOR
 	RefreshDebugComponent();

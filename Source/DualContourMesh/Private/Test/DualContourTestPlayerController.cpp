@@ -1,6 +1,7 @@
 #include "Test/DualContourTestPlayerController.h"
 #include "DualContourMeshActor.h"
 #include "DualContourMeshComponent.h"
+#include "ProceduralVolumeSampler.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
 #include "InputCoreTypes.h"
@@ -10,22 +11,73 @@ void ADualContourTestPlayerController::SetupInputComponent()
 	Super::SetupInputComponent();
 	InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &ADualContourTestPlayerController::OnLeftClick);
 	InputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &ADualContourTestPlayerController::OnRightClick);
+	InputComponent->BindKey(EKeys::One, IE_Pressed, this, &ADualContourTestPlayerController::SelectSphereSampler);
+	InputComponent->BindKey(EKeys::Two, IE_Pressed, this, &ADualContourTestPlayerController::SelectBoxSampler);
+	InputComponent->BindKey(EKeys::Three, IE_Pressed, this, &ADualContourTestPlayerController::SelectCylinderSampler);
+	InputComponent->BindKey(EKeys::Four, IE_Pressed, this, &ADualContourTestPlayerController::SelectCapsuleSampler);
+	InputComponent->BindKey(EKeys::Five, IE_Pressed, this, &ADualContourTestPlayerController::SelectTorusSampler);
+	InputComponent->BindKey(EKeys::LeftBracket, IE_Pressed, this, &ADualContourTestPlayerController::DecreaseSamplerScale);
+	InputComponent->BindKey(EKeys::RightBracket, IE_Pressed, this, &ADualContourTestPlayerController::IncreaseSamplerScale);
+
+	if (!SelectedSampler)
+		SelectSphereSampler();
 }
 
 void ADualContourTestPlayerController::OnLeftClick()
 {
-	DoHemisphereEdit(true);
+	ApplySelectedSampler(true);
 }
 
 void ADualContourTestPlayerController::OnRightClick()
 {
-	DoHemisphereEdit(false);
+	ApplySelectedSampler(false);
 }
 
-void ADualContourTestPlayerController::DoHemisphereEdit(bool bExcavate)
+void ADualContourTestPlayerController::SelectSampler(TSubclassOf<UProceduralVolumeSampler> SamplerClass)
+{
+	if (SamplerClass)
+		SelectedSampler = NewObject<UProceduralVolumeSampler>(this, SamplerClass);
+}
+
+void ADualContourTestPlayerController::SelectSphereSampler()
+{
+	SelectSampler(USphereVolumeSampler::StaticClass());
+}
+
+void ADualContourTestPlayerController::SelectBoxSampler()
+{
+	SelectSampler(UBoxVolumeSampler::StaticClass());
+}
+
+void ADualContourTestPlayerController::SelectCylinderSampler()
+{
+	SelectSampler(UCylinderVolumeSampler::StaticClass());
+}
+
+void ADualContourTestPlayerController::SelectCapsuleSampler()
+{
+	SelectSampler(UCapsuleVolumeSampler::StaticClass());
+}
+
+void ADualContourTestPlayerController::SelectTorusSampler()
+{
+	SelectSampler(UTorusVolumeSampler::StaticClass());
+}
+
+void ADualContourTestPlayerController::DecreaseSamplerScale()
+{
+	SamplerScale = FMath::Max(0.01f, SamplerScale / FMath::Max(1.01f, SamplerScaleStep));
+}
+
+void ADualContourTestPlayerController::IncreaseSamplerScale()
+{
+	SamplerScale = FMath::Min(10.0f, SamplerScale * FMath::Max(1.01f, SamplerScaleStep));
+}
+
+void ADualContourTestPlayerController::ApplySelectedSampler(bool bExcavate)
 {
 	UWorld* World = GetWorld();
-	if (!World)
+	if (!World || !SelectedSampler)
 		return;
 
 	UGameViewportClient* Viewport = World->GetGameViewport();
@@ -50,5 +102,6 @@ void ADualContourTestPlayerController::DoHemisphereEdit(bool bExcavate)
 	if (!MeshActor)
 		return;
 
-	MeshActor->ModifyDensityWithHemisphere(HitResult.ImpactPoint, HitResult.ImpactNormal, HemisphereRadius, bExcavate);
+	MeshActor->ModifyDensityWithSampler(
+		HitResult.ImpactPoint, HitResult.ImpactNormal, SelectedSampler, SamplerScale, bExcavate);
 }

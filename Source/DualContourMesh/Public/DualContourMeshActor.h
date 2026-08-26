@@ -57,7 +57,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Collision")
 	void RefreshCollisionSettings();
 
-	void ModifyDensityWithHemisphere(const FVector& WorldHitPos, const FVector& WorldHitNormal, float Radius, bool bExcavate);
+	/** Applies any volume sampler at a surface point, rotating its local +Z axis to the hit normal. */
+	void ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal,
+		UVolumeSampler* Sampler, float UniformScale, bool bExcavate);
 	/** Returns whether every Divisions value divides its corresponding CellCount value and describes the result. */
 	bool ValidateDivisions(FString& OutStatus) const;
 

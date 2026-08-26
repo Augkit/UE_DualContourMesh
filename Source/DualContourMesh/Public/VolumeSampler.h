@@ -29,6 +29,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Volume Sampling")
 	bool SampleToDualContour(UDualContour* Target, const FTransform& SampleTransform, FText& OutError) const;
 
+	/** Combines this sampler with existing target density and returns the rebuilt half-open cell range. */
+	bool ModifyDualContour(UDualContour* Target, const FTransform& SampleTransform, bool bExcavate,
+		FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax, FText& OutError) const;
+
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
@@ -37,6 +41,11 @@ protected:
 	virtual bool Prepare(FText& OutError) const;
 	virtual void Finish() const;
 	virtual float SampleNormalized(const FVector& UVW) const PURE_VIRTUAL(UVolumeSampler::SampleNormalized, return 0.0f;);
+
+private:
+	/** Shared sampling path used by both initialization and density modification. */
+	bool BuildDensitySamples(UDualContour* Target, const FTransform& SampleTransform,
+		TArray<uint8>& OutSamples, FText& OutError) const;
 };
 
 /** Shared signed-distance conversion and interpolation for texture-backed samplers. */

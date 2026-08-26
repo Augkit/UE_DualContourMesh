@@ -332,43 +332,53 @@ void UDualContour::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax)
 			}
 }
 
-bool UDualContour::ModifyDensityWithHemisphere(const FVector& LocalHitPos, const FVector& LocalHitNormal, float Radius,
-	bool bExcavate, FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax)
+bool UDualContour::ModifyDensityWithSamples(const TArray<uint8>& Samples, bool bExcavate,
+	FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax)
 {
 	OutAffectedCellMin = FVectorInt();
 	OutAffectedCellMax = FVectorInt();
-	if (!HasCurrentGeneratedData() || Radius <= 0.f)
+	const FVectorInt SampleDims = GetSampleDims();
+	if (!HasCurrentGeneratedData() || Samples.Num() != SampleDims.Volume())
 		return false;
 
-	const FVector Normal = LocalHitNormal.GetSafeNormal();
-	const FVectorInt SampleDims = GetSampleDims();
-	const float GridRadius = Radius / CellSize;
-	const int32 MinX = FMath::Clamp(FMath::FloorToInt(LocalHitPos.X / CellSize - GridRadius), 0, SampleDims.X - 1);
-	const int32 MinY = FMath::Clamp(FMath::FloorToInt(LocalHitPos.Y / CellSize - GridRadius), 0, SampleDims.Y - 1);
-	const int32 MinZ = FMath::Clamp(FMath::FloorToInt(LocalHitPos.Z / CellSize - GridRadius), 0, SampleDims.Z - 1);
-	const int32 MaxX = FMath::Clamp(FMath::CeilToInt(LocalHitPos.X / CellSize + GridRadius), 0, SampleDims.X - 1);
-	const int32 MaxY = FMath::Clamp(FMath::CeilToInt(LocalHitPos.Y / CellSize + GridRadius), 0, SampleDims.Y - 1);
-	const int32 MaxZ = FMath::Clamp(FMath::CeilToInt(LocalHitPos.Z / CellSize + GridRadius), 0, SampleDims.Z - 1);
-
 	bool bModified = false;
-	for (int32 Z = MinZ; Z <= MaxZ; ++Z)
-		for (int32 Y = MinY; Y <= MaxY; ++Y)
-			for (int32 X = MinX; X <= MaxX; ++X)
+	FVectorInt ModifiedSampleMin(SampleDims.X, SampleDims.Y, SampleDims.Z);
+	FVectorInt ModifiedSampleMax(-1, -1, -1);
+	for (int32 Z = 0; Z < SampleDims.Z; ++Z)
+		for (int32 Y = 0; Y < SampleDims.Y; ++Y)
+			for (int32 X = 0; X < SampleDims.X; ++X)
 			{
-				const FVector Delta = GetSampleLocalPosition(X, Y, Z) - LocalHitPos;
-				const float Distance = static_cast<float>(Delta.Size());
-				if (Distance > Radius || FVector::DotProduct(Delta, Normal) < 0.f)
+				const int32 SamplerDensity = Samples[SampleDims.LinearIndex(X, Y, Z)];
+				const int32 OldDensity = GetDensity(X, Y, Z);
+				int32 NewDensity = FMath::Max(OldDensity, SamplerDensity);
+				if (bExcavate)
+				{
+					// Samples outside the brush surface are neutral for subtraction. This also prevents
+					// the zero-filled area outside VolumeSize from changing unrelated solid samples.
+					const int32 DifferenceDensity = SamplerDensity >= GDualContourIsoValue
+						                                ? 2 * static_cast<int32>(GDualContourIsoValue) - SamplerDensity
+						                                : 255;
+					NewDensity = FMath::Min(OldDensity, DifferenceDensity);
+				}
+				const uint8 ClampedDensity = static_cast<uint8>(FMath::Clamp(NewDensity, 0, 255));
+				if (ClampedDensity == OldDensity)
 					continue;
-				const int32 Falloff = FMath::Max(1, FMath::RoundToInt(GDualContourIsoValue * (1.f - Distance / Radius)));
-				const int32 OldValue = GetDensity(X, Y, Z);
-				SetDensity(X, Y, Z, static_cast<uint8>(FMath::Clamp(bExcavate ? OldValue - Falloff : OldValue + Falloff, 0, 255)));
+				SetDensity(X, Y, Z, ClampedDensity);
+				ModifiedSampleMin.X = FMath::Min(ModifiedSampleMin.X, X);
+				ModifiedSampleMin.Y = FMath::Min(ModifiedSampleMin.Y, Y);
+				ModifiedSampleMin.Z = FMath::Min(ModifiedSampleMin.Z, Z);
+				ModifiedSampleMax.X = FMath::Max(ModifiedSampleMax.X, X);
+				ModifiedSampleMax.Y = FMath::Max(ModifiedSampleMax.Y, Y);
+				ModifiedSampleMax.Z = FMath::Max(ModifiedSampleMax.Z, Z);
 				bModified = true;
 			}
 	if (!bModified)
 		return false;
 
-	const FVectorInt CellRangeMin(FMath::Max(0, MinX - 1), FMath::Max(0, MinY - 1), FMath::Max(0, MinZ - 1));
-	const FVectorInt CellRangeMax(FMath::Min(CellCount.X, MaxX + 1), FMath::Min(CellCount.Y, MaxY + 1), FMath::Min(CellCount.Z, MaxZ + 1));
+	const FVectorInt CellRangeMin(FMath::Max(0, ModifiedSampleMin.X - 1), FMath::Max(0, ModifiedSampleMin.Y - 1),
+		FMath::Max(0, ModifiedSampleMin.Z - 1));
+	const FVectorInt CellRangeMax(FMath::Min(CellCount.X, ModifiedSampleMax.X + 1),
+		FMath::Min(CellCount.Y, ModifiedSampleMax.Y + 1), FMath::Min(CellCount.Z, ModifiedSampleMax.Z + 1));
 	RebuildCellsInRange(CellRangeMin, CellRangeMax);
 	OutAffectedCellMin = CellRangeMin;
 	OutAffectedCellMax = CellRangeMax;

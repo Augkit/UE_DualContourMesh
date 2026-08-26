@@ -121,7 +121,8 @@ void UVolumeSampler::PostEditChangeProperty(FPropertyChangedEvent& PropertyChang
 }
 #endif
 
-bool UVolumeSampler::SampleToDualContour(UDualContour* Target, const FTransform& SampleTransform, FText& OutError) const
+bool UVolumeSampler::BuildDensitySamples(UDualContour* Target, const FTransform& SampleTransform,
+	TArray<uint8>& OutSamples, FText& OutError) const
 {
 	if (!Target || Target->CellCount.X <= 0 || Target->CellCount.Y <= 0 || Target->CellCount.Z <= 0 || Target->CellSize <= 0.0f)
 	{
@@ -148,8 +149,7 @@ bool UVolumeSampler::SampleToDualContour(UDualContour* Target, const FTransform&
 
 	const FVector PivotPosition = Pivot * VolumeSize;
 	const FVector Translation = SampleTransform.GetTranslation();
-	TArray<uint8> Samples;
-	Samples.SetNumUninitialized(static_cast<int32>(SampleCount));
+	OutSamples.SetNumUninitialized(static_cast<int32>(SampleCount));
 	for (int32 Z = 0; Z < SampleDimensions.Z; ++Z)
 		for (int32 Y = 0; Y < SampleDimensions.Y; ++Y)
 			for (int32 X = 0; X < SampleDimensions.X; ++X)
@@ -161,11 +161,28 @@ bool UVolumeSampler::SampleToDualContour(UDualContour* Target, const FTransform&
 				float Density = 0.0f;
 				if (UVW.X >= 0.0 && UVW.X <= 1.0 && UVW.Y >= 0.0 && UVW.Y <= 1.0 && UVW.Z >= 0.0 && UVW.Z <= 1.0)
 					Density = SampleNormalized(UVW);
-				Samples[SampleDimensions.LinearIndex(X, Y, Z)] = static_cast<uint8>(FMath::Clamp(FMath::RoundToInt(Density), 0, 255));
+				OutSamples[SampleDimensions.LinearIndex(X, Y, Z)] = static_cast<uint8>(
+					FMath::RoundToInt(FMath::Clamp(Density, 0.0f, 255.0f)));
 			}
 
 	Finish();
-	return Target->SetDensitySamples(Samples);
+	return true;
+}
+
+bool UVolumeSampler::SampleToDualContour(UDualContour* Target, const FTransform& SampleTransform, FText& OutError) const
+{
+	TArray<uint8> Samples;
+	return BuildDensitySamples(Target, SampleTransform, Samples, OutError) && Target->SetDensitySamples(Samples);
+}
+
+bool UVolumeSampler::ModifyDualContour(UDualContour* Target, const FTransform& SampleTransform, bool bExcavate,
+	FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax, FText& OutError) const
+{
+	OutAffectedCellMin = FVectorInt();
+	OutAffectedCellMax = FVectorInt();
+	TArray<uint8> Samples;
+	return BuildDensitySamples(Target, SampleTransform, Samples, OutError)
+	       && Target->ModifyDensityWithSamples(Samples, bExcavate, OutAffectedCellMin, OutAffectedCellMax);
 }
 
 float UTextureSDFSampler::SignedDistanceToDensity(float SignedDistance) const
