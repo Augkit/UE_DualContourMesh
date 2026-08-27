@@ -10,6 +10,10 @@
 #include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "Styling/AppStyle.h"
 #include "Widgets/Docking/SDockTab.h"
+#include "Widgets/Input/SButton.h"
+#include "Widgets/Layout/SBox.h"
+#include "Widgets/Layout/SWidgetSwitcher.h"
+#include "Widgets/SBoxPanel.h"
 
 #define LOCTEXT_NAMESPACE "DualContourEditor"
 
@@ -75,9 +79,58 @@ TSharedRef<SDockTab> FDualContourEditorToolkit::SpawnViewportTab(const FSpawnTab
 
 TSharedRef<SDockTab> FDualContourEditorToolkit::SpawnDetailsTab(const FSpawnTabArgs& Args)
 {
+	if (!GetSVTDualContour() && !GetVolumeSampledDualContour())
+	{
+		return SNew(SDockTab)
+			[
+				DetailsView.ToSharedRef()
+			];
+	}
+
+	const auto MakeGenerateButton = [this](const FName ButtonStyleName, const FName TextStyleName)
+	{
+		return SNew(SButton)
+			.ButtonStyle(&FAppStyle::Get().GetWidgetStyle<FButtonStyle>(ButtonStyleName))
+			.TextStyle(&FAppStyle::Get().GetWidgetStyle<FTextBlockStyle>(TextStyleName))
+			.Text(LOCTEXT("GenerateDualContour", "Generate Dual Contour"))
+			.ToolTipText(LOCTEXT("GenerateDualContourTooltip", "Sample the configured source and rebuild the dual contour."))
+			.HAlign(HAlign_Center)
+			.VAlign(VAlign_Center)
+			.IsEnabled(this, &FDualContourEditorToolkit::CanGenerateDualContour)
+			.OnClicked(this, &FDualContourEditorToolkit::OnGenerateDualContourClicked);
+	};
+
 	return SNew(SDockTab)
 		[
-			DetailsView.ToSharedRef()
+			SNew(SVerticalBox)
+			+ SVerticalBox::Slot()
+			.FillHeight(1.0f)
+			[
+				DetailsView.ToSharedRef()
+			]
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(8.0f)
+			[
+				SNew(SBox)
+				.MinDesiredHeight(32.0f)
+				[
+					SNew(SWidgetSwitcher)
+					.WidgetIndex_Lambda([WeakThis = TWeakPtr<FDualContourEditorToolkit>(SharedThis(this))]()
+					{
+						const TSharedPtr<FDualContourEditorToolkit> Pinned = WeakThis.Pin();
+						return Pinned && Pinned->Asset && Pinned->Asset->bRebuildRequired ? 1 : 0;
+					})
+					+ SWidgetSwitcher::Slot()
+					[
+						MakeGenerateButton(TEXT("Button"), TEXT("ButtonText"))
+					]
+					+ SWidgetSwitcher::Slot()
+					[
+						MakeGenerateButton(TEXT("PrimaryButton"), TEXT("PrimaryButtonText"))
+					]
+				]
+			]
 		];
 }
 
@@ -95,26 +148,14 @@ void FDualContourEditorToolkit::ExtendToolbar()
 void FDualContourEditorToolkit::FillToolbar(FToolBarBuilder& ToolbarBuilder)
 {
 	ToolbarBuilder.BeginSection(TEXT("DualContour"));
-	if (GetSVTDualContour() || GetVolumeSampledDualContour())
+	if (GetSVTDualContour())
 	{
-		ToolbarBuilder.AddToolBarButton(
-			FUIAction(
-				FExecuteAction::CreateSP(this, &FDualContourEditorToolkit::GenerateDualContour),
-				FCanExecuteAction::CreateSP(this, &FDualContourEditorToolkit::CanGenerateDualContour)),
-			NAME_None,
-			LOCTEXT("GenerateDualContour", "Generate Dual Contour"),
-			LOCTEXT("GenerateDualContourTooltip", "Sample the configured source and rebuild the dual contour."),
-			FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Refresh")));
-
-		if (GetSVTDualContour())
-		{
-			ToolbarBuilder.AddComboButton(
-				FUIAction(),
-				FOnGetContent::CreateSP(this, &FDualContourEditorToolkit::MakePreviewTypeMenu),
-				TAttribute<FText>::CreateSP(this, &FDualContourEditorToolkit::GetPreviewTypeLabel),
-				LOCTEXT("PreviewTypeTooltip", "Choose whether the viewport previews the source SVT or generated dual-contour mesh."),
-				FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Visible")));
-		}
+		ToolbarBuilder.AddComboButton(
+			FUIAction(),
+			FOnGetContent::CreateSP(this, &FDualContourEditorToolkit::MakePreviewTypeMenu),
+			TAttribute<FText>::CreateSP(this, &FDualContourEditorToolkit::GetPreviewTypeLabel),
+			LOCTEXT("PreviewTypeTooltip", "Choose whether the viewport previews the source SVT or generated dual-contour mesh."),
+			FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Visible")));
 	}
 
 	ToolbarBuilder.AddToolBarButton(
@@ -128,6 +169,12 @@ void FDualContourEditorToolkit::FillToolbar(FToolBarBuilder& ToolbarBuilder)
 		FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Visible")),
 		EUserInterfaceActionType::ToggleButton);
 	ToolbarBuilder.EndSection();
+}
+
+FReply FDualContourEditorToolkit::OnGenerateDualContourClicked()
+{
+	GenerateDualContour();
+	return FReply::Handled();
 }
 
 void FDualContourEditorToolkit::GenerateDualContour()

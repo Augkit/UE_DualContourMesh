@@ -8,6 +8,7 @@ class UDualContour;
 class USVTDualContour;
 class UVolumeSampledDualContour;
 class FToolBarBuilder;
+class FReply;
 
 enum class EDualContourEditorPreviewType : uint8
 {
@@ -39,6 +40,7 @@ private:
 	TSharedRef<SDockTab> SpawnDetailsTab(const FSpawnTabArgs& Args);
 	void ExtendToolbar();
 	void FillToolbar(FToolBarBuilder& ToolbarBuilder);
+	FReply OnGenerateDualContourClicked();
 	void GenerateDualContour();
 	bool CanGenerateDualContour() const;
 	TSharedRef<SWidget> MakePreviewTypeMenu();

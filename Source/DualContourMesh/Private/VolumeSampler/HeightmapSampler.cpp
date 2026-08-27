@@ -128,6 +128,40 @@ bool ReadHeightmap(const UTexture2D& Texture, FIntPoint& OutSize, TArray<float>&
 }
 }
 
+UHeightmapSampler::UHeightmapSampler()
+{
+	FRichCurve* RichCurve = HeightCurve.GetRichCurve();
+	RichCurve->AddKey(0.0f, 0.0f);
+	RichCurve->AddKey(1.0f, 1.0f);
+}
+
+#if WITH_EDITOR
+void UHeightmapSampler::PostEditChangeChainProperty(FPropertyChangedChainEvent& PropertyChangedEvent)
+{
+	ClampHeightCurve();
+	Super::PostEditChangeChainProperty(PropertyChangedEvent);
+}
+
+void UHeightmapSampler::ClampHeightCurve()
+{
+	// External curves are shared assets and must not be modified by this sampler.
+	if (HeightCurve.ExternalCurve)
+		return;
+
+	FRichCurve& RichCurve = HeightCurve.EditorCurveData;
+	TArray<FKeyHandle> KeyHandles;
+	KeyHandles.Reserve(RichCurve.GetNumKeys());
+	for (auto It = RichCurve.GetKeyHandleIterator(); It; ++It)
+		KeyHandles.Add(*It);
+
+	for (const FKeyHandle KeyHandle : KeyHandles)
+	{
+		RichCurve.SetKeyValue(KeyHandle, FMath::Clamp(RichCurve.GetKeyValue(KeyHandle), 0.0f, 1.0f), false);
+		RichCurve.SetKeyTime(KeyHandle, FMath::Clamp(RichCurve.GetKeyTime(KeyHandle), 0.0f, 1.0f));
+	}
+}
+#endif
+
 bool UHeightmapSampler::Prepare(FText& OutError) const
 {
 	if (!Super::Prepare(OutError))
@@ -137,12 +171,12 @@ bool UHeightmapSampler::Prepare(FText& OutError) const
 		OutError = NSLOCTEXT("ProceduralVolumeSampler", "MissingHeightmap", "HeightmapSampler requires a Heightmap texture.");
 		return false;
 	}
-	if (!FMath::IsFinite(HeightOffset) || Tiling.ContainsNaN()
+	if (!FMath::IsFinite(Bias) || Tiling.ContainsNaN()
 	    || !FMath::IsFinite(Tiling.X) || !FMath::IsFinite(Tiling.Y)
 	    || Tiling.X <= UE_SMALL_NUMBER || Tiling.Y <= UE_SMALL_NUMBER)
 	{
 		OutError = NSLOCTEXT("ProceduralVolumeSampler", "InvalidHeightmapSettings",
-			"HeightOffset must be finite and both Tiling components must be positive and finite.");
+			"Bias must be finite and both Tiling components must be positive and finite.");
 		return false;
 	}
 	return ReadHeightmap(*Heightmap, CachedHeightmapSize, CachedHeightValues, OutError);
@@ -182,6 +216,8 @@ float UHeightmapSampler::SampleHeight(const FVector2D& UV) const
 float UHeightmapSampler::GetSignedDistance_Implementation(const FVector& LocalPosition) const
 {
 	const FVector2D UV(LocalPosition.X / VolumeSize.X + 0.5, LocalPosition.Y / VolumeSize.Y + 0.5);
-	const float SurfaceZ = (SampleHeight(UV * Tiling) - 0.5f) * HeightOffset;
+	const float MappedHeight = FMath::Clamp(
+		HeightCurve.GetRichCurveConst()->Eval(SampleHeight(UV * Tiling)), 0.0f, 1.0f);
+	const float SurfaceZ = (MappedHeight + Bias - 1.0f) * VolumeSize.Z;
 	return static_cast<float>(LocalPosition.Z) - SurfaceZ;
 }
