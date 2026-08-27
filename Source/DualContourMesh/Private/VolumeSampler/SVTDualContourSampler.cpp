@@ -1,6 +1,6 @@
-﻿#include "VolumeSampler/SVTDualContourSampler.h"
+#include "VolumeSampler/SVTDualContourSampler.h"
 #include "DualContour.h"
-#include "SVTDensityField.h"
+#include "SVTDualContour.h"
 
 bool UDualContourSampler::Prepare(FText& OutError) const
 {
@@ -31,5 +31,5 @@ void UDualContourSampler::Finish() const
 
 UDualContour* USVTDualContourSampler::ResolveDualContour() const
 {
-	return DensityField ? DensityField->DualContour : nullptr;
+	return SVTDualContour;
 }

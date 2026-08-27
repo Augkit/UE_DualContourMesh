@@ -443,7 +443,14 @@ void UDualContour::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax)
 #if WITH_EDITOR
 void UDualContour::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
-	bRebuildRequired = true;
+	const FName MemberPropertyName = PropertyChangedEvent.MemberProperty
+		                                 ? PropertyChangedEvent.MemberProperty->GetFName()
+		                                 : NAME_None;
+	if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, CellCount)
+	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, CellSize))
+	{
+		bRebuildRequired = true;
+	}
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 }
 #endif

@@ -1,9 +1,8 @@
-#include "SVTDensityFieldSampler.h"
+#include "SVTDualContourBuilder.h"
 
 #if WITH_EDITOR
 
-#include "SVTDensityField.h"
-#include "DualContour.h"
+#include "SVTDualContour.h"
 #include "SparseVolumeTexture/SparseVolumeTexture.h"
 #include "SparseVolumeTexture/ISparseVolumeTextureStreamingManager.h"
 #include "GlobalShader.h"
@@ -48,17 +47,17 @@ IMPLEMENT_GLOBAL_SHADER(FSampleSparseVolumeTextureCS,
 
 namespace
 {
-void ComputeUVTransform(ESVTDensityFieldFit Fit, const FVector3f& TargetSize, const FVector3f& SourceSize,
+void ComputeUVTransform(ESVTDualContourFit Fit, const FVector3f& TargetSize, const FVector3f& SourceSize,
 	FVector3f& OutScale, FVector3f& OutBias)
 {
 	OutScale = FVector3f(1.f);
 	OutBias = FVector3f(0.f);
-	if (Fit == ESVTDensityFieldFit::Fill)
+	if (Fit == ESVTDualContourFit::Fill)
 		return;
 
 	const FVector3f SafeSource(FMath::Max(SourceSize.X, 1.f), FMath::Max(SourceSize.Y, 1.f), FMath::Max(SourceSize.Z, 1.f));
 	const FVector3f AxisScale(TargetSize.X / SafeSource.X, TargetSize.Y / SafeSource.Y, TargetSize.Z / SafeSource.Z);
-	const float UniformScale = Fit == ESVTDensityFieldFit::Contain
+	const float UniformScale = Fit == ESVTDualContourFit::Contain
 		                           ? FMath::Min3(AxisScale.X, AxisScale.Y, AxisScale.Z)
 		                           : FMath::Max3(AxisScale.X, AxisScale.Y, AxisScale.Z);
 	const FVector3f DisplayedSize = SafeSource * FMath::Max(UniformScale, UE_SMALL_NUMBER);
@@ -67,35 +66,35 @@ void ComputeUVTransform(ESVTDensityFieldFit Fit, const FVector3f& TargetSize, co
 }
 }
 
-bool FSVTDensityFieldSampler::Sample(const USVTDensityField& DensityField, TArray<uint8>& OutSamples, FText& OutError)
+bool FSVTDualContourBuilder::Sample(const USVTDualContour& SVTDualContour, TArray<uint8>& OutSamples, FText& OutError)
 {
 	check(IsInGameThread());
 	if (!FApp::CanEverRender())
 	{
-		OutError = NSLOCTEXT("SVTDensityField", "RenderingUnavailable", "Rendering is unavailable in this process.");
+		OutError = NSLOCTEXT("SVTDualContour", "RenderingUnavailable", "Rendering is unavailable in this process.");
 		return false;
 	}
-	if (!DensityField.DualContour || !DensityField.SourceSparseVolumeTexture)
+	if (!SVTDualContour.SourceSparseVolumeTexture)
 	{
-		OutError = NSLOCTEXT("SVTDensityField", "MissingInput", "A DualContour and source SVT are required.");
+		OutError = NSLOCTEXT("SVTDualContour", "MissingInput", "A source SVT is required.");
 		return false;
 	}
 
-	const FVectorInt SampleDims(DensityField.DualContour->CellCount.X + 1,
-		DensityField.DualContour->CellCount.Y + 1, DensityField.DualContour->CellCount.Z + 1);
+	const FVectorInt SampleDims(SVTDualContour.CellCount.X + 1,
+		SVTDualContour.CellCount.Y + 1, SVTDualContour.CellCount.Z + 1);
 	const int64 NumSamples64 = static_cast<int64>(SampleDims.X) * SampleDims.Y * SampleDims.Z;
 	if (SampleDims.X <= 0 || SampleDims.Y <= 0 || SampleDims.Z <= 0 || NumSamples64 > MAX_int32)
 	{
-		OutError = NSLOCTEXT("SVTDensityField", "InvalidResolution", "The density sample resolution is invalid or too large.");
+		OutError = NSLOCTEXT("SVTDualContour", "InvalidResolution", "The density sample resolution is invalid or too large.");
 		return false;
 	}
 
-	UStaticSparseVolumeTexture* Source = DensityField.SourceSparseVolumeTexture;
+	UStaticSparseVolumeTexture* Source = SVTDualContour.SourceSparseVolumeTexture;
 	USparseVolumeTextureFrame* Frame = USparseVolumeTextureFrame::GetFrameAndIssueStreamingRequest(
-		Source, GetTypeHash(&DensityField), 0.f, 0.f, 0.f, true, false);
+		Source, GetTypeHash(&SVTDualContour), 0.f, 0.f, 0.f, true, false);
 	if (!Frame)
 	{
-		OutError = NSLOCTEXT("SVTDensityField", "MissingFrame", "The source SVT has no frame to sample.");
+		OutError = NSLOCTEXT("SVTDualContour", "MissingFrame", "The source SVT has no frame to sample.");
 		return false;
 	}
 	Frame->CreateTextureRenderResources();
@@ -104,25 +103,25 @@ bool FSVTDensityFieldSampler::Sample(const USVTDensityField& DensityField, TArra
 
 	const FIntVector SourceResolution = Source->GetVolumeResolution();
 	const FVector3f TargetSize(
-		DensityField.DualContour->CellCount.X * DensityField.DualContour->CellSize,
-		DensityField.DualContour->CellCount.Y * DensityField.DualContour->CellSize,
-		DensityField.DualContour->CellCount.Z * DensityField.DualContour->CellSize);
+		SVTDualContour.CellCount.X * SVTDualContour.CellSize,
+		SVTDualContour.CellCount.Y * SVTDualContour.CellSize,
+		SVTDualContour.CellCount.Z * SVTDualContour.CellSize);
 	FVector3f UVScale;
 	FVector3f UVBias;
-	ComputeUVTransform(DensityField.Fit, TargetSize, FVector3f(SourceResolution), UVScale, UVBias);
+	ComputeUVTransform(SVTDualContour.Fit, TargetSize, FVector3f(SourceResolution), UVScale, UVBias);
 
 	const uint32 NumSamples = static_cast<uint32>(NumSamples64);
 	const uint32 NumBytes = NumSamples * sizeof(uint32);
 	TSharedRef<FRHIGPUBufferReadback, ESPMode::ThreadSafe> Readback =
-		MakeShared<FRHIGPUBufferReadback, ESPMode::ThreadSafe>(TEXT("SVTDensityFieldReadback"));
+		MakeShared<FRHIGPUBufferReadback, ESPMode::ThreadSafe>(TEXT("SVTDualContourReadback"));
 	TSharedRef<bool, ESPMode::ThreadSafe> bResourcesValid = MakeShared<bool, ESPMode::ThreadSafe>(true);
-	const uint32 AttributeIndex = static_cast<uint32>(DensityField.DensityAttribute);
-	const float DensityScale = DensityField.DensityScale;
-	const float DensityBias = DensityField.DensityBias;
+	const uint32 AttributeIndex = static_cast<uint32>(SVTDualContour.DensityAttribute);
+	const float DensityScale = SVTDualContour.DensityScale;
+	const float DensityBias = SVTDualContour.DensityBias;
 	const FVector4f FallbackA = Source->GetFallbackValue(0);
 	const FVector4f FallbackB = Source->GetFallbackValue(1);
 
-	ENQUEUE_RENDER_COMMAND(SampleSVTDensityField)(
+	ENQUEUE_RENDER_COMMAND(SampleSVTDualContour)(
 		[Frame, SampleDims, NumSamples, NumBytes, UVScale, UVBias, AttributeIndex, DensityScale, DensityBias,
 			FallbackA, FallbackB, Readback, bResourcesValid](FRHICommandListImmediate& RHICmdList)
 		{
@@ -135,7 +134,7 @@ bool FSVTDensityFieldSampler::Sample(const USVTDensityField& DensityField, TArra
 
 			FRDGBuilder GraphBuilder(RHICmdList);
 			FRDGBufferRef OutputBuffer = GraphBuilder.CreateBuffer(
-				FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumSamples), TEXT("SVTDensityField.Output"));
+				FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), NumSamples), TEXT("SVTDualContour.Output"));
 			FSampleSparseVolumeTextureCS::FParameters* Parameters =
 				GraphBuilder.AllocParameters<FSampleSparseVolumeTextureCS::FParameters>();
 			Parameters->TileDataTextureSampler = TStaticSamplerState<SF_Trilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
@@ -158,7 +157,7 @@ bool FSVTDensityFieldSampler::Sample(const USVTDensityField& DensityField, TArra
 			Parameters->OutputDensities = GraphBuilder.CreateUAV(OutputBuffer);
 
 			TShaderMapRef<FSampleSparseVolumeTextureCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
-			FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("Sample SVT Density Field"), ComputeShader, Parameters,
+			FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("Sample SVT Dual Contour"), ComputeShader, Parameters,
 				FIntVector(FMath::DivideAndRoundUp(SampleDims.X, 4), FMath::DivideAndRoundUp(SampleDims.Y, 4),
 					FMath::DivideAndRoundUp(SampleDims.Z, 4)));
 			AddEnqueueCopyPass(GraphBuilder, &Readback.Get(), OutputBuffer, NumBytes);
@@ -173,13 +172,13 @@ bool FSVTDensityFieldSampler::Sample(const USVTDensityField& DensityField, TArra
 		FPlatformProcess::SleepNoStats(0.001f);
 	if (!*bResourcesValid || !Readback->IsReady())
 	{
-		OutError = NSLOCTEXT("SVTDensityField", "GPUResourcesUnavailable", "The source SVT GPU resources are not ready.");
+		OutError = NSLOCTEXT("SVTDualContour", "GPUResourcesUnavailable", "The source SVT GPU resources are not ready.");
 		return false;
 	}
 
 	TSharedRef<TArray<uint32>, ESPMode::ThreadSafe> ReadbackValues =
 		MakeShared<TArray<uint32>, ESPMode::ThreadSafe>();
-	ENQUEUE_RENDER_COMMAND(ReadSVTDensityField)(
+	ENQUEUE_RENDER_COMMAND(ReadSVTDualContour)(
 		[Readback, ReadbackValues, NumBytes, NumSamples](FRHICommandListImmediate& RHICmdList)
 		{
 			const uint32* Values = static_cast<const uint32*>(Readback->Lock(NumBytes));

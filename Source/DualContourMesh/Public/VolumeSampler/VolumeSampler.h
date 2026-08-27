@@ -6,7 +6,7 @@
 #include "VolumeSampler.generated.h"
 
 class UDualContour;
-class USVTDensityField;
+class USVTDualContour;
 class UTexture2D;
 class UVolumeTexture;
 

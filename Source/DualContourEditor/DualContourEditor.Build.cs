@@ -1,8 +1,8 @@
 using UnrealBuildTool;
 
-public class SVTDensityFieldEditor : ModuleRules
+public class DualContourEditor : ModuleRules
 {
-	public SVTDensityFieldEditor(ReadOnlyTargetRules Target) : base(Target)
+	public DualContourEditor(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 		PrivateDependencyModuleNames.AddRange(new string[]

@@ -1,10 +1,10 @@
 #pragma once
 
 #include "AssetDefinitionDefault.h"
-#include "AssetDefinition_SVTDensityField.generated.h"
+#include "AssetDefinition_SVTDualContour.generated.h"
 
 UCLASS()
-class UAssetDefinition_SVTDensityField : public UAssetDefinitionDefault
+class UAssetDefinition_SVTDualContour : public UAssetDefinitionDefault
 {
 	GENERATED_BODY()
 

@@ -3,22 +3,24 @@
 #include "Toolkits/AssetEditorToolkit.h"
 
 class IDetailsView;
-class SSVTDensityFieldViewport;
-class USVTDensityField;
+class SDualContourEditorViewport;
+class UDualContour;
+class USVTDualContour;
 class FToolBarBuilder;
 
-enum class ESVTDensityFieldPreviewType : uint8
+enum class EDualContourEditorPreviewType : uint8
 {
 	SparseVolumeTexture,
-	DensityField
+	DualContour
 };
 
-class FSVTDensityFieldEditorToolkit : public FAssetEditorToolkit, public FGCObject
+class FDualContourEditorToolkit : public FAssetEditorToolkit, public FGCObject
 {
 public:
-	void InitEditor(EToolkitMode::Type Mode, const TSharedPtr<IToolkitHost>& InToolkitHost, USVTDensityField* InAsset);
-	USVTDensityField* GetAsset() const { return Asset; }
-	ESVTDensityFieldPreviewType GetPreviewType() const { return PreviewType; }
+	void InitEditor(EToolkitMode::Type Mode, const TSharedPtr<IToolkitHost>& InToolkitHost, UDualContour* InAsset);
+	UDualContour* GetAsset() const { return Asset; }
+	USVTDualContour* GetSVTDualContour() const;
+	EDualContourEditorPreviewType GetPreviewType() const { return PreviewType; }
 	bool ShouldShowDualContourBounds() const { return bShowDualContourBounds; }
 
 	virtual FName GetToolkitFName() const override;
@@ -28,27 +30,27 @@ public:
 	virtual void RegisterTabSpawners(const TSharedRef<FTabManager>& InTabManager) override;
 	virtual void UnregisterTabSpawners(const TSharedRef<FTabManager>& InTabManager) override;
 	virtual void AddReferencedObjects(FReferenceCollector& Collector) override;
-	virtual FString GetReferencerName() const override { return TEXT("FSVTDensityFieldEditorToolkit"); }
+	virtual FString GetReferencerName() const override { return TEXT("FDualContourEditorToolkit"); }
 
 private:
 	TSharedRef<SDockTab> SpawnViewportTab(const FSpawnTabArgs& Args);
 	TSharedRef<SDockTab> SpawnDetailsTab(const FSpawnTabArgs& Args);
 	void ExtendToolbar();
 	void FillToolbar(FToolBarBuilder& ToolbarBuilder);
-	void GenerateDensityField();
-	bool CanGenerateDensityField() const;
+	void GenerateDualContour();
+	bool CanGenerateDualContour() const;
 	TSharedRef<SWidget> MakePreviewTypeMenu();
-	void SetPreviewType(ESVTDensityFieldPreviewType InPreviewType);
-	bool IsPreviewTypeSelected(ESVTDensityFieldPreviewType InPreviewType) const;
+	void SetPreviewType(EDualContourEditorPreviewType InPreviewType);
+	bool IsPreviewTypeSelected(EDualContourEditorPreviewType InPreviewType) const;
 	FText GetPreviewTypeLabel() const;
 	void ToggleDualContourBounds();
 	void OnFinishedChangingProperties(const FPropertyChangedEvent& Event);
 
 	static const FName ViewportTabId;
 	static const FName DetailsTabId;
-	TObjectPtr<USVTDensityField> Asset = nullptr;
+	TObjectPtr<UDualContour> Asset = nullptr;
 	TSharedPtr<IDetailsView> DetailsView;
-	TSharedPtr<SSVTDensityFieldViewport> Viewport;
-	ESVTDensityFieldPreviewType PreviewType = ESVTDensityFieldPreviewType::SparseVolumeTexture;
+	TSharedPtr<SDualContourEditorViewport> Viewport;
+	EDualContourEditorPreviewType PreviewType = EDualContourEditorPreviewType::SparseVolumeTexture;
 	bool bShowDualContourBounds = true;
 };

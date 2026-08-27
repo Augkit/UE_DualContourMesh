@@ -1,15 +1,15 @@
 #pragma once
 
 #include "Factories/Factory.h"
-#include "SVTDensityFieldFactory.generated.h"
+#include "DualContourFactory.generated.h"
 
 UCLASS()
-class USVTDensityFieldFactory : public UFactory
+class UDualContourFactory : public UFactory
 {
 	GENERATED_BODY()
 
 public:
-	USVTDensityFieldFactory();
+	UDualContourFactory();
 	virtual UObject* FactoryCreateNew(UClass* Class, UObject* InParent, FName Name, EObjectFlags Flags,
 		UObject* Context, FFeedbackContext* Warn) override;
 };

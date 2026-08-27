@@ -21,7 +21,7 @@
 			"LoadingPhase": "PostConfigInit"
 		},
 		{
-			"Name": "SVTDensityFieldEditor",
+			"Name": "DualContourEditor",
 			"Type": "Editor",
 			"LoadingPhase": "Default"
 		}

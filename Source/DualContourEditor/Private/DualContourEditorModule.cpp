@@ -3,7 +3,7 @@
 #include "Modules/ModuleManager.h"
 #include "PropertyEditorModule.h"
 
-class FSVTDensityFieldEditorModule final : public IModuleInterface
+class FDualContourEditorModule final : public IModuleInterface
 {
 public:
 	virtual void StartupModule() override
@@ -25,4 +25,4 @@ public:
 	}
 };
 
-IMPLEMENT_MODULE(FSVTDensityFieldEditorModule, SVTDensityFieldEditor)
+IMPLEMENT_MODULE(FDualContourEditorModule, DualContourEditor)

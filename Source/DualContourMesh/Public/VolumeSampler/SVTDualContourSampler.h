@@ -18,7 +18,7 @@ protected:
 	mutable TWeakObjectPtr<UDualContour> CachedDualContour;
 };
 
-/** Samples the baked DualContour stored in a USVTDensityField. */
+/** Samples a baked USVTDualContour, which is itself a DualContour. */
 UCLASS(BlueprintType, EditInlineNew)
 class DUALCONTOURMESH_API USVTDualContourSampler : public UDualContourSampler
 {
@@ -26,7 +26,7 @@ class DUALCONTOURMESH_API USVTDualContourSampler : public UDualContourSampler
 
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour")
-	TObjectPtr<USVTDensityField> DensityField;
+	TObjectPtr<USVTDualContour> SVTDualContour;
 
 protected:
 	virtual UDualContour* ResolveDualContour() const override;
