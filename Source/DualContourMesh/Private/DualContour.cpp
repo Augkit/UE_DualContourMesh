@@ -66,14 +66,12 @@ bool IsValidSampleRange(const FVectorInt& FullDimensions, const FVectorInt& Samp
 
 uint16 UDualContour::PackLocalContourKey(int32 CellX, int32 CellY, int32 CellZ)
 {
-	return static_cast<uint16>((CellX % GDualContourChunkSize) | ((CellY % GDualContourChunkSize) << 4)
-	                           | ((CellZ % GDualContourChunkSize) << 8));
+	return static_cast<uint16>((CellX % GDualContourChunkSize) | ((CellY % GDualContourChunkSize) << 4) | ((CellZ % GDualContourChunkSize) << 8));
 }
 
 bool UDualContour::HasCurrentGeneratedData() const
 {
-	return !bRebuildRequired && LastBuiltCellCount.X == CellCount.X && LastBuiltCellCount.Y == CellCount.Y
-	       && LastBuiltCellCount.Z == CellCount.Z;
+	return !bRebuildRequired && LastBuiltCellCount.X == CellCount.X && LastBuiltCellCount.Y == CellCount.Y && LastBuiltCellCount.Z == CellCount.Z;
 }
 
 bool UDualContour::ValidateGenerationSettings() const
@@ -108,18 +106,18 @@ bool UDualContour::Rebuild()
 	if (!ValidateGenerationSettings())
 		return false;
 
-	BuildCells();
 	LastBuiltCellCount = CellCount;
 	bRebuildRequired = false;
+	BuildCells();
 	return true;
 }
 
-bool UDualContour::SetDensitySamples(const TArray<uint8>& Samples)
+bool UDualContour::ReplaceDensitySamples(const TArray<uint8>& Samples)
 {
-	return SetDensitySamplesInRange(FVectorInt(0, 0, 0), GetSampleDims(), Samples);
+	return ReplaceDensitySamplesInRange(FVectorInt(0, 0, 0), GetSampleDims(), Samples);
 }
 
-bool UDualContour::SetDensitySamplesInRange(FVectorInt SampleMin, FVectorInt SampleDimensions,
+bool UDualContour::ReplaceDensitySamplesInRange(FVectorInt SampleMin, FVectorInt SampleDimensions,
 	TConstArrayView<uint8> Samples)
 {
 	bRebuildRequired = true;
@@ -147,18 +145,83 @@ bool UDualContour::SetDensitySamplesInRange(FVectorInt SampleMin, FVectorInt Sam
 			}
 
 	ContourChunks.Reset();
-	if (!Samples.IsEmpty())
+	LastBuiltCellCount = CellCount;
+	bRebuildRequired = false;
+	if (Samples.IsEmpty())
 	{
-		const FVectorInt SampleMax(SampleMin.X + SampleDimensions.X, SampleMin.Y + SampleDimensions.Y,
-			SampleMin.Z + SampleDimensions.Z);
+		OnCellsRebuilt.Broadcast(FVectorInt(0, 0, 0), CellCount);
+	}
+	else
+	{
+		const FVectorInt SampleMax(SampleMin.X + SampleDimensions.X, SampleMin.Y + SampleDimensions.Y, SampleMin.Z + SampleDimensions.Z);
 		const FVectorInt CellRangeMin(FMath::Max(0, SampleMin.X - 1), FMath::Max(0, SampleMin.Y - 1),
 			FMath::Max(0, SampleMin.Z - 1));
 		const FVectorInt CellRangeMax(FMath::Min(CellCount.X, SampleMax.X), FMath::Min(CellCount.Y, SampleMax.Y),
 			FMath::Min(CellCount.Z, SampleMax.Z));
 		RebuildCellsInRange(CellRangeMin, CellRangeMax);
 	}
-	LastBuiltCellCount = CellCount;
-	bRebuildRequired = false;
+	return true;
+}
+
+bool UDualContour::ModifyDensitySamples(const TArray<uint8>& Samples, bool bExcavate, FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax)
+{
+	return ModifyDensitySamplesInRange(FVectorInt(0, 0, 0), GetSampleDims(), Samples, bExcavate,
+		OutAffectedCellMin, OutAffectedCellMax);
+}
+
+bool UDualContour::ModifyDensitySamplesInRange(FVectorInt SampleMin, FVectorInt SampleDimensions, TConstArrayView<uint8> Samples, bool bExcavate,
+	FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax)
+{
+	OutAffectedCellMin = FVectorInt();
+	OutAffectedCellMax = FVectorInt();
+	const FVectorInt FullSampleDimensions = GetSampleDims();
+	if (!HasCurrentGeneratedData() || !IsValidSampleRange(FullSampleDimensions, SampleMin, SampleDimensions, Samples.Num()))
+		return false;
+
+	bool bModified = false;
+	FVectorInt ModifiedSampleMin(FullSampleDimensions.X, FullSampleDimensions.Y, FullSampleDimensions.Z);
+	FVectorInt ModifiedSampleMax(-1, -1, -1);
+	for (int32 Z = 0; Z < SampleDimensions.Z; ++Z)
+		for (int32 Y = 0; Y < SampleDimensions.Y; ++Y)
+			for (int32 X = 0; X < SampleDimensions.X; ++X)
+			{
+				const int32 SampleX = SampleMin.X + X;
+				const int32 SampleY = SampleMin.Y + Y;
+				const int32 SampleZ = SampleMin.Z + Z;
+				const int32 SamplerDensity = Samples[SampleDimensions.LinearIndex(X, Y, Z)];
+				const int32 OldDensity = GetDensity(SampleX, SampleY, SampleZ);
+				int32 NewDensity = FMath::Max(OldDensity, SamplerDensity);
+				if (bExcavate)
+				{
+					// Samples outside the brush surface are neutral for subtraction. This also prevents
+					// the zero-filled area outside VolumeSize from changing unrelated solid samples.
+					const int32 DifferenceDensity = SamplerDensity >= GDualContourIsoValue
+						                                ? 2 * static_cast<int32>(GDualContourIsoValue) - SamplerDensity
+						                                : 255;
+					NewDensity = FMath::Min(OldDensity, DifferenceDensity);
+				}
+				const uint8 ClampedDensity = static_cast<uint8>(FMath::Clamp(NewDensity, 0, 255));
+				if (ClampedDensity == OldDensity)
+					continue;
+				SetDensity(SampleX, SampleY, SampleZ, ClampedDensity);
+				ModifiedSampleMin.X = FMath::Min(ModifiedSampleMin.X, SampleX);
+				ModifiedSampleMin.Y = FMath::Min(ModifiedSampleMin.Y, SampleY);
+				ModifiedSampleMin.Z = FMath::Min(ModifiedSampleMin.Z, SampleZ);
+				ModifiedSampleMax.X = FMath::Max(ModifiedSampleMax.X, SampleX);
+				ModifiedSampleMax.Y = FMath::Max(ModifiedSampleMax.Y, SampleY);
+				ModifiedSampleMax.Z = FMath::Max(ModifiedSampleMax.Z, SampleZ);
+				bModified = true;
+			}
+	if (!bModified)
+		return false;
+
+	const FVectorInt CellRangeMin(FMath::Max(0, ModifiedSampleMin.X - 1), FMath::Max(0, ModifiedSampleMin.Y - 1),
+		FMath::Max(0, ModifiedSampleMin.Z - 1));
+	const FVectorInt CellRangeMax(FMath::Min(CellCount.X, ModifiedSampleMax.X + 1),
+		FMath::Min(CellCount.Y, ModifiedSampleMax.Y + 1), FMath::Min(CellCount.Z, ModifiedSampleMax.Z + 1));
+	RebuildCellsInRange(CellRangeMin, CellRangeMax);
+	OutAffectedCellMin = CellRangeMin;
+	OutAffectedCellMax = CellRangeMax;
 	return true;
 }
 
@@ -372,71 +435,9 @@ void UDualContour::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax)
 				}
 				SetContourCell(CellX, CellY, CellZ, Cell);
 			}
-}
 
-bool UDualContour::ModifyDensityWithSamples(const TArray<uint8>& Samples, bool bExcavate,
-	FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax)
-{
-	return ModifyDensityWithSamplesInRange(FVectorInt(0, 0, 0), GetSampleDims(), Samples, bExcavate,
-		OutAffectedCellMin, OutAffectedCellMax);
-}
-
-bool UDualContour::ModifyDensityWithSamplesInRange(FVectorInt SampleMin, FVectorInt SampleDimensions,
-	TConstArrayView<uint8> Samples, bool bExcavate,
-	FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax)
-{
-	OutAffectedCellMin = FVectorInt();
-	OutAffectedCellMax = FVectorInt();
-	const FVectorInt FullSampleDimensions = GetSampleDims();
-	if (!HasCurrentGeneratedData()
-	    || !IsValidSampleRange(FullSampleDimensions, SampleMin, SampleDimensions, Samples.Num()))
-		return false;
-
-	bool bModified = false;
-	FVectorInt ModifiedSampleMin(FullSampleDimensions.X, FullSampleDimensions.Y, FullSampleDimensions.Z);
-	FVectorInt ModifiedSampleMax(-1, -1, -1);
-	for (int32 Z = 0; Z < SampleDimensions.Z; ++Z)
-		for (int32 Y = 0; Y < SampleDimensions.Y; ++Y)
-			for (int32 X = 0; X < SampleDimensions.X; ++X)
-			{
-				const int32 SampleX = SampleMin.X + X;
-				const int32 SampleY = SampleMin.Y + Y;
-				const int32 SampleZ = SampleMin.Z + Z;
-				const int32 SamplerDensity = Samples[SampleDimensions.LinearIndex(X, Y, Z)];
-				const int32 OldDensity = GetDensity(SampleX, SampleY, SampleZ);
-				int32 NewDensity = FMath::Max(OldDensity, SamplerDensity);
-				if (bExcavate)
-				{
-					// Samples outside the brush surface are neutral for subtraction. This also prevents
-					// the zero-filled area outside VolumeSize from changing unrelated solid samples.
-					const int32 DifferenceDensity = SamplerDensity >= GDualContourIsoValue
-						                                ? 2 * static_cast<int32>(GDualContourIsoValue) - SamplerDensity
-						                                : 255;
-					NewDensity = FMath::Min(OldDensity, DifferenceDensity);
-				}
-				const uint8 ClampedDensity = static_cast<uint8>(FMath::Clamp(NewDensity, 0, 255));
-				if (ClampedDensity == OldDensity)
-					continue;
-				SetDensity(SampleX, SampleY, SampleZ, ClampedDensity);
-				ModifiedSampleMin.X = FMath::Min(ModifiedSampleMin.X, SampleX);
-				ModifiedSampleMin.Y = FMath::Min(ModifiedSampleMin.Y, SampleY);
-				ModifiedSampleMin.Z = FMath::Min(ModifiedSampleMin.Z, SampleZ);
-				ModifiedSampleMax.X = FMath::Max(ModifiedSampleMax.X, SampleX);
-				ModifiedSampleMax.Y = FMath::Max(ModifiedSampleMax.Y, SampleY);
-				ModifiedSampleMax.Z = FMath::Max(ModifiedSampleMax.Z, SampleZ);
-				bModified = true;
-			}
-	if (!bModified)
-		return false;
-
-	const FVectorInt CellRangeMin(FMath::Max(0, ModifiedSampleMin.X - 1), FMath::Max(0, ModifiedSampleMin.Y - 1),
-		FMath::Max(0, ModifiedSampleMin.Z - 1));
-	const FVectorInt CellRangeMax(FMath::Min(CellCount.X, ModifiedSampleMax.X + 1),
-		FMath::Min(CellCount.Y, ModifiedSampleMax.Y + 1), FMath::Min(CellCount.Z, ModifiedSampleMax.Z + 1));
-	RebuildCellsInRange(CellRangeMin, CellRangeMax);
-	OutAffectedCellMin = CellRangeMin;
-	OutAffectedCellMax = CellRangeMax;
-	return true;
+	if (RangeMin.X < RangeMax.X && RangeMin.Y < RangeMax.Y && RangeMin.Z < RangeMax.Z)
+		OnCellsRebuilt.Broadcast(RangeMin, RangeMax);
 }
 
 #if WITH_EDITOR

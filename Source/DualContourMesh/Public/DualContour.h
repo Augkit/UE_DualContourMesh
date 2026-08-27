@@ -5,6 +5,8 @@
 #include "DualContourTypes.h"
 #include "DualContour.generated.h"
 
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDualContourCellsRebuilt, FVectorInt, FVectorInt);
+
 /** Owns the dual-contour source data, generation settings, and contour-building algorithms. */
 UCLASS(BlueprintType, EditInlineNew, DefaultToInstanced)
 class DUALCONTOURMESH_API UDualContour : public UObject
@@ -22,17 +24,18 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DualContour")
 	bool bRebuildRequired = true;
 
+	/** Broadcast after generated contour data changes. The range is [CellMin, CellMax). */
+	FOnDualContourCellsRebuilt OnCellsRebuilt;
+
 	bool Rebuild();
 	/** Replaces the complete sample grid and rebuilds contour cells. Samples are X-major. */
-	bool SetDensitySamples(const TArray<uint8>& Samples);
+	bool ReplaceDensitySamples(const TArray<uint8>& Samples);
 	/** Replaces the density grid with an X-major subrange; samples outside the range become zero. */
-	bool SetDensitySamplesInRange(FVectorInt SampleMin, FVectorInt SampleDimensions, TConstArrayView<uint8> Samples);
+	bool ReplaceDensitySamplesInRange(FVectorInt SampleMin, FVectorInt SampleDimensions, TConstArrayView<uint8> Samples);
 	/** Combines a complete sampler grid using density union/difference and rebuilds only changed cells. */
-	bool ModifyDensityWithSamples(const TArray<uint8>& Samples, bool bExcavate,
-		FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax);
+	bool ModifyDensitySamples(const TArray<uint8>& Samples, bool bExcavate, FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax);
 	/** Combines an X-major sampler subrange and rebuilds only changed cells. */
-	bool ModifyDensityWithSamplesInRange(FVectorInt SampleMin, FVectorInt SampleDimensions,
-		TConstArrayView<uint8> Samples, bool bExcavate,
+	bool ModifyDensitySamplesInRange(FVectorInt SampleMin, FVectorInt SampleDimensions, TConstArrayView<uint8> Samples, bool bExcavate,
 		FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax);
 
 	uint8 GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;

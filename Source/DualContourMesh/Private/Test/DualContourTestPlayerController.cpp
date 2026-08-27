@@ -102,6 +102,5 @@ void ADualContourTestPlayerController::ApplySelectedSampler(bool bExcavate)
 	if (!MeshActor)
 		return;
 
-	MeshActor->ModifyDensityWithSampler(
-		HitResult.ImpactPoint, HitResult.ImpactNormal, SelectedSampler, SamplerScale, bExcavate);
+	MeshActor->ModifyDensityWithSampler(HitResult.ImpactPoint, HitResult.ImpactNormal, SelectedSampler, SamplerScale, bExcavate);
 }

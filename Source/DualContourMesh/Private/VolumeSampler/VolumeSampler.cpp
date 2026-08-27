@@ -129,17 +129,17 @@ bool UVolumeSampler::BuildDensitySamples(UDualContour* Target, const FTransform&
 	return true;
 }
 
-bool UVolumeSampler::SampleToDualContour(UDualContour* Target, const FTransform& SampleTransform, FText& OutError) const
+bool UVolumeSampler::ReplaceDualContour(UDualContour* Target, const FTransform& SampleTransform, FText& OutError)
 {
 	FVectorInt SampleMin;
 	FVectorInt SampleDimensions;
 	TArray<uint8> Samples;
 	return BuildDensitySamples(Target, SampleTransform, SampleMin, SampleDimensions, Samples, OutError)
-	       && Target->SetDensitySamplesInRange(SampleMin, SampleDimensions, Samples);
+	       && Target->ReplaceDensitySamplesInRange(SampleMin, SampleDimensions, Samples);
 }
 
 bool UVolumeSampler::ModifyDualContour(UDualContour* Target, const FTransform& SampleTransform, bool bExcavate,
-	FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax, FText& OutError) const
+	FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax, FText& OutError)
 {
 	OutAffectedCellMin = FVectorInt();
 	OutAffectedCellMax = FVectorInt();
@@ -147,6 +147,6 @@ bool UVolumeSampler::ModifyDualContour(UDualContour* Target, const FTransform& S
 	FVectorInt SampleDimensions;
 	TArray<uint8> Samples;
 	return BuildDensitySamples(Target, SampleTransform, SampleMin, SampleDimensions, Samples, OutError)
-	       && Target->ModifyDensityWithSamplesInRange(SampleMin, SampleDimensions, Samples, bExcavate,
+	       && Target->ModifyDensitySamplesInRange(SampleMin, SampleDimensions, Samples, bExcavate,
 		       OutAffectedCellMin, OutAffectedCellMax);
 }

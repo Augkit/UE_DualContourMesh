@@ -58,13 +58,15 @@ public:
 	void RefreshCollisionSettings();
 
 	/** Applies any volume sampler at a surface point, rotating its local +Z axis to the hit normal. */
-	void ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal,
-		UVolumeSampler* Sampler, float UniformScale, bool bExcavate);
+	void ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal, UVolumeSampler* Sampler, float UniformScale,
+		bool bExcavate);
+
 	/** Returns whether every Divisions value divides its corresponding CellCount value and describes the result. */
 	bool ValidateDivisions(FString& OutStatus) const;
 
 	virtual void PostRegisterAllComponents() override;
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 #if WITH_EDITOR
 	virtual void PostLoad() override;
@@ -77,6 +79,12 @@ public:
 #endif
 
 private:
+	FDelegateHandle DualContourCellsRebuiltHandle;
+	bool bRebuildingMesh = false;
+	void BindToDualContour();
+	void UnbindFromDualContour();
+	void OnDualContourCellsRebuilt(FVectorInt AffectedCellMin, FVectorInt AffectedCellMax);
+
 	void RecreateMeshComponents();
 	void ApplyCollisionSettings(UDualContourMeshComponent* MeshComponent) const;
 	void PartialUpdateComponents(FVectorInt AffectedCellMin, FVectorInt AffectedCellMax);
@@ -86,6 +94,7 @@ private:
 	FVectorInt DivisionFromCell(int32 CellX, int32 CellY, int32 CellZ) const;
 	FVectorInt DivisionCellMin(int32 DivX, int32 DivY, int32 DivZ) const;
 	FVectorInt DivisionCellMax(int32 DivX, int32 DivY, int32 DivZ) const;
+
 #if WITH_EDITOR
 	void RefreshDebugComponent();
 	bool bRebuildInitialDensityFieldAfterLoad = false;

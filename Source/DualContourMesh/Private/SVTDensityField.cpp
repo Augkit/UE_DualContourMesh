@@ -27,7 +27,7 @@ bool USVTDensityField::SampleSparseVolumeTexture()
 
 	Modify();
 	DualContour->Modify();
-	if (!DualContour->SetDensitySamples(Samples))
+	if (!DualContour->ReplaceDensitySamples(Samples))
 		return false;
 
 	++GenerationRevision;

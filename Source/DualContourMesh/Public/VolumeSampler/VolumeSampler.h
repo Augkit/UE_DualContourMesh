@@ -27,11 +27,11 @@ public:
 
 	/** Fills Target with this sampler after applying translation, rotation and scale about Pivot. */
 	UFUNCTION(BlueprintCallable, Category = "Volume Sampling")
-	bool SampleToDualContour(UDualContour* Target, const FTransform& SampleTransform, FText& OutError) const;
+	bool ReplaceDualContour(UDualContour* Target, const FTransform& SampleTransform, FText& OutError);
 
 	/** Combines this sampler with existing target density and returns the rebuilt half-open cell range. */
 	bool ModifyDualContour(UDualContour* Target, const FTransform& SampleTransform, bool bExcavate,
-		FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax, FText& OutError) const;
+		FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax, FText& OutError);
 
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;

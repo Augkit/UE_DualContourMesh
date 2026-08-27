@@ -49,6 +49,7 @@ void ADualContourMeshActor::RefreshCollisionSettings()
 void ADualContourMeshActor::PostRegisterAllComponents()
 {
 	Super::PostRegisterAllComponents();
+	BindToDualContour();
 	for (TPair<int32, TObjectPtr<UDualContourMeshComponent>>& Pair : MeshComponents)
 		if (Pair.Value)
 			Pair.Value->DualContour = DualContour;
@@ -75,6 +76,12 @@ void ADualContourMeshActor::BeginPlay()
 	// Avoid doing this from construction/registration callbacks, which can run repeatedly in the editor.
 	if (InitialDensityField)
 		RebuildMesh();
+}
+
+void ADualContourMeshActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	UnbindFromDualContour();
+	Super::EndPlay(EndPlayReason);
 }
 
 #if WITH_EDITOR
@@ -119,6 +126,7 @@ void ADualContourMeshActor::RefreshDebugComponent()
 
 void ADualContourMeshActor::RebuildMesh()
 {
+	TGuardValue<bool> RebuildingMeshGuard(bRebuildingMesh, true);
 	if (InitialDensityField)
 	{
 		if (!DualContour)
@@ -130,7 +138,7 @@ void ADualContourMeshActor::RebuildMesh()
 
 		FText Error;
 		DualContour->Modify();
-		if (!InitialDensityField->SampleToDualContour(DualContour, InitialDensityTransform, Error))
+		if (!InitialDensityField->ReplaceDualContour(DualContour, InitialDensityTransform, Error))
 		{
 			UE_LOG(LogDualContourMesh, Error,
 				TEXT("Mesh rebuild aborted for %s: %s"), *GetName(), *Error.ToString());
@@ -158,10 +166,41 @@ bool ADualContourMeshActor::SetGeneratedDualContour(UDualContour* InDualContour)
 	if (DualContour == InDualContour)
 		return true;
 
+	UnbindFromDualContour();
 	DualContour = InDualContour;
+	BindToDualContour();
 
 	RecreateMeshComponents();
 	return true;
+}
+
+void ADualContourMeshActor::BindToDualContour()
+{
+	if (!DualContour || DualContourCellsRebuiltHandle.IsValid())
+		return;
+
+	DualContourCellsRebuiltHandle = DualContour->OnCellsRebuilt.AddUObject(
+		this, &ADualContourMeshActor::OnDualContourCellsRebuilt);
+}
+
+void ADualContourMeshActor::UnbindFromDualContour()
+{
+	if (DualContour && DualContourCellsRebuiltHandle.IsValid())
+	{
+		DualContour->OnCellsRebuilt.Remove(DualContourCellsRebuiltHandle);
+		DualContourCellsRebuiltHandle.Reset();
+	}
+}
+
+void ADualContourMeshActor::OnDualContourCellsRebuilt(FVectorInt AffectedCellMin, FVectorInt AffectedCellMax)
+{
+	if (bRebuildingMesh)
+		return;
+
+#if WITH_EDITOR
+	RefreshDebugComponent();
+#endif
+	PartialUpdateComponents(AffectedCellMin, AffectedCellMax);
 }
 
 void ADualContourMeshActor::RecreateMeshComponents()
@@ -344,8 +383,8 @@ void ADualContourMeshActor::PartialUpdateComponents(FVectorInt AffectedCellMin, 
 	}
 }
 
-void ADualContourMeshActor::ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal,
-	UVolumeSampler* Sampler, float UniformScale, bool bExcavate)
+void ADualContourMeshActor::ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal, UVolumeSampler* Sampler,
+	float UniformScale, bool bExcavate)
 {
 	if (!DualContour || !DualContour->HasCurrentGeneratedData())
 	{
@@ -380,9 +419,4 @@ void ADualContourMeshActor::ModifyDensityWithSampler(const FVector& WorldHitPos,
 			UE_LOG(LogDualContourMesh, Warning, TEXT("Density edit failed for %s: %s"), *GetName(), *Error.ToString());
 		return;
 	}
-
-#if WITH_EDITOR
-	RefreshDebugComponent();
-#endif
-	PartialUpdateComponents(AffectedCellMin, AffectedCellMax);
 }
