@@ -54,9 +54,6 @@ public:
 	/** Sets generated contour data and immediately recreates the mesh components from it. */
 	bool SetGeneratedDualContour(UDualContour* InDualContour);
 
-	UFUNCTION(BlueprintCallable, Category = "Collision")
-	void RefreshCollisionSettings();
-
 	/** Applies any volume sampler at a surface point, rotating its local +Z axis to the hit normal. */
 	void ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal, UVolumeSampler* Sampler, float UniformScale,
 		bool bExcavate);
@@ -85,15 +82,16 @@ private:
 	void UnbindFromDualContour();
 	void OnDualContourCellsRebuilt(FVectorInt AffectedCellMin, FVectorInt AffectedCellMax);
 
-	void RecreateMeshComponents();
 	void ApplyCollisionSettings(UDualContourMeshComponent* MeshComponent) const;
-	void PartialUpdateComponents(FVectorInt AffectedCellMin, FVectorInt AffectedCellMax);
+	void RefreshCollisionSettings();
+	void RecreateMeshComponents();
 	UDualContourMeshComponent* CreateMeshComponent(FVectorInt CellMin, FVectorInt CellMax);
 	bool HasValidDivisions() const;
 	int32 DivisionIndex(int32 DivX, int32 DivY, int32 DivZ) const;
 	FVectorInt DivisionFromCell(int32 CellX, int32 CellY, int32 CellZ) const;
 	FVectorInt DivisionCellMin(int32 DivX, int32 DivY, int32 DivZ) const;
 	FVectorInt DivisionCellMax(int32 DivX, int32 DivY, int32 DivZ) const;
+	void PartialUpdateComponents(FVectorInt AffectedCellMin, FVectorInt AffectedCellMax);
 
 #if WITH_EDITOR
 	void RefreshDebugComponent();
