@@ -1,6 +1,6 @@
 #include "DualContourMeshActor.h"
 #include "Engine/CollisionProfile.h"
-#include "VolumeSampler.h"
+#include "VolumeSampler/VolumeSampler.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDualContourMesh, Log, All);
 

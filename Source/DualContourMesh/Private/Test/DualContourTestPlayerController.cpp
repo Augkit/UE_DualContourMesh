@@ -1,7 +1,7 @@
 #include "Test/DualContourTestPlayerController.h"
 #include "DualContourMeshActor.h"
 #include "DualContourMeshComponent.h"
-#include "ProceduralVolumeSampler.h"
+#include "VolumeSampler/ProceduralVolumeSampler.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
 #include "InputCoreTypes.h"

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "VolumeSampler.h"
+#include "VolumeSampler/VolumeSampler.h"
 #include "ProceduralVolumeSampler.generated.h"
 
 /**

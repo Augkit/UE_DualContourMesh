@@ -1,6 +1,4 @@
-#include "ProceduralVolumeSampler.h"
-
-#include "DualContourTypes.h"
+﻿#include "VolumeSampler/ProceduralVolumeSampler.h"
 
 namespace
 {
@@ -16,6 +14,7 @@ float CappedCylinderSignedDistance(const FVector& Position, float Radius, float 
 	const FVector2D Outside(FMath::Max(Distance.X, 0.0), FMath::Max(Distance.Y, 0.0));
 	return Outside.Length() + FMath::Min(FMath::Max(Distance.X, Distance.Y), 0.0);
 }
+
 }
 
 bool UProceduralVolumeSampler::Prepare(FText& OutError) const
@@ -44,6 +43,7 @@ float UProceduralVolumeSampler::SampleNormalized(const FVector& UVW) const
 		return 0.0f;
 	return static_cast<float>(GDualContourIsoValue) + DensityBias - SignedDistance * DensityScale;
 }
+
 
 bool USphereVolumeSampler::Prepare(FText& OutError) const
 {
