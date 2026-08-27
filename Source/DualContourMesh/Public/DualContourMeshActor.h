@@ -19,29 +19,29 @@ class DUALCONTOURMESH_API ADualContourMeshActor : public AActor
 public:
 	ADualContourMeshActor();
 
-	UPROPERTY(VisibleAnywhere, Category = "DualContour")
+	UPROPERTY(Transient)
 	TMap<int32, TObjectPtr<UDualContourMeshComponent>> MeshComponents;
 
 	/** Data model and generator managed by this actor. */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Instanced, Category = "DualContour")
+	UPROPERTY(BlueprintReadOnly, Instanced)
 	TObjectPtr<UDualContour> DualContour;
-
-	/** Number of independently generated mesh components along each axis. Each value must divide the corresponding CellCount exactly. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour", meta = (ClampMin = "1"))
-	FVectorInt Divisions = FVectorInt(1, 1, 1);
-
+	
 	/** Optional persistent DualContour asset copied into this actor when its mesh is rebuilt. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DualContour")
 	TObjectPtr<UDualContour> InitialDualContour;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour")
+	/** Number of independently generated mesh components along each axis. Each value must divide the corresponding CellCount exactly. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Rendering", meta = (ClampMin = "1"))
+	FVectorInt Divisions = FVectorInt(1, 1, 1);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Rendering")
 	TObjectPtr<UMaterialInterface> MeshMaterial = nullptr;
 
 	/** Collision profile or custom channel settings applied to every generated mesh chunk. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Collision", meta = (ShowOnlyInnerProperties))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DualContour|Collision")
 	FBodyInstance CollisionSettings;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Collision")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Collision")
 	bool bGenerateOverlapEvents = true;
 
 	UFUNCTION(CallInEditor, Category = "DualContour")

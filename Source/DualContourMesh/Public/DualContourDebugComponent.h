@@ -5,7 +5,7 @@
 #include "DualContourDebugComponent.generated.h"
 
 /** Editor-only primitive component that renders dual-contour cell debug boxes via its SceneProxy. */
-UCLASS(ClassGroup = "DualContour", NotBlueprintable, NotBlueprintType)
+UCLASS(ClassGroup = "DualContour", NotBlueprintable, NotBlueprintType, HideCategories = (Collision, Physics))
 class DUALCONTOURMESH_API UDualContourDebugComponent : public UPrimitiveComponent
 {
 	GENERATED_BODY()

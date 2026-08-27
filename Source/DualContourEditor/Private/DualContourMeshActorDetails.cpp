@@ -8,6 +8,7 @@
 #include "DualContourFactory.h"
 #include "DualContourMeshActor.h"
 #include "Framework/Notifications/NotificationManager.h"
+#include "IDetailGroup.h"
 #include "IDetailPropertyRow.h"
 #include "PropertyHandle.h"
 #include "ScopedTransaction.h"
@@ -52,7 +53,33 @@ void FDualContourMeshActorDetails::CustomizeDetails(IDetailLayoutBuilder& Detail
 		if (ADualContourMeshActor* Actor = Cast<ADualContourMeshActor>(Object.Get()))
 			CustomizedActors.Add(Actor);
 
+	// DualContour is reused in other editors, so keep its native categories unchanged and
+	// relocate only the properties shown for ADualContourMeshActor.
+	TArray<UObject*> DualContourObjects;
+	DualContourObjects.Reserve(CustomizedActors.Num());
+	for (const TWeakObjectPtr<ADualContourMeshActor>& WeakActor : CustomizedActors)
+	{
+		if (ADualContourMeshActor* Actor = WeakActor.Get(); Actor && Actor->DualContour)
+			DualContourObjects.Add(Actor->DualContour.Get());
+	}
+
 	IDetailCategoryBuilder& DualContourCategory = DetailBuilder.EditCategory(TEXT("DualContour"));
+	if (!DualContourObjects.IsEmpty())
+	{
+		IDetailGroup& DensityFieldGroup = DualContourCategory.AddGroup(
+			TEXT("DensityField"), LOCTEXT("DensityFieldGroup", "Density Field"), false, true);
+		DensityFieldGroup.SetDisplayMode(EDetailGroupDisplayMode::Category);
+		DensityFieldGroup.AddExternalObjectProperty(
+			DualContourObjects, GET_MEMBER_NAME_CHECKED(UDualContour, CellCount),
+			EPropertyLocation::Default, FAddPropertyParams());
+		DensityFieldGroup.AddExternalObjectProperty(
+			DualContourObjects, GET_MEMBER_NAME_CHECKED(UDualContour, CellSize),
+			EPropertyLocation::Default, FAddPropertyParams());
+		DensityFieldGroup.AddExternalObjectProperty(
+			DualContourObjects, GET_MEMBER_NAME_CHECKED(UDualContour, bRebuildRequired),
+			EPropertyLocation::Default, FAddPropertyParams());
+	}
+
 	DualContourCategory.AddCustomRow(LOCTEXT("SaveDualContourFilter", "Save Dual Contour Asset"))
 	                   .WholeRowContent()
 	                   .HAlign(HAlign_Left)

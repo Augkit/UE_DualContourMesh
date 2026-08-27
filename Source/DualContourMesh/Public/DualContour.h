@@ -14,10 +14,10 @@ class DUALCONTOURMESH_API UDualContour : public UObject
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour")
 	FVectorInt CellCount = FVectorInt(64, 64, 64);
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour")
 	float CellSize = 10.f;
 
 	/** True when generation settings have changed since the last successful rebuild. */
