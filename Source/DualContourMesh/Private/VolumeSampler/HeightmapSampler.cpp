@@ -156,8 +156,15 @@ void UHeightmapSampler::ClampHeightCurve()
 
 	for (const FKeyHandle KeyHandle : KeyHandles)
 	{
-		RichCurve.SetKeyValue(KeyHandle, FMath::Clamp(RichCurve.GetKeyValue(KeyHandle), 0.0f, 1.0f), false);
-		RichCurve.SetKeyTime(KeyHandle, FMath::Clamp(RichCurve.GetKeyTime(KeyHandle), 0.0f, 1.0f));
+		const float KeyValue = RichCurve.GetKeyValue(KeyHandle);
+		const float ClampedValue = FMath::Clamp(KeyValue, 0.0f, 1.0f);
+		if (ClampedValue != KeyValue)
+			RichCurve.SetKeyValue(KeyHandle, ClampedValue, false);
+
+		const float KeyTime = RichCurve.GetKeyTime(KeyHandle);
+		const float ClampedTime = FMath::Clamp(KeyTime, 0.0f, 1.0f);
+		if (ClampedTime != KeyTime)
+			RichCurve.SetKeyTime(KeyHandle, ClampedTime);
 	}
 }
 #endif

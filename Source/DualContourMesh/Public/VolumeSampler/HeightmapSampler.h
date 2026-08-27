@@ -20,7 +20,8 @@ public:
 	TObjectPtr<UTexture2D> Heightmap;
 
 	/** Maps the sampled grayscale value to a normalized height. Input and effective output are limited to 0..1. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heightmap")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heightmap",
+		meta = (NormalizedCurve, XAxisName = "X", YAxisName = "Y"))
 	FRuntimeFloatCurve HeightCurve;
 
 	/** Vertical baseline in normalized volume space. Increasing this value moves the surface upward. */
