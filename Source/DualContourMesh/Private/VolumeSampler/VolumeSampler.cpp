@@ -2,6 +2,7 @@
 #include "DualContour.h"
 #include "VolumeSampledDualContour.h"
 #include "Misc/ScopeExit.h"
+#include "UObject/ObjectSaveContext.h"
 
 bool UVolumeSampler::Prepare(FText& OutError) const
 {
@@ -16,6 +17,17 @@ bool UVolumeSampler::Prepare(FText& OutError) const
 void UVolumeSampler::Finish() const {}
 
 #if WITH_EDITOR
+void UVolumeSampler::PreSave(FObjectPreSaveContext SaveContext)
+{
+	if (UVolumeSampledDualContour* Owner = GetTypedOuter<UVolumeSampledDualContour>();
+		Owner && !Owner->IsTemplate() && Owner->VolumeSampler == this && Owner->bRebuildRequired)
+	{
+		Owner->SampleVolume();
+	}
+
+	Super::PreSave(SaveContext);
+}
+
 void UVolumeSampler::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);

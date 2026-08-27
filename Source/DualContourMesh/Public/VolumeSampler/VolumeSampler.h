@@ -34,6 +34,7 @@ public:
 		FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax, FText& OutError);
 
 #if WITH_EDITOR
+	virtual void PreSave(FObjectPreSaveContext SaveContext) override;
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
 
