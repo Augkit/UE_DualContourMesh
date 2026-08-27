@@ -1,14 +1,43 @@
 #include "DualContourMeshActorDetails.h"
 
+#include "AssetToolsModule.h"
+#include "DetailCategoryBuilder.h"
 #include "DetailLayoutBuilder.h"
 #include "DetailWidgetRow.h"
+#include "DualContour.h"
+#include "DualContourFactory.h"
 #include "DualContourMeshActor.h"
+#include "Framework/Notifications/NotificationManager.h"
 #include "IDetailPropertyRow.h"
 #include "PropertyHandle.h"
+#include "ScopedTransaction.h"
 #include "Styling/AppStyle.h"
 #include "Styling/StyleColors.h"
+#include "Widgets/Input/SButton.h"
 #include "Widgets/Images/SImage.h"
 #include "Widgets/SBoxPanel.h"
+#include "Widgets/Notifications/SNotificationList.h"
+
+#define LOCTEXT_NAMESPACE "DualContourMeshActorDetails"
+
+namespace
+{
+void ShowSaveNotification(const FText& Text, SNotificationItem::ECompletionState CompletionState)
+{
+	FNotificationInfo Info(Text);
+	Info.ExpireDuration = 4.f;
+	Info.bUseSuccessFailIcons = true;
+	if (const TSharedPtr<SNotificationItem> Notification = FSlateNotificationManager::Get().AddNotification(Info))
+		Notification->SetCompletionState(CompletionState);
+}
+
+void CopyDualContourToAsset(UDualContour* Source, UDualContour* Target)
+{
+	Target->CopyFrom(Source);
+	Target->MarkPackageDirty();
+	Target->PostEditChange();
+}
+}
 
 TSharedRef<IDetailCustomization> FDualContourMeshActorDetails::MakeInstance()
 {
@@ -22,6 +51,19 @@ void FDualContourMeshActorDetails::CustomizeDetails(IDetailLayoutBuilder& Detail
 	for (const TWeakObjectPtr<UObject>& Object : Objects)
 		if (ADualContourMeshActor* Actor = Cast<ADualContourMeshActor>(Object.Get()))
 			CustomizedActors.Add(Actor);
+
+	IDetailCategoryBuilder& DualContourCategory = DetailBuilder.EditCategory(TEXT("DualContour"));
+	DualContourCategory.AddCustomRow(LOCTEXT("SaveDualContourFilter", "Save Dual Contour Asset"))
+	                   .WholeRowContent()
+	                   .HAlign(HAlign_Left)
+	[
+		SNew(SButton)
+		.Text(LOCTEXT("SaveDualContourButton", "Save Current DualContour as Asset"))
+		.ToolTipText(LOCTEXT("SaveDualContourTooltip",
+			"Overwrite InitialDualContour, or choose a location and assign a new DualContour asset."))
+		.IsEnabled(this, &FDualContourMeshActorDetails::CanSaveDualContour)
+		.OnClicked(this, &FDualContourMeshActorDetails::SaveDualContour)
+	];
 
 	const TSharedRef<IPropertyHandle> DivisionsHandle =
 		DetailBuilder.GetProperty(GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, Divisions));
@@ -63,6 +105,55 @@ void FDualContourMeshActorDetails::CustomizeDetails(IDetailLayoutBuilder& Detail
 		];
 }
 
+bool FDualContourMeshActorDetails::CanSaveDualContour() const
+{
+	if (CustomizedActors.Num() != 1)
+		return false;
+
+	const ADualContourMeshActor* Actor = CustomizedActors[0].Get();
+	return Actor && Actor->DualContour && Actor->DualContour->HasCurrentGeneratedData();
+}
+
+FReply FDualContourMeshActorDetails::SaveDualContour()
+{
+	if (!CanSaveDualContour())
+		return FReply::Handled();
+
+	ADualContourMeshActor* Actor = CustomizedActors[0].Get();
+	UDualContour* Source = Actor->DualContour;
+	UDualContour* Target = Actor->InitialDualContour;
+
+	if (Target)
+	{
+		const FScopedTransaction Transaction(LOCTEXT("SaveDualContourTransaction", "Save DualContour Asset"));
+		CopyDualContourToAsset(Source, Target);
+		ShowSaveNotification(
+			FText::Format(LOCTEXT("UpdatedDualContourAsset", "Saved current DualContour to {0}."),
+				FText::FromString(Target->GetPathName())),
+			SNotificationItem::CS_Success);
+		return FReply::Handled();
+	}
+
+	UDualContourFactory* Factory = NewObject<UDualContourFactory>();
+	UDualContour* NewAsset = Cast<UDualContour>(
+		FAssetToolsModule::GetModule().Get().CreateAssetWithDialog(UDualContour::StaticClass(), Factory,
+			TEXT("SaveDualContourMeshActorAsset")));
+	if (!NewAsset)
+		return FReply::Handled();
+
+	const FScopedTransaction Transaction(LOCTEXT("CreateDualContourTransaction", "Create DualContour Asset"));
+	CopyDualContourToAsset(Source, NewAsset);
+	Actor->Modify();
+	Actor->InitialDualContour = NewAsset;
+	Actor->MarkPackageDirty();
+	Actor->RebuildMesh();
+	ShowSaveNotification(
+		FText::Format(LOCTEXT("CreatedDualContourAsset", "Created DualContour asset {0}."),
+			FText::FromString(NewAsset->GetPathName())),
+		SNotificationItem::CS_Success);
+	return FReply::Handled();
+}
+
 bool FDualContourMeshActorDetails::AreDivisionsValid(FString* OutStatus) const
 {
 	bool bAllValid = !CustomizedActors.IsEmpty();
@@ -102,3 +193,5 @@ FText FDualContourMeshActorDetails::GetValidationTooltip() const
 	AreDivisionsValid(&Status);
 	return FText::FromString(Status);
 }
+
+#undef LOCTEXT_NAMESPACE

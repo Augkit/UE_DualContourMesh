@@ -56,10 +56,10 @@ void ADualContourMeshActor::PostRegisterAllComponents()
 	RefreshCollisionSettings();
 
 #if WITH_EDITOR
-	if (bRebuildInitialDensityFieldAfterLoad && InitialDensityField && GetWorld()
+	if (bRebuildInitialDualContourAfterLoad && InitialDualContour && GetWorld()
 	    && GetWorld()->WorldType == EWorldType::Editor && !IsTemplate())
 	{
-		bRebuildInitialDensityFieldAfterLoad = false;
+		bRebuildInitialDualContourAfterLoad = false;
 		RebuildMesh();
 	}
 
@@ -72,9 +72,9 @@ void ADualContourMeshActor::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// InitialDensityField is fully loaded and all actor components are registered at this point.
+	// InitialDualContour is fully loaded and all actor components are registered at this point.
 	// Avoid doing this from construction/registration callbacks, which can run repeatedly in the editor.
-	if (InitialDensityField)
+	if (InitialDualContour)
 		RebuildMesh();
 }
 
@@ -88,7 +88,7 @@ void ADualContourMeshActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void ADualContourMeshActor::PostLoad()
 {
 	Super::PostLoad();
-	bRebuildInitialDensityFieldAfterLoad = InitialDensityField != nullptr;
+	bRebuildInitialDualContourAfterLoad = InitialDualContour != nullptr;
 }
 
 void ADualContourMeshActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
@@ -101,8 +101,7 @@ void ADualContourMeshActor::PostEditChangeProperty(FPropertyChangedEvent& Proper
 	}
 
 	const FName MemberPropertyName = PropertyChangedEvent.MemberProperty->GetFName();
-	if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, InitialDensityField)
-	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, InitialDensityTransform))
+	if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, InitialDualContour))
 	{
 		RebuildMesh();
 	}
@@ -127,7 +126,7 @@ void ADualContourMeshActor::RefreshDebugComponent()
 void ADualContourMeshActor::RebuildMesh()
 {
 	TGuardValue<bool> RebuildingMeshGuard(bRebuildingMesh, true);
-	if (InitialDensityField)
+	if (InitialDualContour)
 	{
 		if (!DualContour)
 		{
@@ -136,12 +135,10 @@ void ADualContourMeshActor::RebuildMesh()
 			return;
 		}
 
-		FText Error;
-		DualContour->Modify();
-		if (!InitialDensityField->ReplaceDualContour(DualContour, InitialDensityTransform, Error))
+		if (!DualContour->CopyFrom(InitialDualContour))
 		{
 			UE_LOG(LogDualContourMesh, Error,
-				TEXT("Mesh rebuild aborted for %s: %s"), *GetName(), *Error.ToString());
+				TEXT("Mesh rebuild aborted for %s because InitialDualContour is missing current generated data."), *GetName());
 			return;
 		}
 
@@ -196,6 +193,12 @@ void ADualContourMeshActor::OnDualContourCellsRebuilt(FVectorInt AffectedCellMin
 {
 	if (bRebuildingMesh)
 		return;
+	if (MeshCellCount.X != DualContour->CellCount.X || MeshCellCount.Y != DualContour->CellCount.Y
+	    || MeshCellCount.Z != DualContour->CellCount.Z || MeshCellSize != DualContour->CellSize)
+	{
+		RecreateMeshComponents();
+		return;
+	}
 
 #if WITH_EDITOR
 	RefreshDebugComponent();
@@ -224,6 +227,8 @@ void ADualContourMeshActor::RecreateMeshComponents()
 		if (Pair.Value)
 			Pair.Value->DestroyComponent();
 	MeshComponents.Reset();
+	MeshCellCount = DualContour->CellCount;
+	MeshCellSize = DualContour->CellSize;
 
 	for (int32 DivisionZ = 0; DivisionZ < Divisions.Z; ++DivisionZ)
 		for (int32 DivisionY = 0; DivisionY < Divisions.Y; ++DivisionY)

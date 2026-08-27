@@ -1,6 +1,6 @@
 ﻿#include "VolumeSampler/VolumeSampler.h"
 #include "DualContour.h"
-#include "DualContourMeshActor.h"
+#include "VolumeSampledDualContour.h"
 #include "Misc/ScopeExit.h"
 
 bool UVolumeSampler::Prepare(FText& OutError) const
@@ -19,8 +19,8 @@ void UVolumeSampler::Finish() const {}
 void UVolumeSampler::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
-	if (ADualContourMeshActor* Owner = GetTypedOuter<ADualContourMeshActor>(); Owner && !Owner->IsTemplate())
-		Owner->RebuildMesh();
+	if (UVolumeSampledDualContour* Owner = GetTypedOuter<UVolumeSampledDualContour>(); Owner && !Owner->IsTemplate())
+		Owner->NotifySamplerChanged();
 }
 #endif
 

@@ -11,7 +11,7 @@ class UTexture2D;
 class UVolumeTexture;
 
 /** Samples a finite volume into a DualContour density grid. */
-UCLASS(Abstract, BlueprintType, EditInlineNew, DefaultToInstanced)
+UCLASS(Abstract, BlueprintType, EditInlineNew, DefaultToInstanced, AutoExpandCategories = ("Volume"))
 class DUALCONTOURMESH_API UVolumeSampler : public UObject
 {
 	GENERATED_BODY()
@@ -50,7 +50,7 @@ private:
 };
 
 /** Shared signed-distance conversion and interpolation for texture-backed samplers. */
-UCLASS(Abstract, BlueprintType, EditInlineNew)
+UCLASS(Abstract, BlueprintType, EditInlineNew, AutoExpandCategories = ("SDF"))
 class DUALCONTOURMESH_API UTextureSDFSampler : public UVolumeSampler
 {
 	GENERATED_BODY()

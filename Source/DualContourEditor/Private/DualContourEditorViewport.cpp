@@ -2,6 +2,7 @@
 
 #include "DualContourEditorToolkit.h"
 #include "SVTDualContour.h"
+#include "VolumeSampledDualContour.h"
 #include "DualContour.h"
 #include "DualContourMeshActor.h"
 #include "SparseVolumeTexture/SparseVolumeTexture.h"
@@ -106,7 +107,12 @@ void SDualContourEditorViewport::RefreshPreview()
 	USVTDualContour* SVTDualContour = Toolkit ? Toolkit->GetSVTDualContour() : nullptr;
 	if (!Toolkit || !Asset)
 		return;
-	LastGenerationRevision = SVTDualContour ? SVTDualContour->GenerationRevision : INDEX_NONE;
+	const UVolumeSampledDualContour* VolumeSampledDualContour = Toolkit->GetVolumeSampledDualContour();
+	LastGenerationRevision = SVTDualContour
+		                         ? SVTDualContour->GenerationRevision
+		                         : VolumeSampledDualContour
+		                         ? VolumeSampledDualContour->GenerationRevision
+		                         : INDEX_NONE;
 	const bool bPreviewDualContour = Toolkit->GetPreviewType() == EDualContourEditorPreviewType::DualContour;
 
 	const FVector FieldSize(Asset->CellCount.X * Asset->CellSize,
@@ -171,8 +177,14 @@ void SDualContourEditorViewport::Tick(const FGeometry& AllottedGeometry, double 
 {
 	SEditorViewport::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
 	const TSharedPtr<FDualContourEditorToolkit> Toolkit = EditorToolkit.Pin();
-	const USVTDualContour* Asset = Toolkit ? Toolkit->GetSVTDualContour() : nullptr;
-	if (Asset && LastGenerationRevision != Asset->GenerationRevision)
+	const USVTDualContour* SVTAsset = Toolkit ? Toolkit->GetSVTDualContour() : nullptr;
+	const UVolumeSampledDualContour* VolumeAsset = Toolkit ? Toolkit->GetVolumeSampledDualContour() : nullptr;
+	const int32 GenerationRevision = SVTAsset
+		                                 ? SVTAsset->GenerationRevision
+		                                 : VolumeAsset
+		                                 ? VolumeAsset->GenerationRevision
+		                                 : INDEX_NONE;
+	if (GenerationRevision != INDEX_NONE && LastGenerationRevision != GenerationRevision)
 		RefreshPreview();
 }
 

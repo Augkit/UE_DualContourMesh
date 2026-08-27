@@ -2,6 +2,7 @@
 
 #include "DualContour.h"
 #include "SVTDualContour.h"
+#include "VolumeSampledDualContour.h"
 #include "DualContourEditorViewport.h"
 #include "IDetailsView.h"
 #include "PropertyEditorModule.h"
@@ -94,7 +95,7 @@ void FDualContourEditorToolkit::ExtendToolbar()
 void FDualContourEditorToolkit::FillToolbar(FToolBarBuilder& ToolbarBuilder)
 {
 	ToolbarBuilder.BeginSection(TEXT("DualContour"));
-	if (GetSVTDualContour())
+	if (GetSVTDualContour() || GetVolumeSampledDualContour())
 	{
 		ToolbarBuilder.AddToolBarButton(
 			FUIAction(
@@ -102,15 +103,18 @@ void FDualContourEditorToolkit::FillToolbar(FToolBarBuilder& ToolbarBuilder)
 				FCanExecuteAction::CreateSP(this, &FDualContourEditorToolkit::CanGenerateDualContour)),
 			NAME_None,
 			LOCTEXT("GenerateDualContour", "Generate Dual Contour"),
-			LOCTEXT("GenerateDualContourTooltip", "Sample the source sparse volume texture and rebuild the dual contour."),
+			LOCTEXT("GenerateDualContourTooltip", "Sample the configured source and rebuild the dual contour."),
 			FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Refresh")));
 
-		ToolbarBuilder.AddComboButton(
-			FUIAction(),
-			FOnGetContent::CreateSP(this, &FDualContourEditorToolkit::MakePreviewTypeMenu),
-			TAttribute<FText>::CreateSP(this, &FDualContourEditorToolkit::GetPreviewTypeLabel),
-			LOCTEXT("PreviewTypeTooltip", "Choose whether the viewport previews the source SVT or generated dual-contour mesh."),
-			FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Visible")));
+		if (GetSVTDualContour())
+		{
+			ToolbarBuilder.AddComboButton(
+				FUIAction(),
+				FOnGetContent::CreateSP(this, &FDualContourEditorToolkit::MakePreviewTypeMenu),
+				TAttribute<FText>::CreateSP(this, &FDualContourEditorToolkit::GetPreviewTypeLabel),
+				LOCTEXT("PreviewTypeTooltip", "Choose whether the viewport previews the source SVT or generated dual-contour mesh."),
+				FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Visible")));
+		}
 	}
 
 	ToolbarBuilder.AddToolBarButton(
@@ -128,8 +132,13 @@ void FDualContourEditorToolkit::FillToolbar(FToolBarBuilder& ToolbarBuilder)
 
 void FDualContourEditorToolkit::GenerateDualContour()
 {
-	USVTDualContour* SVTDualContour = GetSVTDualContour();
-	if (SVTDualContour && SVTDualContour->SampleSparseVolumeTexture())
+	bool bGenerated = false;
+	if (USVTDualContour* SVTDualContour = GetSVTDualContour())
+		bGenerated = SVTDualContour->SampleSparseVolumeTexture();
+	else if (UVolumeSampledDualContour* VolumeSampledDualContour = GetVolumeSampledDualContour())
+		bGenerated = VolumeSampledDualContour->SampleVolume();
+
+	if (bGenerated)
 	{
 		PreviewType = EDualContourEditorPreviewType::DualContour;
 		if (DetailsView)
@@ -141,8 +150,11 @@ void FDualContourEditorToolkit::GenerateDualContour()
 
 bool FDualContourEditorToolkit::CanGenerateDualContour() const
 {
-	const USVTDualContour* SVTDualContour = GetSVTDualContour();
-	return SVTDualContour && SVTDualContour->SourceSparseVolumeTexture;
+	if (const USVTDualContour* SVTDualContour = GetSVTDualContour())
+		return SVTDualContour->SourceSparseVolumeTexture != nullptr;
+	if (const UVolumeSampledDualContour* VolumeSampledDualContour = GetVolumeSampledDualContour())
+		return VolumeSampledDualContour->VolumeSampler != nullptr;
+	return false;
 }
 
 TSharedRef<SWidget> FDualContourEditorToolkit::MakePreviewTypeMenu()
@@ -218,14 +230,20 @@ FName FDualContourEditorToolkit::GetToolkitFName() const { return TEXT("DualCont
 
 FText FDualContourEditorToolkit::GetBaseToolkitName() const
 {
-	return GetSVTDualContour()
-		       ? LOCTEXT("SVTAppLabel", "SVT Dual Contour Editor")
-		       : LOCTEXT("DualContourAppLabel", "Dual Contour Editor");
+	if (GetSVTDualContour())
+		return LOCTEXT("SVTAppLabel", "SVT Dual Contour Editor");
+	if (GetVolumeSampledDualContour())
+		return LOCTEXT("VolumeSampledAppLabel", "Volume Sampled Dual Contour Editor");
+	return LOCTEXT("DualContourAppLabel", "Dual Contour Editor");
 }
 
 FString FDualContourEditorToolkit::GetWorldCentricTabPrefix() const
 {
-	return GetSVTDualContour() ? TEXT("SVT Dual Contour ") : TEXT("Dual Contour ");
+	if (GetSVTDualContour())
+		return TEXT("SVT Dual Contour ");
+	if (GetVolumeSampledDualContour())
+		return TEXT("Volume Sampled Dual Contour ");
+	return TEXT("Dual Contour ");
 }
 
 FLinearColor FDualContourEditorToolkit::GetWorldCentricTabColorScale() const { return FLinearColor(0.18f, 0.55f, 0.85f); }
@@ -233,6 +251,11 @@ FLinearColor FDualContourEditorToolkit::GetWorldCentricTabColorScale() const { r
 USVTDualContour* FDualContourEditorToolkit::GetSVTDualContour() const
 {
 	return Cast<USVTDualContour>(Asset);
+}
+
+UVolumeSampledDualContour* FDualContourEditorToolkit::GetVolumeSampledDualContour() const
+{
+	return Cast<UVolumeSampledDualContour>(Asset);
 }
 
 void FDualContourEditorToolkit::AddReferencedObjects(FReferenceCollector& Collector)

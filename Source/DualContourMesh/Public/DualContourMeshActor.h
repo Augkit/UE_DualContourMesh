@@ -30,13 +30,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour", meta = (ClampMin = "1"))
 	FVectorInt Divisions = FVectorInt(1, 1, 1);
 
-	/** Optional polymorphic sampler used to initialize DualContour. Select a subclass and edit it inline. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Instanced, Category = "DualContour", meta = (ShowOnlyInnerProperties))
-	TObjectPtr<UVolumeSampler> InitialDensityField;
-
-	/** Translation, rotation and scale applied to InitialDensityField about its Pivot in actor-local space. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour")
-	FTransform InitialDensityTransform = FTransform::Identity;
+	/** Optional persistent DualContour asset copied into this actor when its mesh is rebuilt. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DualContour")
+	TObjectPtr<UDualContour> InitialDualContour;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour")
 	TObjectPtr<UMaterialInterface> MeshMaterial = nullptr;
@@ -78,6 +74,8 @@ public:
 private:
 	FDelegateHandle DualContourCellsRebuiltHandle;
 	bool bRebuildingMesh = false;
+	FVectorInt MeshCellCount;
+	float MeshCellSize = 0.f;
 	void BindToDualContour();
 	void UnbindFromDualContour();
 	void OnDualContourCellsRebuilt(FVectorInt AffectedCellMin, FVectorInt AffectedCellMax);
@@ -95,7 +93,7 @@ private:
 
 #if WITH_EDITOR
 	void RefreshDebugComponent();
-	bool bRebuildInitialDensityFieldAfterLoad = false;
+	bool bRebuildInitialDualContourAfterLoad = false;
 #endif
 
 };

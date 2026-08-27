@@ -1,7 +1,7 @@
 #pragma once
 
 #include "VolumeSampler/VolumeSampler.h"
-#include "SVTDualContourSampler.generated.h"
+#include "DualContourSampler.generated.h"
 
 /** Base class for normalized sampling of an existing DualContour. */
 UCLASS(Abstract, BlueprintType, EditInlineNew)
@@ -16,18 +16,4 @@ protected:
 	virtual float SampleNormalized(const FVector& UVW) const override;
 
 	mutable TWeakObjectPtr<UDualContour> CachedDualContour;
-};
-
-/** Samples a baked USVTDualContour, which is itself a DualContour. */
-UCLASS(BlueprintType, EditInlineNew)
-class DUALCONTOURMESH_API USVTDualContourSampler : public UDualContourSampler
-{
-	GENERATED_BODY()
-
-public:
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour")
-	TObjectPtr<USVTDualContour> SVTDualContour;
-
-protected:
-	virtual UDualContour* ResolveDualContour() const override;
 };

@@ -112,6 +112,24 @@ bool UDualContour::Rebuild()
 	return true;
 }
 
+bool UDualContour::CopyFrom(const UDualContour* Source)
+{
+	if (!Source || !Source->HasCurrentGeneratedData())
+		return false;
+	if (Source == this)
+		return true;
+
+	Modify();
+	CellCount = Source->CellCount;
+	CellSize = Source->CellSize;
+	bRebuildRequired = Source->bRebuildRequired;
+	DensityChunks = Source->DensityChunks;
+	ContourChunks = Source->ContourChunks;
+	LastBuiltCellCount = Source->LastBuiltCellCount;
+	OnCellsRebuilt.Broadcast(FVectorInt(0, 0, 0), CellCount);
+	return true;
+}
+
 bool UDualContour::ReplaceDensitySamples(const TArray<uint8>& Samples)
 {
 	return ReplaceDensitySamplesInRange(FVectorInt(0, 0, 0), GetSampleDims(), Samples);

@@ -8,7 +8,7 @@
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDualContourCellsRebuilt, FVectorInt, FVectorInt);
 
 /** Owns the dual-contour source data, generation settings, and contour-building algorithms. */
-UCLASS(BlueprintType, EditInlineNew, DefaultToInstanced)
+UCLASS(BlueprintType, EditInlineNew)
 class DUALCONTOURMESH_API UDualContour : public UObject
 {
 	GENERATED_BODY()
@@ -28,6 +28,8 @@ public:
 	FOnDualContourCellsRebuilt OnCellsRebuilt;
 
 	bool Rebuild();
+	/** Copies persistent grid settings and generated data from another current DualContour. */
+	bool CopyFrom(const UDualContour* Source);
 	/** Replaces the complete sample grid and rebuilds contour cells. Samples are X-major. */
 	bool ReplaceDensitySamples(const TArray<uint8>& Samples);
 	/** Replaces the density grid with an X-major subrange; samples outside the range become zero. */

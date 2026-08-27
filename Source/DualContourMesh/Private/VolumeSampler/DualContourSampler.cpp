@@ -1,6 +1,6 @@
-#include "VolumeSampler/SVTDualContourSampler.h"
+#include "VolumeSampler/DualContourSampler.h"
+
 #include "DualContour.h"
-#include "SVTDualContour.h"
 
 bool UDualContourSampler::Prepare(FText& OutError) const
 {
@@ -27,9 +27,4 @@ float UDualContourSampler::SampleNormalized(const FVector& UVW) const
 void UDualContourSampler::Finish() const
 {
 	CachedDualContour.Reset();
-}
-
-UDualContour* USVTDualContourSampler::ResolveDualContour() const
-{
-	return SVTDualContour;
 }

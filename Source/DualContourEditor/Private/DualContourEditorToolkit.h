@@ -6,6 +6,7 @@ class IDetailsView;
 class SDualContourEditorViewport;
 class UDualContour;
 class USVTDualContour;
+class UVolumeSampledDualContour;
 class FToolBarBuilder;
 
 enum class EDualContourEditorPreviewType : uint8
@@ -20,6 +21,7 @@ public:
 	void InitEditor(EToolkitMode::Type Mode, const TSharedPtr<IToolkitHost>& InToolkitHost, UDualContour* InAsset);
 	UDualContour* GetAsset() const { return Asset; }
 	USVTDualContour* GetSVTDualContour() const;
+	UVolumeSampledDualContour* GetVolumeSampledDualContour() const;
 	EDualContourEditorPreviewType GetPreviewType() const { return PreviewType; }
 	bool ShouldShowDualContourBounds() const { return bShowDualContourBounds; }
 
