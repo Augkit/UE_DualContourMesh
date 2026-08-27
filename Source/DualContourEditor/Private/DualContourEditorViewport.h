@@ -6,6 +6,7 @@
 class ADualContourMeshActor;
 class FAdvancedPreviewScene;
 class FDualContourEditorToolkit;
+class FDualContourEditorViewportClient;
 
 class SDualContourEditorViewport : public SEditorViewport, public FGCObject
 {
@@ -28,7 +29,7 @@ protected:
 private:
 	TWeakPtr<FDualContourEditorToolkit> EditorToolkit;
 	TSharedPtr<FAdvancedPreviewScene> PreviewScene;
-	TSharedPtr<FEditorViewportClient> ViewportClient;
+	TSharedPtr<FDualContourEditorViewportClient> ViewportClient;
 	TObjectPtr<ADualContourMeshActor> DensityActor = nullptr;
 	TObjectPtr<AActor> SVTViewerActor = nullptr;
 	int32 LastGenerationRevision = INDEX_NONE;
@@ -41,7 +42,14 @@ public:
 		const TWeakPtr<FDualContourEditorToolkit>& InEditorToolkit);
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void Draw(const FSceneView* View, FPrimitiveDrawInterface* PDI) override;
+	virtual bool ShouldOrbitCamera() const override { return true; }
+	virtual bool CanSetWidgetMode(UE::Widget::EWidgetMode NewMode) const override { return false; }
+	virtual bool CanCycleWidgetMode() const override { return false; }
+	virtual bool InputKey(const FInputKeyEventArgs& EventArgs) override;
+	void SetPreviewBounds(const FBox& InBounds) { PreviewBounds = InBounds; }
+	void FocusPreview();
 
 private:
 	TWeakPtr<FDualContourEditorToolkit> EditorToolkit;
+	FBox PreviewBounds = FBox(ForceInit);
 };

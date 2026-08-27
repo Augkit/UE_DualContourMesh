@@ -7,9 +7,20 @@ public class DualContourEditor : ModuleRules
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"Core", "CoreUObject", "Engine", "Renderer", "DualContourMesh",
-			"UnrealEd", "AssetDefinition", "AssetTools", "PropertyEditor",
-			"Slate", "SlateCore", "EditorFramework", "AdvancedPreviewScene"
+			"Core",
+			"CoreUObject",
+			"Engine",
+			"InputCore",
+			"Renderer",
+			"DualContourMesh",
+			"UnrealEd",
+			"AssetDefinition",
+			"AssetTools",
+			"PropertyEditor",
+			"Slate",
+			"SlateCore",
+			"EditorFramework",
+			"AdvancedPreviewScene"
 		});
 	}
 }

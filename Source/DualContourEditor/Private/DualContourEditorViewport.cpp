@@ -95,8 +95,8 @@ void SDualContourEditorViewport::Construct(const FArguments& InArgs)
 		SVTViewerActor = PreviewScene->GetWorld()->SpawnActor<AActor>(ViewerClass);
 
 	RefreshPreview();
-	ViewportClient->SetViewLocation(FVector(-800.f, -800.f, 550.f));
-	ViewportClient->SetViewRotation(FRotator(-25.f, 45.f, 0.f));
+	ViewportClient->SetViewRotation(FRotator(-15.0, -135.0, 0.0));
+	ViewportClient->FocusPreview();
 }
 
 void SDualContourEditorViewport::RefreshPreview()
@@ -112,6 +112,12 @@ void SDualContourEditorViewport::RefreshPreview()
 	const FVector FieldSize(Asset->CellCount.X * Asset->CellSize,
 		Asset->CellCount.Y * Asset->CellSize,
 		Asset->CellCount.Z * Asset->CellSize);
+	const FVector HalfExtent(FieldSize.X * 0.5f, FieldSize.Y * 0.5f, FieldSize.Z * 0.5f);
+	const FBox PreviewBounds(
+		FVector(-HalfExtent.X, -HalfExtent.Y, 0.f),
+		FVector(HalfExtent.X, HalfExtent.Y, FieldSize.Z));
+	if (ViewportClient)
+		ViewportClient->SetPreviewBounds(PreviewBounds);
 	if (DensityActor)
 	{
 		if (bPreviewDualContour)
@@ -190,7 +196,28 @@ FDualContourEditorViewportClient::FDualContourEditorViewportClient(
 {
 	bSetListenerPosition = false;
 	SetRealtime(true);
+	SetViewMode(VMI_Lit);
+	OverrideNearClipPlane(1.0f);
+	bUsingOrbitCamera = true;
 	EngineShowFlags.SetGrid(true);
+	ShowWidget(false);
+	SetIsSimulateInEditorViewport(true);
+}
+
+bool FDualContourEditorViewportClient::InputKey(const FInputKeyEventArgs& EventArgs)
+{
+	if (EventArgs.Key == EKeys::F && EventArgs.Event == IE_Pressed && PreviewBounds.IsValid)
+	{
+		FocusPreview();
+		return true;
+	}
+	return FEditorViewportClient::InputKey(EventArgs);
+}
+
+void FDualContourEditorViewportClient::FocusPreview()
+{
+	if (PreviewBounds.IsValid)
+		FocusViewportOnBox(PreviewBounds, true);
 }
 
 void FDualContourEditorViewportClient::Tick(float DeltaSeconds)
