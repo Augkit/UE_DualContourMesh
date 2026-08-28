@@ -388,27 +388,27 @@ void ADualContourMeshActor::PartialUpdateComponents(FVectorInt AffectedCellMin, 
 	}
 }
 
-void ADualContourMeshActor::ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal, UVolumeSampler* Sampler,
+bool ADualContourMeshActor::ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal, UVolumeSampler* Sampler,
 	float UniformScale, bool bExcavate)
 {
 	if (!DualContour || !DualContour->HasCurrentGeneratedData())
 	{
 		UE_LOG(LogDualContourMesh, Warning,
 			TEXT("Density edit ignored for %s because generation settings changed. Call RebuildMesh first."), *GetName());
-		return;
+		return false;
 	}
 	if (!Sampler || !FMath::IsFinite(UniformScale) || UniformScale <= UE_SMALL_NUMBER)
 	{
 		UE_LOG(LogDualContourMesh, Warning, TEXT("Density edit ignored for %s because its sampler or scale is invalid."),
 			*GetName());
-		return;
+		return false;
 	}
 
 	const FTransform& ActorTransform = GetActorTransform();
 	const FVector LocalHitPosition = ActorTransform.InverseTransformPosition(WorldHitPos);
 	const FVector LocalHitNormal = ActorTransform.InverseTransformVectorNoScale(WorldHitNormal).GetSafeNormal();
 	if (!HasValidDivisions() || LocalHitNormal.IsNearlyZero())
-		return;
+		return false;
 	const FQuat SamplerRotation = FQuat::FindBetweenNormals(FVector::UpVector, LocalHitNormal);
 	const FVector SamplerPivotPosition = Sampler->Pivot * Sampler->VolumeSize;
 	const FTransform SamplerTransform(
@@ -422,6 +422,7 @@ void ADualContourMeshActor::ModifyDensityWithSampler(const FVector& WorldHitPos,
 	{
 		if (!Error.IsEmpty())
 			UE_LOG(LogDualContourMesh, Warning, TEXT("Density edit failed for %s: %s"), *GetName(), *Error.ToString());
-		return;
+		return false;
 	}
+	return true;
 }

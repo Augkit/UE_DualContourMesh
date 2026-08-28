@@ -51,7 +51,7 @@ public:
 	bool SetGeneratedDualContour(UDualContour* InDualContour);
 
 	/** Applies any volume sampler at a surface point, rotating its local +Z axis to the hit normal. */
-	void ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal, UVolumeSampler* Sampler, float UniformScale,
+	bool ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal, UVolumeSampler* Sampler, float UniformScale,
 		bool bExcavate);
 
 	/** Returns whether every Divisions value divides its corresponding CellCount value and describes the result. */

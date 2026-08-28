@@ -471,4 +471,11 @@ void UDualContour::PostEditChangeProperty(FPropertyChangedEvent& PropertyChanged
 	}
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 }
+
+void UDualContour::PostEditUndo()
+{
+	Super::PostEditUndo();
+	if (HasCurrentGeneratedData())
+		OnCellsRebuilt.Broadcast(FVectorInt(0, 0, 0), CellCount);
+}
 #endif
