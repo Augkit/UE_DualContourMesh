@@ -76,6 +76,7 @@ private:
 
 	FVectorInt GetSampleDims() const { return FVectorInt(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }
 	void BuildCells();
+	FDualContourCell BuildNewCell(int32 CellX, int32 CellY, int32 CellZ) const;
 	void SetDensity(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Value);
 	void CompactAllDensityChunks();
 	void CompactDensityChunks(const TSet<FIntVector>& ChunkCoords);

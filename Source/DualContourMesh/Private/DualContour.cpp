@@ -1,4 +1,5 @@
 #include "DualContour.h"
+#include "Async/ParallelFor.h"
 #include "ProfilingDebugging/CountersTrace.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "UObject/ObjectSaveContext.h"
@@ -49,8 +50,7 @@ bool SampleVolumeMatches(const FVectorInt& Dimensions, int32 NumSamples)
 	return Area <= MAX_int32 / Dimensions.Z && Area * Dimensions.Z == NumSamples;
 }
 
-bool IsValidSampleRange(const FVectorInt& FullDimensions, const FVectorInt& SampleMin,
-	const FVectorInt& SampleDimensions, int32 NumSamples)
+bool IsValidSampleRange(const FVectorInt& FullDimensions, const FVectorInt& SampleMin, const FVectorInt& SampleDimensions, int32 NumSamples)
 {
 	if (SampleMin.X < 0 || SampleMin.Y < 0 || SampleMin.Z < 0
 	    || SampleDimensions.X < 0 || SampleDimensions.Y < 0 || SampleDimensions.Z < 0)
@@ -366,7 +366,6 @@ void UDualContour::SetContourCell(int32 CellX, int32 CellY, int32 CellZ, const F
 
 bool UDualContour::HasActiveCellInRange(FVectorInt CellMin, FVectorInt CellMax) const
 {
-	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_HasActiveCellInRange);
 	const int32 ChunkMinX = CellMin.X / GDualContourChunkSize;
 	const int32 ChunkMinY = CellMin.Y / GDualContourChunkSize;
 	const int32 ChunkMinZ = CellMin.Z / GDualContourChunkSize;
@@ -432,100 +431,192 @@ void UDualContour::BuildCells()
 	RebuildCellsInRange(FVectorInt(0, 0, 0), CellCount);
 }
 
+FDualContourCell UDualContour::BuildNewCell(int32 CellX, int32 CellY, int32 CellZ) const
+{
+	FDualContourCell Cell;
+	const FVector CellMin = FVector(CellX, CellY, CellZ) * CellSize;
+	const FVector CellMax = FVector(CellX + 1, CellY + 1, CellZ + 1) * CellSize;
+	const FVector CellCenter = (CellMin + CellMax) * 0.5;
+	Cell.Center = CellCenter;
+
+	bool bHasInside = false, bHasOutside = false;
+	for (int32 Z = 0; Z <= 1; ++Z)
+		for (int32 Y = 0; Y <= 1; ++Y)
+			for (int32 X = 0; X <= 1; ++X)
+				(GetDensity(CellX + X, CellY + Y, CellZ + Z)
+				 >= GDualContourIsoValue
+					 ? bHasInside
+					 : bHasOutside) = true;
+	Cell.bActive = bHasInside && bHasOutside;
+	if (!Cell.bActive)
+		return Cell;
+
+	constexpr double Lambda = 0.1;
+	double Matrix[3][3] = {};
+	double Vector[3] = {};
+	FVector AccumNormal = FVector::ZeroVector;
+	int32 NumIntersections = 0;
+	for (int32 EdgeIndex = 0; EdgeIndex < 12; ++EdgeIndex)
+	{
+		const int32* A = EdgeCorners[EdgeIndex][0];
+		const int32* B = EdgeCorners[EdgeIndex][1];
+		const int32 AX = CellX + A[0], AY = CellY + A[1], AZ = CellZ + A[2];
+		const int32 BX = CellX + B[0], BY = CellY + B[1], BZ = CellZ + B[2];
+		const int32 DensityA = GetDensity(AX, AY, AZ);
+		const int32 DensityB = GetDensity(BX, BY, BZ);
+		if ((DensityA < GDualContourIsoValue) == (DensityB < GDualContourIsoValue))
+			continue;
+
+		const float Alpha = (static_cast<float>(GDualContourIsoValue) - DensityA) / (DensityB - DensityA);
+		const FVector GridPosition = FVector(AX, AY, AZ) + Alpha * (FVector(BX, BY, BZ) - FVector(AX, AY, AZ));
+		const FVector WorldPosition = GridPosition * CellSize;
+		const FVector Normal = (-ComputeGradient(GridPosition)).GetSafeNormal();
+		if (Normal.IsNearlyZero())
+			continue;
+
+		const double NX = Normal.X, NY = Normal.Y, NZ = Normal.Z;
+		const double Distance = FVector::DotProduct(Normal, WorldPosition);
+		Matrix[0][0] += NX * NX;
+		Matrix[0][1] += NX * NY;
+		Matrix[0][2] += NX * NZ;
+		Matrix[1][0] += NY * NX;
+		Matrix[1][1] += NY * NY;
+		Matrix[1][2] += NY * NZ;
+		Matrix[2][0] += NZ * NX;
+		Matrix[2][1] += NZ * NY;
+		Matrix[2][2] += NZ * NZ;
+		Vector[0] += NX * Distance;
+		Vector[1] += NY * Distance;
+		Vector[2] += NZ * Distance;
+		AccumNormal += Normal;
+		++NumIntersections;
+	}
+
+	if (NumIntersections > 0)
+	{
+		Matrix[0][0] += Lambda;
+		Matrix[1][1] += Lambda;
+		Matrix[2][2] += Lambda;
+		Vector[0] += Lambda * CellCenter.X;
+		Vector[1] += Lambda * CellCenter.Y;
+		Vector[2] += Lambda * CellCenter.Z;
+		double Position[3];
+		if (Solve3x3(Matrix, Vector, Position))
+		{
+			Cell.Center.X = FMath::Clamp(Position[0], CellMin.X, CellMax.X);
+			Cell.Center.Y = FMath::Clamp(Position[1], CellMin.Y, CellMax.Y);
+			Cell.Center.Z = FMath::Clamp(Position[2], CellMin.Z, CellMax.Z);
+		}
+		Cell.Normal = AccumNormal.GetSafeNormal();
+		if (Cell.Normal.IsNearlyZero())
+			Cell.Normal = FVector::UpVector;
+	}
+	return Cell;
+}
+
 void UDualContour::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_RebuildCellsInRange);
+	check(IsInGameThread());
 	RangeMin = FVectorInt(FMath::Max(0, RangeMin.X), FMath::Max(0, RangeMin.Y), FMath::Max(0, RangeMin.Z));
 	RangeMax = FVectorInt(FMath::Min(CellCount.X, RangeMax.X), FMath::Min(CellCount.Y, RangeMax.Y), FMath::Min(CellCount.Z, RangeMax.Z));
 	const int64 ProcessedCellCount = static_cast<int64>(FMath::Max(0, RangeMax.X - RangeMin.X))
 	                                 * FMath::Max(0, RangeMax.Y - RangeMin.Y) * FMath::Max(0, RangeMax.Z - RangeMin.Z);
 	TRACE_COUNTER_SET_ALWAYS(DualContour_CellsProcessed, ProcessedCellCount);
-	int64 ActiveCellCount = 0;
-	constexpr double Lambda = 0.1;
+	if (ProcessedCellCount == 0)
+	{
+		TRACE_COUNTER_SET_ALWAYS(DualContour_ActiveCellsBuilt, 0);
+		return;
+	}
 
-	for (int32 CellZ = RangeMin.Z; CellZ < RangeMax.Z; ++CellZ)
-		for (int32 CellY = RangeMin.Y; CellY < RangeMax.Y; ++CellY)
-			for (int32 CellX = RangeMin.X; CellX < RangeMax.X; ++CellX)
-			{
-				FDualContourCell Cell;
-				const FVector CellMin = FVector(CellX, CellY, CellZ) * CellSize;
-				const FVector CellMax = FVector(CellX + 1, CellY + 1, CellZ + 1) * CellSize;
-				const FVector CellCenter = (CellMin + CellMax) * 0.5;
-				Cell.Center = CellCenter;
+	// The game thread remains blocked in ParallelFor, so worker threads can safely perform
+	// const queries on this object while writing only to their own output slots.
+	const FIntVector ChunkMin(RangeMin.X / GDualContourChunkSize, RangeMin.Y / GDualContourChunkSize,
+		RangeMin.Z / GDualContourChunkSize);
+	const FIntVector ChunkMaxExclusive(FMath::DivideAndRoundUp(RangeMax.X, GDualContourChunkSize),
+		FMath::DivideAndRoundUp(RangeMax.Y, GDualContourChunkSize),
+		FMath::DivideAndRoundUp(RangeMax.Z, GDualContourChunkSize));
 
-				bool bHasInside = false, bHasOutside = false;
-				for (int32 Z = 0; Z <= 1; ++Z)
-					for (int32 Y = 0; Y <= 1; ++Y)
-						for (int32 X = 0; X <= 1; ++X)
-							(GetDensity(CellX + X, CellY + Y, CellZ + Z) >= GDualContourIsoValue ? bHasInside : bHasOutside) = true;
-				Cell.bActive = bHasInside && bHasOutside;
-				if (!Cell.bActive)
-				{
-					SetContourCell(CellX, CellY, CellZ, Cell);
-					continue;
-				}
-				++ActiveCellCount;
+	TArray<FIntVector> ChunkCoords;
+	for (int32 ChunkZ = ChunkMin.Z; ChunkZ < ChunkMaxExclusive.Z; ++ChunkZ)
+		for (int32 ChunkY = ChunkMin.Y; ChunkY < ChunkMaxExclusive.Y; ++ChunkY)
+			for (int32 ChunkX = ChunkMin.X; ChunkX < ChunkMaxExclusive.X; ++ChunkX)
+				ChunkCoords.Emplace(ChunkX, ChunkY, ChunkZ);
 
-				double Matrix[3][3] = {};
-				double Vector[3] = {};
-				FVector AccumNormal = FVector::ZeroVector;
-				int32 NumIntersections = 0;
-				for (int32 EdgeIndex = 0; EdgeIndex < 12; ++EdgeIndex)
-				{
-					const int32* A = EdgeCorners[EdgeIndex][0];
-					const int32* B = EdgeCorners[EdgeIndex][1];
-					const int32 AX = CellX + A[0], AY = CellY + A[1], AZ = CellZ + A[2];
-					const int32 BX = CellX + B[0], BY = CellY + B[1], BZ = CellZ + B[2];
-					const int32 DensityA = GetDensity(AX, AY, AZ), DensityB = GetDensity(BX, BY, BZ);
-					if ((DensityA < GDualContourIsoValue) == (DensityB < GDualContourIsoValue))
-						continue;
+	TArray<FContourChunk> BuiltChunks;
+	BuiltChunks.SetNum(ChunkCoords.Num());
+	TArray<int32> ActiveCellCounts;
+	ActiveCellCounts.SetNumZeroed(ChunkCoords.Num());
 
-					const float Alpha = (static_cast<float>(GDualContourIsoValue) - DensityA) / (DensityB - DensityA);
-					const FVector GridPosition = FVector(AX, AY, AZ) + Alpha * (FVector(BX, BY, BZ) - FVector(AX, AY, AZ));
-					const FVector WorldPosition = GridPosition * CellSize;
-					const FVector Normal = (-ComputeGradient(GridPosition)).GetSafeNormal();
-					if (Normal.IsNearlyZero())
-						continue;
+	ParallelFor(TEXT("DualContour.BuildContourChunks"), ChunkCoords.Num(), 1,
+		[this, RangeMin, RangeMax, &ChunkCoords, &BuiltChunks,
+			&ActiveCellCounts](int32 Index)
+		{
+			TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_BuildContourChunk);
+			const FIntVector ChunkCoord = ChunkCoords[Index];
+			const FVectorInt ChunkOrigin(ChunkCoord.X * GDualContourChunkSize,
+				ChunkCoord.Y * GDualContourChunkSize, ChunkCoord.Z * GDualContourChunkSize);
+			const FVectorInt BuildMin(FMath::Max(RangeMin.X, ChunkOrigin.X),
+				FMath::Max(RangeMin.Y, ChunkOrigin.Y), FMath::Max(RangeMin.Z, ChunkOrigin.Z));
+			const FVectorInt BuildMax(FMath::Min(RangeMax.X, ChunkOrigin.X + GDualContourChunkSize),
+				FMath::Min(RangeMax.Y, ChunkOrigin.Y + GDualContourChunkSize),
+				FMath::Min(RangeMax.Z, ChunkOrigin.Z + GDualContourChunkSize));
 
-					const double NX = Normal.X, NY = Normal.Y, NZ = Normal.Z;
-					const double Distance = FVector::DotProduct(Normal, WorldPosition);
-					Matrix[0][0] += NX * NX;
-					Matrix[0][1] += NX * NY;
-					Matrix[0][2] += NX * NZ;
-					Matrix[1][0] += NY * NX;
-					Matrix[1][1] += NY * NY;
-					Matrix[1][2] += NY * NZ;
-					Matrix[2][0] += NZ * NX;
-					Matrix[2][1] += NZ * NY;
-					Matrix[2][2] += NZ * NZ;
-					Vector[0] += NX * Distance;
-					Vector[1] += NY * Distance;
-					Vector[2] += NZ * Distance;
-					AccumNormal += Normal;
-					++NumIntersections;
-				}
-
-				if (NumIntersections > 0)
-				{
-					Matrix[0][0] += Lambda;
-					Matrix[1][1] += Lambda;
-					Matrix[2][2] += Lambda;
-					Vector[0] += Lambda * CellCenter.X;
-					Vector[1] += Lambda * CellCenter.Y;
-					Vector[2] += Lambda * CellCenter.Z;
-					double Position[3];
-					if (Solve3x3(Matrix, Vector, Position))
+			FContourChunk& BuiltChunk = BuiltChunks[Index];
+			int32 LocalActiveCellCount = 0;
+			for (int32 CellZ = BuildMin.Z; CellZ < BuildMax.Z; ++CellZ)
+				for (int32 CellY = BuildMin.Y; CellY < BuildMax.Y; ++CellY)
+					for (int32 CellX = BuildMin.X; CellX < BuildMax.X; ++CellX)
 					{
-						Cell.Center.X = FMath::Clamp(Position[0], CellMin.X, CellMax.X);
-						Cell.Center.Y = FMath::Clamp(Position[1], CellMin.Y, CellMax.Y);
-						Cell.Center.Z = FMath::Clamp(Position[2], CellMin.Z, CellMax.Z);
+						FDualContourCell Cell = BuildNewCell(CellX, CellY, CellZ);
+						if (!Cell.bActive)
+							continue;
+						const uint16 LocalKey = static_cast<uint16>((CellX % GDualContourChunkSize)
+						                                            | ((CellY % GDualContourChunkSize) << 4)
+						                                            | ((CellZ % GDualContourChunkSize) << 8));
+						BuiltChunk.ActiveCells.Add(LocalKey, MoveTemp(Cell));
+						++LocalActiveCellCount;
 					}
-					Cell.Normal = AccumNormal.GetSafeNormal();
-					if (Cell.Normal.IsNearlyZero())
-						Cell.Normal = FVector::UpVector;
+			ActiveCellCounts[Index] = LocalActiveCellCount;
+		}, EParallelForFlags::Unbalanced);
+
+	int64 ActiveCellCount = 0;
+	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_MergeContourChunks);
+		for (int32 Index = 0; Index < ChunkCoords.Num(); ++Index)
+		{
+			ActiveCellCount += ActiveCellCounts[Index];
+			const FIntVector ChunkCoord = ChunkCoords[Index];
+			const FVectorInt ChunkOrigin(ChunkCoord.X * GDualContourChunkSize,
+				ChunkCoord.Y * GDualContourChunkSize, ChunkCoord.Z * GDualContourChunkSize);
+
+			if (FContourChunk* ExistingChunk = ContourChunks.Find(ChunkCoord))
+			{
+				for (auto CellIt = ExistingChunk->ActiveCells.CreateIterator(); CellIt; ++CellIt)
+				{
+					const uint16 LocalKey = CellIt.Key();
+					const int32 CellX = ChunkOrigin.X + (LocalKey & 0xF);
+					const int32 CellY = ChunkOrigin.Y + ((LocalKey >> 4) & 0xF);
+					const int32 CellZ = ChunkOrigin.Z + ((LocalKey >> 8) & 0xF);
+					if (CellX >= RangeMin.X && CellX < RangeMax.X && CellY >= RangeMin.Y && CellY < RangeMax.Y
+					    && CellZ >= RangeMin.Z && CellZ < RangeMax.Z)
+						CellIt.RemoveCurrent();
 				}
-				SetContourCell(CellX, CellY, CellZ, Cell);
 			}
+
+			FContourChunk& BuiltChunk = BuiltChunks[Index];
+			if (!BuiltChunk.ActiveCells.IsEmpty())
+			{
+				FContourChunk& TargetChunk = ContourChunks.FindOrAdd(ChunkCoord);
+				for (TPair<uint16, FDualContourCell>& CellPair : BuiltChunk.ActiveCells)
+					TargetChunk.ActiveCells.Add(CellPair.Key, MoveTemp(CellPair.Value));
+			}
+
+			const FContourChunk* UpdatedChunk = ContourChunks.Find(ChunkCoord);
+			if (UpdatedChunk && UpdatedChunk->ActiveCells.IsEmpty())
+				ContourChunks.Remove(ChunkCoord);
+		}
+	}
 	TRACE_COUNTER_SET_ALWAYS(DualContour_ActiveCellsBuilt, ActiveCellCount);
 
 	if (RangeMin.X < RangeMax.X && RangeMin.Y < RangeMax.Y && RangeMin.Z < RangeMax.Z)
