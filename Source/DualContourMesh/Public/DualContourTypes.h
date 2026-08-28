@@ -58,6 +58,24 @@ struct DUALCONTOURMESH_API FDensityChunk
 
 	bool IsUniform() const { return DensitySamples.IsEmpty(); }
 
+	/** Collapses an expanded chunk when every stored sample has the same value. */
+	bool TryCollapse()
+	{
+		if (IsUniform())
+			return true;
+
+		const uint8 Candidate = DensitySamples[0];
+		for (const uint8 Value : DensitySamples)
+		{
+			if (Value != Candidate)
+				return false;
+		}
+
+		UniformValue = Candidate;
+		DensitySamples.Empty();
+		return true;
+	}
+
 	void Expand()
 	{
 		if (!IsUniform())

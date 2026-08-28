@@ -56,6 +56,7 @@ public:
 	const TMap<FIntVector, FContourChunk>& GetContourChunks() const { return ContourChunks; }
 
 	virtual void PostLoad() override;
+	virtual void PreSave(FObjectPreSaveContext SaveContext) override;
 
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
@@ -76,6 +77,8 @@ private:
 	FVectorInt GetSampleDims() const { return FVectorInt(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }
 	void BuildCells();
 	void SetDensity(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Value);
+	void CompactAllDensityChunks();
+	void CompactDensityChunks(const TSet<FIntVector>& ChunkCoords);
 	void SetContourCell(int32 CellX, int32 CellY, int32 CellZ, const FDualContourCell& Cell);
 	void RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax);
 	bool ValidateGenerationSettings() const;

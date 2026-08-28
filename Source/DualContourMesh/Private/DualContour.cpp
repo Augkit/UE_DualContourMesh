@@ -1,6 +1,7 @@
 #include "DualContour.h"
 #include "ProfilingDebugging/CountersTrace.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
+#include "UObject/ObjectSaveContext.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDualContour, Log, All);
 
@@ -84,12 +85,21 @@ bool UDualContour::HasCurrentGeneratedData() const
 void UDualContour::PostLoad()
 {
 	Super::PostLoad();
+	CompactAllDensityChunks();
 
 	// ContourChunks is derived entirely from the persistent density grid. Keeping it transient
 	// avoids serializing the large nested map while preserving the existing runtime query API.
 	ContourChunks.Reset();
 	if (HasCurrentGeneratedData() && !DensityChunks.IsEmpty())
 		BuildCells();
+}
+
+void UDualContour::PreSave(FObjectPreSaveContext SaveContext)
+{
+	// Public mutation paths already compact their affected chunks. This full pass is a
+	// safety net for legacy data and any future mutation path added without a flush.
+	CompactAllDensityChunks();
+	Super::PreSave(SaveContext);
 }
 
 bool UDualContour::ValidateGenerationSettings() const
@@ -183,6 +193,7 @@ bool UDualContour::ReplaceDensitySamplesInRange(FVectorInt SampleMin, FVectorInt
 				if (Density != 0)
 					SetDensity(SampleMin.X + X, SampleMin.Y + Y, SampleMin.Z + Z, Density);
 			}
+	CompactAllDensityChunks();
 
 	ContourChunks.Reset();
 	LastBuiltCellCount = CellCount;
@@ -223,6 +234,7 @@ bool UDualContour::ModifyDensitySamplesInRange(FVectorInt SampleMin, FVectorInt 
 
 	bool bModified = false;
 	int64 ModifiedSampleCount = 0;
+	TSet<FIntVector> ModifiedChunks;
 	FVectorInt ModifiedSampleMin(FullSampleDimensions.X, FullSampleDimensions.Y, FullSampleDimensions.Z);
 	FVectorInt ModifiedSampleMax(-1, -1, -1);
 	for (int32 Z = 0; Z < SampleDimensions.Z; ++Z)
@@ -248,6 +260,8 @@ bool UDualContour::ModifyDensitySamplesInRange(FVectorInt SampleMin, FVectorInt 
 				if (ClampedDensity == OldDensity)
 					continue;
 				SetDensity(SampleX, SampleY, SampleZ, ClampedDensity);
+				ModifiedChunks.Add(FIntVector(SampleX / GDualContourChunkSize, SampleY / GDualContourChunkSize,
+					SampleZ / GDualContourChunkSize));
 				ModifiedSampleMin.X = FMath::Min(ModifiedSampleMin.X, SampleX);
 				ModifiedSampleMin.Y = FMath::Min(ModifiedSampleMin.Y, SampleY);
 				ModifiedSampleMin.Z = FMath::Min(ModifiedSampleMin.Z, SampleZ);
@@ -260,6 +274,7 @@ bool UDualContour::ModifyDensitySamplesInRange(FVectorInt SampleMin, FVectorInt 
 	TRACE_COUNTER_SET_ALWAYS(DualContour_DensitySamplesModified, ModifiedSampleCount);
 	if (!bModified)
 		return false;
+	CompactDensityChunks(ModifiedChunks);
 
 	const FVectorInt CellRangeMin(FMath::Max(0, ModifiedSampleMin.X - 1), FMath::Max(0, ModifiedSampleMin.Y - 1),
 		FMath::Max(0, ModifiedSampleMin.Z - 1));
@@ -301,6 +316,29 @@ void UDualContour::SetDensity(int32 SampleX, int32 SampleY, int32 SampleZ, uint8
 	const int32 LocalZ = SampleZ % GDualContourChunkSize;
 	Chunk.DensitySamples[LocalX + LocalY * GDualContourChunkSize
 	                     + LocalZ * GDualContourChunkSize * GDualContourChunkSize] = Value;
+}
+
+void UDualContour::CompactAllDensityChunks()
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_CompactAllDensityChunks);
+	for (auto ChunkIt = DensityChunks.CreateIterator(); ChunkIt; ++ChunkIt)
+	{
+		FDensityChunk& Chunk = ChunkIt.Value();
+		if (Chunk.TryCollapse() && Chunk.UniformValue == 0)
+			ChunkIt.RemoveCurrent();
+	}
+	DensityChunks.Compact();
+}
+
+void UDualContour::CompactDensityChunks(const TSet<FIntVector>& ChunkCoords)
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_CompactDensityChunks);
+	for (const FIntVector& ChunkCoord : ChunkCoords)
+	{
+		FDensityChunk* Chunk = DensityChunks.Find(ChunkCoord);
+		if (Chunk && Chunk->TryCollapse() && Chunk->UniformValue == 0)
+			DensityChunks.Remove(ChunkCoord);
+	}
 }
 
 const FDualContourCell* UDualContour::GetContourCell(int32 CellX, int32 CellY, int32 CellZ) const
