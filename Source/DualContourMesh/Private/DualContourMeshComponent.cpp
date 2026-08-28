@@ -16,6 +16,13 @@
 #include "SceneView.h"
 #include "PhysicsEngine/BodySetup.h"
 #include "PhysicsEngine/PhysicsSettings.h"
+#include "ProfilingDebugging/CountersTrace.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
+
+TRACE_DECLARE_INT_COUNTER(DualContourMesh_CellsProcessed, TEXT("DualContourMesh/Last Build/Cells Processed"));
+TRACE_DECLARE_INT_COUNTER(DualContourMesh_Vertices, TEXT("DualContourMesh/Last Build/Vertices"));
+TRACE_DECLARE_INT_COUNTER(DualContourMesh_Triangles, TEXT("DualContourMesh/Last Build/Triangles"));
+TRACE_DECLARE_INT_COUNTER(DualContourMesh_CollisionTriangles, TEXT("DualContourMesh/Last Collision Build/Triangles"));
 
 // ---------------------------------------------------------------------------
 // Scene proxy: one mesh per component
@@ -168,6 +175,7 @@ UDualContourMeshComponent::UDualContourMeshComponent(const FObjectInitializer& O
 
 void UDualContourMeshComponent::BuildAndRefreshMesh()
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_BuildAndRefreshMesh);
 	BuildMesh();
 	UpdateBounds();
 	UpdateCollision();
@@ -176,6 +184,7 @@ void UDualContourMeshComponent::BuildAndRefreshMesh()
 
 FPrimitiveSceneProxy* UDualContourMeshComponent::CreateSceneProxy()
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_CreateSceneProxy);
 	if (Positions.IsEmpty())
 		return nullptr;
 	return new FDualContourMeshSceneProxy(this);
@@ -206,6 +215,8 @@ bool UDualContourMeshComponent::GetTriMeshSizeEstimates(FTriMeshCollisionDataEst
 
 bool UDualContourMeshComponent::GetPhysicsTriMeshData(FTriMeshCollisionData* CollisionData, bool bInUseAllTriData)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_GetPhysicsTriMeshData);
+	TRACE_COUNTER_SET_ALWAYS(DualContourMesh_CollisionTriangles, 0);
 	if (!CollisionData || !ContainsPhysicsTriMeshData(bInUseAllTriData))
 		return false;
 
@@ -217,6 +228,7 @@ bool UDualContourMeshComponent::GetPhysicsTriMeshData(FTriMeshCollisionData* Col
 		CollisionData->Vertices.Add(FVector3f(Position));
 	}
 
+	const int32 InitialCollisionTriangleCount = CollisionData->Indices.Num();
 	const int32 TriangleCount = Indices.Num() / 3;
 	CollisionData->Indices.Reserve(TriangleCount);
 	CollisionData->MaterialIndices.Reserve(TriangleCount);
@@ -257,6 +269,8 @@ bool UDualContourMeshComponent::GetPhysicsTriMeshData(FTriMeshCollisionData* Col
 	CollisionData->bFlipNormals = true;
 	CollisionData->bDeformableMesh = false;
 	CollisionData->bFastCook = false;
+	TRACE_COUNTER_SET_ALWAYS(DualContourMesh_CollisionTriangles,
+		CollisionData->Indices.Num() - InitialCollisionTriangleCount);
 
 	return !CollisionData->Indices.IsEmpty();
 }
@@ -281,6 +295,7 @@ void UDualContourMeshComponent::CreateMeshBodySetup()
 
 void UDualContourMeshComponent::UpdateCollision()
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_UpdateCollision);
 	CreateMeshBodySetup();
 	MeshBodySetup->CollisionTraceFlag = CTF_UseComplexAsSimple;
 	MeshBodySetup->bDoubleSidedGeometry = false;
@@ -311,6 +326,7 @@ UMaterialInterface* UDualContourMeshComponent::GetMaterialFromCollisionFaceIndex
 
 void UDualContourMeshComponent::BuildMesh()
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_BuildMesh);
 	Positions.Reset();
 	Normals.Reset();
 	UVs.Reset();
@@ -318,7 +334,16 @@ void UDualContourMeshComponent::BuildMesh()
 	LocalBounds = FBox(ForceInit);
 
 	if (!DualContour || !DualContour->HasCurrentGeneratedData())
+	{
+		TRACE_COUNTER_SET_ALWAYS(DualContourMesh_CellsProcessed, 0);
+		TRACE_COUNTER_SET_ALWAYS(DualContourMesh_Vertices, 0);
+		TRACE_COUNTER_SET_ALWAYS(DualContourMesh_Triangles, 0);
 		return;
+	}
+
+	const int64 ProcessedCellCount = static_cast<int64>(FMath::Max(0, CellRangeMax.X - CellRangeMin.X))
+	                                 * FMath::Max(0, CellRangeMax.Y - CellRangeMin.Y) * FMath::Max(0, CellRangeMax.Z - CellRangeMin.Z);
+	TRACE_COUNTER_SET_ALWAYS(DualContourMesh_CellsProcessed, ProcessedCellCount);
 
 	for (int32 CellZ = CellRangeMin.Z; CellZ < CellRangeMax.Z; CellZ++)
 		for (int32 CellY = CellRangeMin.Y; CellY < CellRangeMax.Y; CellY++)
@@ -330,6 +355,8 @@ void UDualContourMeshComponent::BuildMesh()
 		LocalBounds += Position;
 	if (!LocalBounds.IsValid)
 		LocalBounds = FBox(FVector::ZeroVector, FVector::ZeroVector);
+	TRACE_COUNTER_SET_ALWAYS(DualContourMesh_Vertices, Positions.Num());
+	TRACE_COUNTER_SET_ALWAYS(DualContourMesh_Triangles, Indices.Num() / 3);
 }
 
 void UDualContourMeshComponent::GenerateQuadsForCell(int32 CellX, int32 CellY, int32 CellZ)
