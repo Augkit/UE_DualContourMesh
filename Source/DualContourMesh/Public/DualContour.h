@@ -55,6 +55,8 @@ public:
 	const TMap<FIntVector, FDensityChunk>& GetDensityChunks() const { return DensityChunks; }
 	const TMap<FIntVector, FContourChunk>& GetContourChunks() const { return ContourChunks; }
 
+	virtual void PostLoad() override;
+
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 	virtual void PostEditUndo() override;
@@ -64,7 +66,8 @@ private:
 	UPROPERTY()
 	TMap<FIntVector, FDensityChunk> DensityChunks;
 
-	UPROPERTY()
+	/** Runtime cache rebuilt from DensityChunks after loading. It is intentionally excluded from assets. */
+	UPROPERTY(Transient)
 	TMap<FIntVector, FContourChunk> ContourChunks;
 
 	UPROPERTY()

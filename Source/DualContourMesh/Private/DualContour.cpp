@@ -81,6 +81,17 @@ bool UDualContour::HasCurrentGeneratedData() const
 	return !bRebuildRequired && LastBuiltCellCount.X == CellCount.X && LastBuiltCellCount.Y == CellCount.Y && LastBuiltCellCount.Z == CellCount.Z;
 }
 
+void UDualContour::PostLoad()
+{
+	Super::PostLoad();
+
+	// ContourChunks is derived entirely from the persistent density grid. Keeping it transient
+	// avoids serializing the large nested map while preserving the existing runtime query API.
+	ContourChunks.Reset();
+	if (HasCurrentGeneratedData() && !DensityChunks.IsEmpty())
+		BuildCells();
+}
+
 bool UDualContour::ValidateGenerationSettings() const
 {
 	if (CellCount.X <= 0 || CellCount.Y <= 0 || CellCount.Z <= 0)
