@@ -105,7 +105,9 @@ void ADualContourMeshActor::PostEditChangeProperty(FPropertyChangedEvent& Proper
 	{
 		RebuildMesh();
 	}
-	else if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, Divisions))
+	else if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, Divisions)
+	         || MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, bAutoCalculateDivisions)
+	         || MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, MaxCellsPerDivision))
 	{
 		RecreateMeshComponents();
 	}
@@ -210,6 +212,7 @@ void ADualContourMeshActor::RecreateMeshComponents()
 {
 	if (!DualContour || !DualContour->HasCurrentGeneratedData())
 		return;
+	UpdateAutoDivisions();
 	if (!HasValidDivisions())
 	{
 		for (TPair<int32, TObjectPtr<UDualContourMeshComponent>>& Pair : MeshComponents)
@@ -243,6 +246,22 @@ void ADualContourMeshActor::RecreateMeshComponents()
 			}
 }
 
+void ADualContourMeshActor::UpdateAutoDivisions()
+{
+	if (!bAutoCalculateDivisions || !DualContour)
+		return;
+
+	const int32 SafeMaxCells = FMath::Max(MaxCellsPerDivision, 1);
+	const auto CalculateAxisDivisions = [SafeMaxCells](int32 CellCount)
+	{
+		return CellCount > 0 ? FMath::DivideAndRoundUp(CellCount, SafeMaxCells) : 1;
+	};
+	Divisions = FVectorInt(
+		CalculateAxisDivisions(DualContour->CellCount.X),
+		CalculateAxisDivisions(DualContour->CellCount.Y),
+		CalculateAxisDivisions(DualContour->CellCount.Z));
+}
+
 UDualContourMeshComponent* ADualContourMeshActor::CreateMeshComponent(FVectorInt CellMin, FVectorInt CellMax)
 {
 	UDualContourMeshComponent* NewComponent = NewObject<UDualContourMeshComponent>(this, NAME_None, RF_Transactional);
@@ -272,9 +291,9 @@ bool ADualContourMeshActor::ValidateDivisions(FString& OutStatus) const
 			Errors.Add(FString::Printf(TEXT("%s must be greater than zero"), Axis));
 		else if (CellCount <= 0)
 			Errors.Add(FString::Printf(TEXT("CellCount.%s must be greater than zero"), Axis));
-		else if (CellCount % DivisionCount != 0)
-			Errors.Add(FString::Printf(TEXT("CellCount.%s (%d) is not divisible by Divisions.%s (%d)"),
-				Axis, CellCount, Axis, DivisionCount));
+		else if (DivisionCount > CellCount)
+			Errors.Add(FString::Printf(TEXT("Divisions.%s (%d) cannot exceed CellCount.%s (%d)"),
+				Axis, DivisionCount, Axis, CellCount));
 	};
 
 	ValidateAxis(TEXT("X"), DualContour->CellCount.X, Divisions.X);
@@ -283,9 +302,10 @@ bool ADualContourMeshActor::ValidateDivisions(FString& OutStatus) const
 
 	if (Errors.IsEmpty())
 	{
-		OutStatus = FString::Printf(TEXT("Valid - cells per component: (%d, %d, %d)"),
-			DualContour->CellCount.X / Divisions.X, DualContour->CellCount.Y / Divisions.Y,
-			DualContour->CellCount.Z / Divisions.Z);
+		OutStatus = FString::Printf(TEXT("Valid - maximum cells per component: (%d, %d, %d)"),
+			FMath::DivideAndRoundUp(DualContour->CellCount.X, Divisions.X),
+			FMath::DivideAndRoundUp(DualContour->CellCount.Y, Divisions.Y),
+			FMath::DivideAndRoundUp(DualContour->CellCount.Z, Divisions.Z));
 		return true;
 	}
 
@@ -310,21 +330,31 @@ int32 ADualContourMeshActor::DivisionIndex(int32 DivX, int32 DivY, int32 DivZ) c
 
 FVectorInt ADualContourMeshActor::DivisionFromCell(int32 CellX, int32 CellY, int32 CellZ) const
 {
-	return FVectorInt(FMath::Clamp(CellX * Divisions.X / DualContour->CellCount.X, 0, Divisions.X - 1),
-		FMath::Clamp(CellY * Divisions.Y / DualContour->CellCount.Y, 0, Divisions.Y - 1),
-		FMath::Clamp(CellZ * Divisions.Z / DualContour->CellCount.Z, 0, Divisions.Z - 1));
+	const auto GetAxisDivision = [](int32 Cell, int32 DivisionCount, int32 CellCount)
+	{
+		const int64 Numerator = (static_cast<int64>(Cell) + 1) * DivisionCount - 1;
+		return FMath::Clamp(static_cast<int32>(Numerator / CellCount), 0, DivisionCount - 1);
+	};
+	return FVectorInt(
+		GetAxisDivision(CellX, Divisions.X, DualContour->CellCount.X),
+		GetAxisDivision(CellY, Divisions.Y, DualContour->CellCount.Y),
+		GetAxisDivision(CellZ, Divisions.Z, DualContour->CellCount.Z));
 }
 
 FVectorInt ADualContourMeshActor::DivisionCellMin(int32 DivX, int32 DivY, int32 DivZ) const
 {
-	return FVectorInt(DivX * DualContour->CellCount.X / Divisions.X, DivY * DualContour->CellCount.Y / Divisions.Y,
-		DivZ * DualContour->CellCount.Z / Divisions.Z);
+	return FVectorInt(
+		static_cast<int32>(static_cast<int64>(DivX) * DualContour->CellCount.X / Divisions.X),
+		static_cast<int32>(static_cast<int64>(DivY) * DualContour->CellCount.Y / Divisions.Y),
+		static_cast<int32>(static_cast<int64>(DivZ) * DualContour->CellCount.Z / Divisions.Z));
 }
 
 FVectorInt ADualContourMeshActor::DivisionCellMax(int32 DivX, int32 DivY, int32 DivZ) const
 {
-	return FVectorInt((DivX + 1) * DualContour->CellCount.X / Divisions.X,
-		(DivY + 1) * DualContour->CellCount.Y / Divisions.Y, (DivZ + 1) * DualContour->CellCount.Z / Divisions.Z);
+	return FVectorInt(
+		static_cast<int32>((static_cast<int64>(DivX) + 1) * DualContour->CellCount.X / Divisions.X),
+		static_cast<int32>((static_cast<int64>(DivY) + 1) * DualContour->CellCount.Y / Divisions.Y),
+		static_cast<int32>((static_cast<int64>(DivZ) + 1) * DualContour->CellCount.Z / Divisions.Z));
 }
 
 void ADualContourMeshActor::PartialUpdateComponents(FVectorInt AffectedCellMin, FVectorInt AffectedCellMax)

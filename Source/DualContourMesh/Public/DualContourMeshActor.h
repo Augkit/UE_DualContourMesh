@@ -25,13 +25,23 @@ public:
 	/** Data model and generator managed by this actor. */
 	UPROPERTY(BlueprintReadOnly, Instanced)
 	TObjectPtr<UDualContour> DualContour;
-	
+
 	/** Optional persistent DualContour asset copied into this actor when its mesh is rebuilt. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DualContour")
 	TObjectPtr<UDualContour> InitialDualContour;
 
-	/** Number of independently generated mesh components along each axis. Each value must divide the corresponding CellCount exactly. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Rendering", meta = (ClampMin = "1"))
+	/** Automatically derives Divisions from CellCount so no generated component exceeds MaxCellsPerDivision on an axis. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Rendering")
+	bool bAutoCalculateDivisions = true;
+
+	/** Maximum number of cells along any axis of an automatically generated mesh component. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Rendering",
+		meta = (ClampMin = "1", EditCondition = "bAutoCalculateDivisions"))
+	int32 MaxCellsPerDivision = 64;
+
+	/** Number of independently generated mesh components along each axis. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Rendering",
+		meta = (ClampMin = "1", EditCondition = "!bAutoCalculateDivisions"))
 	FVectorInt Divisions = FVectorInt(1, 1, 1);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Rendering")
@@ -54,7 +64,7 @@ public:
 	bool ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal, UVolumeSampler* Sampler, float UniformScale,
 		bool bExcavate);
 
-	/** Returns whether every Divisions value divides its corresponding CellCount value and describes the result. */
+	/** Returns whether every Divisions value is valid for its corresponding CellCount value and describes the result. */
 	bool ValidateDivisions(FString& OutStatus) const;
 
 	virtual void PostRegisterAllComponents() override;
@@ -82,6 +92,7 @@ private:
 
 	void ApplyCollisionSettings(UDualContourMeshComponent* MeshComponent) const;
 	void RefreshCollisionSettings();
+	void UpdateAutoDivisions();
 	void RecreateMeshComponents();
 	UDualContourMeshComponent* CreateMeshComponent(FVectorInt CellMin, FVectorInt CellMax);
 	bool HasValidDivisions() const;
