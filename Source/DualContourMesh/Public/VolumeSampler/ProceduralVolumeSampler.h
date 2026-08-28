@@ -35,6 +35,7 @@ public:
 
 protected:
 	virtual bool Prepare(FText& OutError) const override;
+	virtual bool SupportsParallelSampling() const override;
 	virtual float SampleNormalized(const FVector& UVW) const override;
 };
 

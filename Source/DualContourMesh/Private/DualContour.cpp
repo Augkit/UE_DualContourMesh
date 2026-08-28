@@ -552,7 +552,6 @@ void UDualContour::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax)
 		[this, RangeMin, RangeMax, &ChunkCoords, &BuiltChunks,
 			&ActiveCellCounts](int32 Index)
 		{
-			TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_BuildContourChunk);
 			const FIntVector ChunkCoord = ChunkCoords[Index];
 			const FVectorInt ChunkOrigin(ChunkCoord.X * GDualContourChunkSize,
 				ChunkCoord.Y * GDualContourChunkSize, ChunkCoord.Z * GDualContourChunkSize);

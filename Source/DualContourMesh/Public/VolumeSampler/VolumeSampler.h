@@ -41,6 +41,8 @@ public:
 protected:
 	virtual bool Prepare(FText& OutError) const;
 	virtual void Finish() const;
+	/** True when SampleNormalized may be called concurrently while the game thread is blocked. */
+	virtual bool SupportsParallelSampling() const { return false; }
 	virtual float SampleNormalized(const FVector& UVW) const PURE_VIRTUAL(UVolumeSampler::SampleNormalized, return 0.0f;);
 
 private:
@@ -68,6 +70,7 @@ public:
 protected:
 	float SignedDistanceToDensity(float SignedDistance) const;
 	float SampleCachedTexture(const FVector& UVW) const;
+	virtual bool SupportsParallelSampling() const override { return true; }
 	virtual bool PrepareTexture(FText& OutError) const PURE_VIRTUAL(UTextureSDFSampler::PrepareTexture, return false;);
 	virtual void Finish() const override;
 

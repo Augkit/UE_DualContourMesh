@@ -35,10 +35,19 @@ float UProceduralVolumeSampler::GetSignedDistance_Implementation(const FVector& 
 	return 1.0e20f;
 }
 
+bool UProceduralVolumeSampler::SupportsParallelSampling() const
+{
+	// Blueprint event dispatch uses ProcessEvent and must stay on the game thread. Native
+	// implementations are called directly by SampleNormalized and only read prepared state.
+	return !GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint);
+}
+
 float UProceduralVolumeSampler::SampleNormalized(const FVector& UVW) const
 {
 	const FVector LocalPosition = (UVW - FVector(0.5)) * VolumeSize;
-	const float SignedDistance = GetSignedDistance(LocalPosition);
+	const float SignedDistance = GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint)
+		                             ? GetSignedDistance(LocalPosition)
+		                             : GetSignedDistance_Implementation(LocalPosition);
 	if (!FMath::IsFinite(SignedDistance))
 		return 0.0f;
 	return static_cast<float>(GDualContourIsoValue) + DensityBias - SignedDistance * DensityScale;

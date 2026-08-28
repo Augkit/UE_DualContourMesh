@@ -1,6 +1,7 @@
 ﻿#include "VolumeSampler/VolumeSampler.h"
 #include "DualContour.h"
 #include "VolumeSampledDualContour.h"
+#include "Async/ParallelFor.h"
 #include "Misc/ScopeExit.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "UObject/ObjectSaveContext.h"
@@ -42,6 +43,7 @@ bool UVolumeSampler::BuildDensitySamples(UDualContour* Target, const FTransform&
 	TArray<uint8>& OutSamples, FText& OutError) const
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_BuildDensitySamples);
+	check(IsInGameThread());
 	OutSampleMin = FVectorInt();
 	OutSampleDimensions = FVectorInt();
 	OutSamples.Reset();
@@ -124,29 +126,47 @@ bool UVolumeSampler::BuildDensitySamples(UDualContour* Target, const FTransform&
 	const int32 SampleCount = static_cast<int32>(SampleArea * OutSampleDimensions.Z);
 
 	const FVector Translation = SampleTransform.GetTranslation();
+	OutSamples.SetNumUninitialized(SampleCount);
 	{
-		TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_AllocateDensitySamples);
-		OutSamples.SetNumUninitialized(SampleCount);
-	}
-	{
-		TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_SampleDensity);
-		for (int32 Z = 0; Z < OutSampleDimensions.Z; ++Z)
-			for (int32 Y = 0; Y < OutSampleDimensions.Y; ++Y)
-				for (int32 X = 0; X < OutSampleDimensions.X; ++X)
-				{
-					const int32 SampleX = OutSampleMin.X + X;
-					const int32 SampleY = OutSampleMin.Y + Y;
-					const int32 SampleZ = OutSampleMin.Z + Z;
-					const FVector TargetPosition = Target->GetSampleLocalPosition(SampleX, SampleY, SampleZ);
-					const FVector Untransformed =
-						PivotPosition + SampleTransform.InverseTransformVector(TargetPosition - PivotPosition - Translation);
-					const FVector UVW = Untransformed / VolumeSize;
-					float Density = 0.0f;
-					if (UVW.X >= 0.0 && UVW.X <= 1.0 && UVW.Y >= 0.0 && UVW.Y <= 1.0 && UVW.Z >= 0.0 && UVW.Z <= 1.0)
-						Density = SampleNormalized(UVW);
-					OutSamples[OutSampleDimensions.LinearIndex(X, Y, Z)] = static_cast<uint8>(
-						FMath::RoundToInt(FMath::Clamp(Density, 0.0f, 255.0f)));
-				}
+		const int32 SampleRowSize = OutSampleDimensions.X;
+		const int32 SampleRowCount = OutSampleDimensions.Y * OutSampleDimensions.Z;
+		const float TargetCellSize = Target->CellSize;
+		const auto SampleRow = [this, &OutSamples, OutSampleMin, OutSampleDimensions, SampleRowSize,
+			TargetCellSize, PivotPosition, SampleTransform, Translation](int32 Index)
+		{
+			const int32 Z = Index / OutSampleDimensions.Y;
+			const int32 Y = Index - Z * OutSampleDimensions.Y;
+			const int32 OutputRowStart = Index * SampleRowSize;
+			for (int32 X = 0; X < SampleRowSize; ++X)
+			{
+				const FVector TargetPosition(
+					static_cast<double>(OutSampleMin.X + X) * TargetCellSize,
+					static_cast<double>(OutSampleMin.Y + Y) * TargetCellSize,
+					static_cast<double>(OutSampleMin.Z + Z) * TargetCellSize);
+				const FVector Untransformed =
+					PivotPosition + SampleTransform.InverseTransformVector(TargetPosition - PivotPosition - Translation);
+				const FVector UVW = Untransformed / VolumeSize;
+				float Density = 0.0f;
+				if (UVW.X >= 0.0 && UVW.X <= 1.0 && UVW.Y >= 0.0 && UVW.Y <= 1.0 && UVW.Z >= 0.0 && UVW.Z <= 1.0)
+					Density = SampleNormalized(UVW);
+				OutSamples[OutputRowStart + X] = static_cast<uint8>(
+					FMath::RoundToInt(FMath::Clamp(Density, 0.0f, 255.0f)));
+			}
+		};
+
+		if (SupportsParallelSampling())
+		{
+			TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_ParallelSampleDensity);
+			// As in UDualContour::RebuildCellsInRange, the calling thread stays blocked;
+			// workers only read prepared sampler state and write disjoint output elements.
+			ParallelFor(TEXT("VolumeSampler.SampleDensity"), SampleRowCount, 8, SampleRow, EParallelForFlags::Unbalanced);
+		}
+		else
+		{
+			TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_SerialSampleDensity);
+			for (int32 Index = 0; Index < SampleRowCount; ++Index)
+				SampleRow(Index);
+		}
 	}
 
 	return true;
