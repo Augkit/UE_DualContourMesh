@@ -2,16 +2,21 @@
 
 #if WITH_EDITOR
 #include "VolumeSampler/VolumeSampler.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogVolumeSampledDualContour, Log, All);
 
 bool UVolumeSampledDualContour::SampleVolume()
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampledDualContour_SampleVolume);
 	if (!VolumeSampler)
 		return false;
 
 	FText Error;
-	Modify();
+	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampledDualContour_Modify);
+		Modify();
+	}
 	if (!VolumeSampler->ReplaceDualContour(this, SampleTransform, Error))
 	{
 		UE_LOG(LogVolumeSampledDualContour, Error, TEXT("Volume sampling failed for %s: %s"),

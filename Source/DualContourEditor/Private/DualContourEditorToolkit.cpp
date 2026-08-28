@@ -6,6 +6,7 @@
 #include "DualContourEditorViewport.h"
 #include "IDetailsView.h"
 #include "PropertyEditorModule.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "Modules/ModuleManager.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "Styling/AppStyle.h"
@@ -179,6 +180,7 @@ FReply FDualContourEditorToolkit::OnGenerateDualContourClicked()
 
 void FDualContourEditorToolkit::GenerateDualContour()
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourEditor_GenerateDualContour);
 	bool bGenerated = false;
 	if (USVTDualContour* SVTDualContour = GetSVTDualContour())
 		bGenerated = SVTDualContour->SampleSparseVolumeTexture();

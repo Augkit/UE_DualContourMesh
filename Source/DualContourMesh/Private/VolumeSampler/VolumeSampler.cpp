@@ -2,6 +2,7 @@
 #include "DualContour.h"
 #include "VolumeSampledDualContour.h"
 #include "Misc/ScopeExit.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "UObject/ObjectSaveContext.h"
 
 bool UVolumeSampler::Prepare(FText& OutError) const
@@ -40,6 +41,7 @@ bool UVolumeSampler::BuildDensitySamples(UDualContour* Target, const FTransform&
 	FVectorInt& OutSampleMin, FVectorInt& OutSampleDimensions,
 	TArray<uint8>& OutSamples, FText& OutError) const
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_BuildDensitySamples);
 	OutSampleMin = FVectorInt();
 	OutSampleDimensions = FVectorInt();
 	OutSamples.Reset();
@@ -58,8 +60,11 @@ bool UVolumeSampler::BuildDensitySamples(UDualContour* Target, const FTransform&
 		return false;
 	}
 
-	if (!Prepare(OutError))
-		return false;
+	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_Prepare);
+		if (!Prepare(OutError))
+			return false;
+	}
 	ON_SCOPE_EXIT
 	{
 		Finish();
@@ -119,30 +124,37 @@ bool UVolumeSampler::BuildDensitySamples(UDualContour* Target, const FTransform&
 	const int32 SampleCount = static_cast<int32>(SampleArea * OutSampleDimensions.Z);
 
 	const FVector Translation = SampleTransform.GetTranslation();
-	OutSamples.SetNumUninitialized(SampleCount);
-	for (int32 Z = 0; Z < OutSampleDimensions.Z; ++Z)
-		for (int32 Y = 0; Y < OutSampleDimensions.Y; ++Y)
-			for (int32 X = 0; X < OutSampleDimensions.X; ++X)
-			{
-				const int32 SampleX = OutSampleMin.X + X;
-				const int32 SampleY = OutSampleMin.Y + Y;
-				const int32 SampleZ = OutSampleMin.Z + Z;
-				const FVector TargetPosition = Target->GetSampleLocalPosition(SampleX, SampleY, SampleZ);
-				const FVector Untransformed =
-					PivotPosition + SampleTransform.InverseTransformVector(TargetPosition - PivotPosition - Translation);
-				const FVector UVW = Untransformed / VolumeSize;
-				float Density = 0.0f;
-				if (UVW.X >= 0.0 && UVW.X <= 1.0 && UVW.Y >= 0.0 && UVW.Y <= 1.0 && UVW.Z >= 0.0 && UVW.Z <= 1.0)
-					Density = SampleNormalized(UVW);
-				OutSamples[OutSampleDimensions.LinearIndex(X, Y, Z)] = static_cast<uint8>(
-					FMath::RoundToInt(FMath::Clamp(Density, 0.0f, 255.0f)));
-			}
+	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_AllocateDensitySamples);
+		OutSamples.SetNumUninitialized(SampleCount);
+	}
+	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_SampleDensity);
+		for (int32 Z = 0; Z < OutSampleDimensions.Z; ++Z)
+			for (int32 Y = 0; Y < OutSampleDimensions.Y; ++Y)
+				for (int32 X = 0; X < OutSampleDimensions.X; ++X)
+				{
+					const int32 SampleX = OutSampleMin.X + X;
+					const int32 SampleY = OutSampleMin.Y + Y;
+					const int32 SampleZ = OutSampleMin.Z + Z;
+					const FVector TargetPosition = Target->GetSampleLocalPosition(SampleX, SampleY, SampleZ);
+					const FVector Untransformed =
+						PivotPosition + SampleTransform.InverseTransformVector(TargetPosition - PivotPosition - Translation);
+					const FVector UVW = Untransformed / VolumeSize;
+					float Density = 0.0f;
+					if (UVW.X >= 0.0 && UVW.X <= 1.0 && UVW.Y >= 0.0 && UVW.Y <= 1.0 && UVW.Z >= 0.0 && UVW.Z <= 1.0)
+						Density = SampleNormalized(UVW);
+					OutSamples[OutSampleDimensions.LinearIndex(X, Y, Z)] = static_cast<uint8>(
+						FMath::RoundToInt(FMath::Clamp(Density, 0.0f, 255.0f)));
+				}
+	}
 
 	return true;
 }
 
 bool UVolumeSampler::ReplaceDualContour(UDualContour* Target, const FTransform& SampleTransform, FText& OutError)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_ReplaceDualContour);
 	FVectorInt SampleMin;
 	FVectorInt SampleDimensions;
 	TArray<uint8> Samples;
@@ -153,6 +165,7 @@ bool UVolumeSampler::ReplaceDualContour(UDualContour* Target, const FTransform& 
 bool UVolumeSampler::ModifyDualContour(UDualContour* Target, const FTransform& SampleTransform, bool bExcavate,
 	FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax, FText& OutError)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_ModifyDualContour);
 	OutAffectedCellMin = FVectorInt();
 	OutAffectedCellMax = FVectorInt();
 	FVectorInt SampleMin;
