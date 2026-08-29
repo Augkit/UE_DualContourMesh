@@ -126,7 +126,9 @@ void SDualContourEditorViewport::RefreshPreview()
 		ViewportClient->SetPreviewBounds(PreviewBounds);
 	if (DensityActor)
 	{
-		if (bPreviewDualContour)
+		// Keep displaying the last generated mesh while settings are dirty. Moving its static
+		// component tree to match ungenerated settings can enqueue thousands of render updates.
+		if (bPreviewDualContour && Asset->HasCurrentGeneratedData())
 		{
 			DensityActor->SetActorLocation(FVector(-FieldSize.X * 0.5f, -FieldSize.Y * 0.5f, 0.f));
 			DensityActor->SetGeneratedDualContour(Asset);
@@ -243,15 +245,8 @@ void FDualContourEditorViewportClient::Draw(const FSceneView* View, FPrimitiveDr
 {
 	FEditorViewportClient::Draw(View, PDI);
 	const TSharedPtr<FDualContourEditorToolkit> Toolkit = EditorToolkit.Pin();
-	const UDualContour* Asset = Toolkit ? Toolkit->GetAsset() : nullptr;
-	if (!Toolkit || !Toolkit->ShouldShowDualContourBounds() || !Asset)
+	if (!Toolkit || !Toolkit->ShouldShowDualContourBounds() || !PreviewBounds.IsValid)
 		return;
 
-	const FVector FieldSize(
-		Asset->CellCount.X * Asset->CellSize,
-		Asset->CellCount.Y * Asset->CellSize,
-		Asset->CellCount.Z * Asset->CellSize);
-	const FVector HalfExtent(FieldSize.X * 0.5f, FieldSize.Y * 0.5f, FieldSize.Z * 0.5f);
-	const FBox Bounds(FVector(-HalfExtent.X, -HalfExtent.Y, 0.f), FVector(HalfExtent.X, HalfExtent.Y, FieldSize.Z));
-	DrawWireBox(PDI, Bounds, FLinearColor(0.05f, 0.65f, 1.f), SDPG_World, 1.5f);
+	DrawWireBox(PDI, PreviewBounds, FLinearColor(0.05f, 0.65f, 1.f), SDPG_World);
 }

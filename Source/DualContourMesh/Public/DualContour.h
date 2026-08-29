@@ -64,11 +64,11 @@ public:
 #endif
 
 private:
-	UPROPERTY()
+	UPROPERTY(NonTransactional)
 	TMap<FIntVector, FDensityChunk> DensityChunks;
 
 	/** Runtime cache rebuilt from DensityChunks after loading. It is intentionally excluded from assets. */
-	UPROPERTY(Transient)
+	UPROPERTY(Transient, NonTransactional)
 	TMap<FIntVector, FContourChunk> ContourChunks;
 
 	UPROPERTY()

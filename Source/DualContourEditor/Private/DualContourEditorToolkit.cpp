@@ -36,7 +36,6 @@ void FDualContourEditorToolkit::InitEditor(EToolkitMode::Type Mode,
 	Args.NameAreaSettings = FDetailsViewArgs::HideNameArea;
 	DetailsView = PropertyEditor.CreateDetailView(Args);
 	DetailsView->SetObject(Asset);
-	DetailsView->OnFinishedChangingProperties().AddSP(this, &FDualContourEditorToolkit::OnFinishedChangingProperties);
 
 	const TSharedRef<FTabManager::FLayout> Layout = FTabManager::NewLayout("Standalone_DualContourEditor_v2")
 		->AddArea(FTabManager::NewPrimaryArea()->SetOrientation(Orient_Vertical)
@@ -267,12 +266,6 @@ void FDualContourEditorToolkit::ToggleDualContourBounds()
 	bShowDualContourBounds = !bShowDualContourBounds;
 	if (Viewport)
 		Viewport->InvalidatePreview();
-}
-
-void FDualContourEditorToolkit::OnFinishedChangingProperties(const FPropertyChangedEvent& Event)
-{
-	if (Viewport)
-		Viewport->RefreshPreview();
 }
 
 FName FDualContourEditorToolkit::GetToolkitFName() const { return TEXT("DualContourEditor"); }

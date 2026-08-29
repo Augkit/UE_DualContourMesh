@@ -48,7 +48,6 @@ private:
 	bool IsPreviewTypeSelected(EDualContourEditorPreviewType InPreviewType) const;
 	FText GetPreviewTypeLabel() const;
 	void ToggleDualContourBounds();
-	void OnFinishedChangingProperties(const FPropertyChangedEvent& Event);
 
 	static const FName ViewportTabId;
 	static const FName DetailsTabId;
