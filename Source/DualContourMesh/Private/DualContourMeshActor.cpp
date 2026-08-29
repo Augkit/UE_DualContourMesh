@@ -1,8 +1,51 @@
 #include "DualContourMeshActor.h"
+#include "DualContourMeshBuilder.h"
+#include "Async/ParallelFor.h"
 #include "Engine/CollisionProfile.h"
+#include "ProfilingDebugging/CountersTrace.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "VolumeSampler/VolumeSampler.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDualContourMesh, Log, All);
+
+TRACE_DECLARE_INT_COUNTER(DualContourMesh_CellsProcessed, TEXT("DualContourMesh/Last Build/Cells Processed"));
+TRACE_DECLARE_INT_COUNTER(DualContourMesh_Vertices, TEXT("DualContourMesh/Last Build/Vertices"));
+TRACE_DECLARE_INT_COUNTER(DualContourMesh_Triangles, TEXT("DualContourMesh/Last Build/Triangles"));
+
+namespace
+{
+struct FMeshBuildRequest
+{
+	int32 DivisionIndex = INDEX_NONE;
+	FVectorInt CellMin;
+	FVectorInt CellMax;
+	FDualContourMeshData MeshData;
+};
+
+void BuildMeshRequests(const UDualContour& DualContour, TArray<FMeshBuildRequest>& Requests)
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_BuildMeshRequests);
+	check(IsInGameThread());
+	ParallelFor(TEXT("DualContourMesh.BuildDivisions"), Requests.Num(), 1,
+		[&DualContour, &Requests](int32 RequestIndex)
+		{
+			FMeshBuildRequest& Request = Requests[RequestIndex];
+			FDualContourMeshBuilder::Build(DualContour, Request.CellMin, Request.CellMax, Request.MeshData);
+		}, EParallelForFlags::Unbalanced);
+
+	int64 ProcessedCellCount = 0;
+	int64 VertexCount = 0;
+	int64 TriangleCount = 0;
+	for (const FMeshBuildRequest& Request : Requests)
+	{
+		ProcessedCellCount += static_cast<int64>(FMath::Max(0, Request.CellMax.X - Request.CellMin.X))
+			* FMath::Max(0, Request.CellMax.Y - Request.CellMin.Y)
+			* FMath::Max(0, Request.CellMax.Z - Request.CellMin.Z);
+		VertexCount += Request.MeshData.Positions.Num();
+		TriangleCount += Request.MeshData.Indices.Num() / 3;
+	}
+}
+}
 
 ADualContourMeshActor::ADualContourMeshActor()
 {
@@ -50,9 +93,6 @@ void ADualContourMeshActor::PostRegisterAllComponents()
 {
 	Super::PostRegisterAllComponents();
 	BindToDualContour();
-	for (TPair<int32, TObjectPtr<UDualContourMeshComponent>>& Pair : MeshComponents)
-		if (Pair.Value)
-			Pair.Value->DualContour = DualContour;
 	RefreshCollisionSettings();
 
 #if WITH_EDITOR
@@ -193,6 +233,7 @@ void ADualContourMeshActor::UnbindFromDualContour()
 
 void ADualContourMeshActor::OnDualContourCellsRebuilt(FVectorInt AffectedCellMin, FVectorInt AffectedCellMax)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_OnDualContourCellsRebuilt);
 	if (bRebuildingMesh)
 		return;
 	if (MeshCellCount.X != DualContour->CellCount.X || MeshCellCount.Y != DualContour->CellCount.Y
@@ -210,6 +251,7 @@ void ADualContourMeshActor::OnDualContourCellsRebuilt(FVectorInt AffectedCellMin
 
 void ADualContourMeshActor::RecreateMeshComponents()
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_RecreateMeshComponents);
 	if (!DualContour || !DualContour->HasCurrentGeneratedData())
 		return;
 	UpdateAutoDivisions();
@@ -226,24 +268,42 @@ void ADualContourMeshActor::RecreateMeshComponents()
 	RefreshDebugComponent();
 #endif
 
-	for (TPair<int32, TObjectPtr<UDualContourMeshComponent>>& Pair : MeshComponents)
-		if (Pair.Value)
-			Pair.Value->DestroyComponent();
-	MeshComponents.Reset();
-	MeshCellCount = DualContour->CellCount;
-	MeshCellSize = DualContour->CellSize;
+	TArray<FMeshBuildRequest> Requests;
+	{
+		Requests.Reserve(Divisions.X * Divisions.Y * Divisions.Z);
+		for (int32 DivisionZ = 0; DivisionZ < Divisions.Z; ++DivisionZ)
+			for (int32 DivisionY = 0; DivisionY < Divisions.Y; ++DivisionY)
+				for (int32 DivisionX = 0; DivisionX < Divisions.X; ++DivisionX)
+				{
+					const FVectorInt CellMin = DivisionCellMin(DivisionX, DivisionY, DivisionZ);
+					const FVectorInt CellMax = DivisionCellMax(DivisionX, DivisionY, DivisionZ);
+					if (!DualContour->HasActiveCellInRange(CellMin, CellMax))
+						continue;
 
-	for (int32 DivisionZ = 0; DivisionZ < Divisions.Z; ++DivisionZ)
-		for (int32 DivisionY = 0; DivisionY < Divisions.Y; ++DivisionY)
-			for (int32 DivisionX = 0; DivisionX < Divisions.X; ++DivisionX)
-			{
-				const FVectorInt CellMin = DivisionCellMin(DivisionX, DivisionY, DivisionZ);
-				const FVectorInt CellMax = DivisionCellMax(DivisionX, DivisionY, DivisionZ);
-				if (!DualContour->HasActiveCellInRange(CellMin, CellMax))
-					continue;
-				MeshComponents.Add(DivisionIndex(DivisionX, DivisionY, DivisionZ),
-					CreateMeshComponent(CellMin, CellMax));
-			}
+					FMeshBuildRequest& Request = Requests.AddDefaulted_GetRef();
+					Request.DivisionIndex = DivisionIndex(DivisionX, DivisionY, DivisionZ);
+					Request.CellMin = CellMin;
+					Request.CellMax = CellMax;
+				}
+	}
+	BuildMeshRequests(*DualContour, Requests);
+
+	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_ReplaceFullComponents);
+		for (TPair<int32, TObjectPtr<UDualContourMeshComponent>>& Pair : MeshComponents)
+			if (Pair.Value)
+				Pair.Value->DestroyComponent();
+		MeshComponents.Reset();
+		MeshCellCount = DualContour->CellCount;
+		MeshCellSize = DualContour->CellSize;
+
+		for (FMeshBuildRequest& Request : Requests)
+		{
+			UDualContourMeshComponent* MeshComponent = CreateMeshComponent();
+			MeshComponent->ApplyMeshData(MoveTemp(Request.MeshData));
+			MeshComponents.Add(Request.DivisionIndex, MeshComponent);
+		}
+	}
 }
 
 void ADualContourMeshActor::UpdateAutoDivisions()
@@ -262,17 +322,13 @@ void ADualContourMeshActor::UpdateAutoDivisions()
 		CalculateAxisDivisions(DualContour->CellCount.Z));
 }
 
-UDualContourMeshComponent* ADualContourMeshActor::CreateMeshComponent(FVectorInt CellMin, FVectorInt CellMax)
+UDualContourMeshComponent* ADualContourMeshActor::CreateMeshComponent()
 {
 	UDualContourMeshComponent* NewComponent = NewObject<UDualContourMeshComponent>(this, NAME_None, RF_Transactional);
-	NewComponent->DualContour = DualContour;
-	NewComponent->CellRangeMin = CellMin;
-	NewComponent->CellRangeMax = CellMax;
 	NewComponent->SetMaterial(0, MeshMaterial);
 	ApplyCollisionSettings(NewComponent);
 	NewComponent->RegisterComponent();
 	NewComponent->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepRelativeTransform);
-	NewComponent->BuildAndRefreshMesh();
 	return NewComponent;
 }
 
@@ -359,61 +415,96 @@ FVectorInt ADualContourMeshActor::DivisionCellMax(int32 DivX, int32 DivY, int32 
 
 void ADualContourMeshActor::PartialUpdateComponents(FVectorInt AffectedCellMin, FVectorInt AffectedCellMax)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_PartialUpdateComponents);
 	if (!DualContour || !HasValidDivisions())
 		return;
 
-	TSet<int32> AffectedDivisions;
-	for (int32 Z = AffectedCellMin.Z; Z < AffectedCellMax.Z; ++Z)
-		for (int32 Y = AffectedCellMin.Y; Y < AffectedCellMax.Y; ++Y)
-			for (int32 X = AffectedCellMin.X; X < AffectedCellMax.X; ++X)
-			{
-				const FVectorInt Div = DivisionFromCell(X, Y, Z);
-				AffectedDivisions.Add(DivisionIndex(Div.X, Div.Y, Div.Z));
-				const bool bNegX = Div.X > 0 && X == DivisionCellMax(Div.X - 1, Div.Y, Div.Z).X;
-				const bool bNegY = Div.Y > 0 && Y == DivisionCellMax(Div.X, Div.Y - 1, Div.Z).Y;
-				const bool bNegZ = Div.Z > 0 && Z == DivisionCellMax(Div.X, Div.Y, Div.Z - 1).Z;
-				if (bNegX)
-					AffectedDivisions.Add(DivisionIndex(Div.X - 1, Div.Y, Div.Z));
-				if (bNegY)
-					AffectedDivisions.Add(DivisionIndex(Div.X, Div.Y - 1, Div.Z));
-				if (bNegZ)
-					AffectedDivisions.Add(DivisionIndex(Div.X, Div.Y, Div.Z - 1));
-				if (bNegX && bNegY)
-					AffectedDivisions.Add(DivisionIndex(Div.X - 1, Div.Y - 1, Div.Z));
-				if (bNegX && bNegZ)
-					AffectedDivisions.Add(DivisionIndex(Div.X - 1, Div.Y, Div.Z - 1));
-				if (bNegY && bNegZ)
-					AffectedDivisions.Add(DivisionIndex(Div.X, Div.Y - 1, Div.Z - 1));
-			}
+	AffectedCellMin = FVectorInt(
+		FMath::Clamp(AffectedCellMin.X, 0, DualContour->CellCount.X),
+		FMath::Clamp(AffectedCellMin.Y, 0, DualContour->CellCount.Y),
+		FMath::Clamp(AffectedCellMin.Z, 0, DualContour->CellCount.Z));
+	AffectedCellMax = FVectorInt(
+		FMath::Clamp(AffectedCellMax.X, 0, DualContour->CellCount.X),
+		FMath::Clamp(AffectedCellMax.Y, 0, DualContour->CellCount.Y),
+		FMath::Clamp(AffectedCellMax.Z, 0, DualContour->CellCount.Z));
+	if (AffectedCellMin.X >= AffectedCellMax.X || AffectedCellMin.Y >= AffectedCellMax.Y
+	    || AffectedCellMin.Z >= AffectedCellMax.Z)
+		return;
 
-	for (const int32 DivisionIndex : AffectedDivisions)
+	TArray<int32> AffectedDivisions;
 	{
-		const int32 DivisionX = DivisionIndex % Divisions.X;
-		const int32 DivisionY = (DivisionIndex / Divisions.X) % Divisions.Y;
-		const int32 DivisionZ = DivisionIndex / (Divisions.X * Divisions.Y);
+		TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_CollectAffectedDivisions);
+
+		// A division owns [CellMin, CellMax), but mesh generation reads the positive-axis
+		// neighbor ring. Expanding the changed range by one cell toward the negative axes
+		// finds every possible owner without scanning every affected cell.
+		const FVectorInt OwnerCellMin(
+			FMath::Max(0, AffectedCellMin.X - 1),
+			FMath::Max(0, AffectedCellMin.Y - 1),
+			FMath::Max(0, AffectedCellMin.Z - 1));
+		const FVectorInt LastAffectedCell(
+			AffectedCellMax.X - 1,
+			AffectedCellMax.Y - 1,
+			AffectedCellMax.Z - 1);
+		const FVectorInt DivisionMin = DivisionFromCell(OwnerCellMin.X, OwnerCellMin.Y, OwnerCellMin.Z);
+		const FVectorInt DivisionMax = DivisionFromCell(LastAffectedCell.X, LastAffectedCell.Y, LastAffectedCell.Z);
+		const int64 CandidateDivisionCount = static_cast<int64>(DivisionMax.X - DivisionMin.X + 1)
+		                                     * (DivisionMax.Y - DivisionMin.Y + 1) * (DivisionMax.Z - DivisionMin.Z + 1);
+		if (CandidateDivisionCount <= MAX_int32)
+			AffectedDivisions.Reserve(static_cast<int32>(CandidateDivisionCount));
+
+		for (int32 DivisionZ = DivisionMin.Z; DivisionZ <= DivisionMax.Z; ++DivisionZ)
+			for (int32 DivisionY = DivisionMin.Y; DivisionY <= DivisionMax.Y; ++DivisionY)
+				for (int32 DivisionX = DivisionMin.X; DivisionX <= DivisionMax.X; ++DivisionX)
+					AffectedDivisions.Add(DivisionIndex(DivisionX, DivisionY, DivisionZ));
+	}
+
+	TArray<int32> DivisionsToRemove;
+	TArray<FMeshBuildRequest> Requests;
+	Requests.Reserve(AffectedDivisions.Num());
+	for (const int32 AffectedDivisionIndex : AffectedDivisions)
+	{
+		const int32 DivisionX = AffectedDivisionIndex % Divisions.X;
+		const int32 DivisionY = (AffectedDivisionIndex / Divisions.X) % Divisions.Y;
+		const int32 DivisionZ = AffectedDivisionIndex / (Divisions.X * Divisions.Y);
 		if (DivisionX < 0 || DivisionX >= Divisions.X || DivisionY < 0
 		    || DivisionY >= Divisions.Y || DivisionZ < 0 || DivisionZ >= Divisions.Z)
 			continue;
 
 		const FVectorInt CellMin = DivisionCellMin(DivisionX, DivisionY, DivisionZ);
 		const FVectorInt CellMax = DivisionCellMax(DivisionX, DivisionY, DivisionZ);
-		const bool bHasActiveCells = DualContour->HasActiveCellInRange(CellMin, CellMax);
-		TObjectPtr<UDualContourMeshComponent>* ExistingComponent = MeshComponents.Find(DivisionIndex);
-		if (ExistingComponent && *ExistingComponent)
+		if (!DualContour->HasActiveCellInRange(CellMin, CellMax))
 		{
-			if (!bHasActiveCells)
-			{
-				(*ExistingComponent)->DestroyComponent();
-				MeshComponents.Remove(DivisionIndex);
-			}
-			else
-			{
-				(*ExistingComponent)->BuildAndRefreshMesh();
-			}
+			DivisionsToRemove.Add(AffectedDivisionIndex);
+			continue;
 		}
-		else if (bHasActiveCells)
+
+		FMeshBuildRequest& Request = Requests.AddDefaulted_GetRef();
+		Request.DivisionIndex = AffectedDivisionIndex;
+		Request.CellMin = CellMin;
+		Request.CellMax = CellMax;
+	}
+	BuildMeshRequests(*DualContour, Requests);
+
+	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_ApplyPartialComponents);
+		for (const int32 DivisionIndexToRemove : DivisionsToRemove)
 		{
-			MeshComponents.Add(DivisionIndex, CreateMeshComponent(CellMin, CellMax));
+			if (TObjectPtr<UDualContourMeshComponent>* ExistingComponent = MeshComponents.Find(DivisionIndexToRemove))
+				if (*ExistingComponent)
+					(*ExistingComponent)->DestroyComponent();
+			MeshComponents.Remove(DivisionIndexToRemove);
+		}
+
+		for (FMeshBuildRequest& Request : Requests)
+		{
+			TObjectPtr<UDualContourMeshComponent>* ExistingComponent = MeshComponents.Find(Request.DivisionIndex);
+			UDualContourMeshComponent* MeshComponent = ExistingComponent && *ExistingComponent
+				                                           ? ExistingComponent->Get()
+				                                           : CreateMeshComponent();
+			MeshComponent->ApplyMeshData(MoveTemp(Request.MeshData));
+			if (!ExistingComponent || !*ExistingComponent)
+				MeshComponents.Add(Request.DivisionIndex, MeshComponent);
 		}
 	}
 }

@@ -1,6 +1,5 @@
 ﻿#include "DualContourMeshComponent.h"
 #include "DualContourMeshActor.h"
-#include "DualContour.h"
 #include "PrimitiveSceneProxy.h"
 #include "PrimitiveViewRelevance.h"
 #include "MaterialDomain.h"
@@ -19,9 +18,6 @@
 #include "ProfilingDebugging/CountersTrace.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 
-TRACE_DECLARE_INT_COUNTER(DualContourMesh_CellsProcessed, TEXT("DualContourMesh/Last Build/Cells Processed"));
-TRACE_DECLARE_INT_COUNTER(DualContourMesh_Vertices, TEXT("DualContourMesh/Last Build/Vertices"));
-TRACE_DECLARE_INT_COUNTER(DualContourMesh_Triangles, TEXT("DualContourMesh/Last Build/Triangles"));
 TRACE_DECLARE_INT_COUNTER(DualContourMesh_CollisionTriangles, TEXT("DualContourMesh/Last Collision Build/Triangles"));
 
 // ---------------------------------------------------------------------------
@@ -38,26 +34,27 @@ public:
 		  , Material(nullptr)
 		  , MaterialRelevance(InComponent->GetMaterialRelevance(GetScene().GetShaderPlatform()))
 	{
-		if (InComponent->Positions.IsEmpty())
+		const FDualContourMeshData& MeshData = InComponent->GetMeshData();
+		if (MeshData.Positions.IsEmpty())
 			return;
 
-		const int32 VertexCount = InComponent->Positions.Num();
+		const int32 VertexCount = MeshData.Positions.Num();
 		TArray<FDynamicMeshVertex> Vertices;
 		Vertices.SetNumUninitialized(VertexCount);
 		for (int32 VertexIndex = 0; VertexIndex < VertexCount; VertexIndex++)
 		{
 			FDynamicMeshVertex& Vertex = Vertices[VertexIndex];
-			Vertex.Position = FVector3f(InComponent->Positions[VertexIndex]);
-			FVector3f Normal = FVector3f(InComponent->Normals[VertexIndex]).GetSafeNormal();
+			Vertex.Position = FVector3f(MeshData.Positions[VertexIndex]);
+			FVector3f Normal = FVector3f(MeshData.Normals[VertexIndex]).GetSafeNormal();
 			FVector3f TangentX, TangentY;
 			Normal.FindBestAxisVectors(TangentX, TangentY);
 			Vertex.SetTangents(TangentX, TangentY, Normal);
-			Vertex.TextureCoordinate[0] = InComponent->UVs[VertexIndex];
+			Vertex.TextureCoordinate[0] = MeshData.UVs[VertexIndex];
 			Vertex.Color = FColor::White;
 		}
 
 		VertexFactory = new FLocalVertexFactory(GetScene().GetFeatureLevel(), "FDualContourMeshSceneProxy");
-		IndexBuffer.Indices = InComponent->Indices;
+		IndexBuffer.Indices = MeshData.Indices;
 		VertexBuffers.InitFromDynamicVertex(VertexFactory, Vertices);
 		BeginInitResource(&VertexBuffers.PositionVertexBuffer);
 		BeginInitResource(&VertexBuffers.StaticMeshVertexBuffer);
@@ -65,7 +62,7 @@ public:
 		BeginInitResource(&IndexBuffer);
 		BeginInitResource(VertexFactory);
 
-		NumPrimitives = InComponent->Indices.Num() / 3;
+		NumPrimitives = MeshData.Indices.Num() / 3;
 		Material = InComponent->GetMaterial(0);
 		if (!Material)
 			Material = UMaterial::GetDefaultMaterial(MD_Surface);
@@ -173,10 +170,11 @@ UDualContourMeshComponent::UDualContourMeshComponent(const FObjectInitializer& O
 	SetMobility(EComponentMobility::Static);
 }
 
-void UDualContourMeshComponent::BuildAndRefreshMesh()
+void UDualContourMeshComponent::ApplyMeshData(FDualContourMeshData&& InMeshData)
 {
-	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_BuildAndRefreshMesh);
-	BuildMesh();
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_ApplyMeshData);
+	check(IsInGameThread());
+	MeshData = MoveTemp(InMeshData);
 	UpdateBounds();
 	UpdateCollision();
 	MarkRenderStateDirty();
@@ -185,7 +183,7 @@ void UDualContourMeshComponent::BuildAndRefreshMesh()
 FPrimitiveSceneProxy* UDualContourMeshComponent::CreateSceneProxy()
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_CreateSceneProxy);
-	if (Positions.IsEmpty())
+	if (MeshData.Positions.IsEmpty())
 		return nullptr;
 	return new FDualContourMeshSceneProxy(this);
 }
@@ -203,13 +201,15 @@ int32 UDualContourMeshComponent::GetNumMaterials() const
 
 FBoxSphereBounds UDualContourMeshComponent::CalcBounds(const FTransform& LocalToWorld) const
 {
-	FBox EffectiveLocalBounds = LocalBounds.IsValid ? LocalBounds : FBox(FVector::ZeroVector, FVector::ZeroVector);
+	FBox EffectiveLocalBounds = MeshData.LocalBounds.IsValid
+		                               ? MeshData.LocalBounds
+		                               : FBox(FVector::ZeroVector, FVector::ZeroVector);
 	return FBoxSphereBounds(EffectiveLocalBounds).TransformBy(LocalToWorld);
 }
 
 bool UDualContourMeshComponent::GetTriMeshSizeEstimates(FTriMeshCollisionDataEstimates& OutTriMeshEstimates, bool bInUseAllTriData) const
 {
-	OutTriMeshEstimates.VerticeCount += Positions.Num();
+	OutTriMeshEstimates.VerticeCount += MeshData.Positions.Num();
 	return true;
 }
 
@@ -220,8 +220,8 @@ bool UDualContourMeshComponent::GetPhysicsTriMeshData(FTriMeshCollisionData* Col
 	if (!CollisionData || !ContainsPhysicsTriMeshData(bInUseAllTriData))
 		return false;
 
-	CollisionData->Vertices.Reserve(Positions.Num());
-	for (const FVector& Position : Positions)
+	CollisionData->Vertices.Reserve(MeshData.Positions.Num());
+	for (const FVector& Position : MeshData.Positions)
 	{
 		if (Position.ContainsNaN())
 			return false;
@@ -229,23 +229,23 @@ bool UDualContourMeshComponent::GetPhysicsTriMeshData(FTriMeshCollisionData* Col
 	}
 
 	const int32 InitialCollisionTriangleCount = CollisionData->Indices.Num();
-	const int32 TriangleCount = Indices.Num() / 3;
+	const int32 TriangleCount = MeshData.Indices.Num() / 3;
 	CollisionData->Indices.Reserve(TriangleCount);
 	CollisionData->MaterialIndices.Reserve(TriangleCount);
 
 	for (int32 TriangleIndex = 0; TriangleIndex < TriangleCount; ++TriangleIndex)
 	{
-		const uint32 VertexIndex0 = Indices[TriangleIndex * 3];
-		const uint32 VertexIndex1 = Indices[TriangleIndex * 3 + 1];
-		const uint32 VertexIndex2 = Indices[TriangleIndex * 3 + 2];
-		const uint32 VertexCount = static_cast<uint32>(Positions.Num());
+		const uint32 VertexIndex0 = MeshData.Indices[TriangleIndex * 3];
+		const uint32 VertexIndex1 = MeshData.Indices[TriangleIndex * 3 + 1];
+		const uint32 VertexIndex2 = MeshData.Indices[TriangleIndex * 3 + 2];
+		const uint32 VertexCount = static_cast<uint32>(MeshData.Positions.Num());
 
 		if (VertexIndex0 >= VertexCount || VertexIndex1 >= VertexCount || VertexIndex2 >= VertexCount || VertexIndex0 == VertexIndex1
 		    || VertexIndex0 == VertexIndex2 || VertexIndex1 == VertexIndex2)
 			continue;
 
-		const FVector Edge01 = Positions[VertexIndex1] - Positions[VertexIndex0];
-		const FVector Edge02 = Positions[VertexIndex2] - Positions[VertexIndex0];
+		const FVector Edge01 = MeshData.Positions[VertexIndex1] - MeshData.Positions[VertexIndex0];
+		const FVector Edge02 = MeshData.Positions[VertexIndex2] - MeshData.Positions[VertexIndex0];
 		if (FVector::CrossProduct(Edge01, Edge02).IsNearlyZero())
 			continue;
 
@@ -257,11 +257,11 @@ bool UDualContourMeshComponent::GetPhysicsTriMeshData(FTriMeshCollisionData* Col
 		CollisionData->MaterialIndices.Add(0);
 	}
 
-	if (UPhysicsSettings::Get()->bSupportUVFromHitResults && UVs.Num() == Positions.Num())
+	if (UPhysicsSettings::Get()->bSupportUVFromHitResults && MeshData.UVs.Num() == MeshData.Positions.Num())
 	{
 		TArray<FVector2D>& CollisionUVs = CollisionData->UVs.AddDefaulted_GetRef();
-		CollisionUVs.Reserve(UVs.Num());
-		for (const FVector2f& UV : UVs)
+		CollisionUVs.Reserve(MeshData.UVs.Num());
+		for (const FVector2f& UV : MeshData.UVs)
 			CollisionUVs.Add(FVector2D(UV));
 	}
 
@@ -277,7 +277,7 @@ bool UDualContourMeshComponent::GetPhysicsTriMeshData(FTriMeshCollisionData* Col
 
 bool UDualContourMeshComponent::ContainsPhysicsTriMeshData(bool bInUseAllTriData) const
 {
-	return Positions.Num() >= 3 && Indices.Num() >= 3;
+	return MeshData.Positions.Num() >= 3 && MeshData.Indices.Num() >= 3;
 }
 
 void UDualContourMeshComponent::CreateMeshBodySetup()
@@ -317,137 +317,3 @@ UMaterialInterface* UDualContourMeshComponent::GetMaterialFromCollisionFaceIndex
 	return FaceIndex >= 0 ? GetMaterial(0) : nullptr;
 }
 
-// ---------------------------------------------------------------------------
-// Mesh building
-// The adjacent cell with the minimum coordinates owns each sign-changing grid edge.
-// Quad construction only reads the +X/+Y/+Z neighbor ring, avoiding duplicate quads
-// across adjacent components.
-// ---------------------------------------------------------------------------
-
-void UDualContourMeshComponent::BuildMesh()
-{
-	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_BuildMesh);
-	Positions.Reset();
-	Normals.Reset();
-	UVs.Reset();
-	Indices.Reset();
-	LocalBounds = FBox(ForceInit);
-
-	if (!DualContour || !DualContour->HasCurrentGeneratedData())
-	{
-		TRACE_COUNTER_SET_ALWAYS(DualContourMesh_CellsProcessed, 0);
-		TRACE_COUNTER_SET_ALWAYS(DualContourMesh_Vertices, 0);
-		TRACE_COUNTER_SET_ALWAYS(DualContourMesh_Triangles, 0);
-		return;
-	}
-
-	const int64 ProcessedCellCount = static_cast<int64>(FMath::Max(0, CellRangeMax.X - CellRangeMin.X))
-	                                 * FMath::Max(0, CellRangeMax.Y - CellRangeMin.Y) * FMath::Max(0, CellRangeMax.Z - CellRangeMin.Z);
-	TRACE_COUNTER_SET_ALWAYS(DualContourMesh_CellsProcessed, ProcessedCellCount);
-
-	for (int32 CellZ = CellRangeMin.Z; CellZ < CellRangeMax.Z; CellZ++)
-		for (int32 CellY = CellRangeMin.Y; CellY < CellRangeMax.Y; CellY++)
-			for (int32 CellX = CellRangeMin.X; CellX < CellRangeMax.X; CellX++)
-				GenerateQuadsForCell(CellX, CellY, CellZ);
-
-	// Bounds include every emitted vertex, including centers read from the positive-axis neighbor ring.
-	for (const FVector& Position : Positions)
-		LocalBounds += Position;
-	if (!LocalBounds.IsValid)
-		LocalBounds = FBox(FVector::ZeroVector, FVector::ZeroVector);
-	TRACE_COUNTER_SET_ALWAYS(DualContourMesh_Vertices, Positions.Num());
-	TRACE_COUNTER_SET_ALWAYS(DualContourMesh_Triangles, Indices.Num() / 3);
-}
-
-void UDualContourMeshComponent::GenerateQuadsForCell(int32 CellX, int32 CellY, int32 CellZ)
-{
-	if (!DualContour)
-		return;
-	const FVectorInt& CellCounts = DualContour->CellCount;
-
-	auto GetCell = [&](int32 QueryCellX, int32 QueryCellY, int32 QueryCellZ) -> const FDualContourCell*
-	{
-		if (!CellCounts.IsValid(QueryCellX, QueryCellY, QueryCellZ))
-			return nullptr;
-		return DualContour->GetContourCell(QueryCellX, QueryCellY, QueryCellZ);
-	};
-
-	// Reversed winding, (0,2,1) + (0,3,2), makes faces visible from the outward side in UE.
-	auto AddQuad = [&](const FDualContourCell* Cell0, FVector2f UV0, const FDualContourCell* Cell1, FVector2f UV1, const FDualContourCell* Cell2,
-		FVector2f UV2, const FDualContourCell* Cell3, FVector2f UV3)
-	{
-		if (!Cell0 || !Cell1 || !Cell2 || !Cell3)
-			return;
-		uint32 BaseVertexIndex = (uint32)Positions.Num();
-		Positions.Add(Cell0->Center);
-		Normals.Add(Cell0->Normal);
-		UVs.Add(UV0);
-		Positions.Add(Cell1->Center);
-		Normals.Add(Cell1->Normal);
-		UVs.Add(UV1);
-		Positions.Add(Cell2->Center);
-		Normals.Add(Cell2->Normal);
-		UVs.Add(UV2);
-		Positions.Add(Cell3->Center);
-		Normals.Add(Cell3->Normal);
-		UVs.Add(UV3);
-		Indices.Append({BaseVertexIndex, BaseVertexIndex + 2, BaseVertexIndex + 1, BaseVertexIndex, BaseVertexIndex + 3, BaseVertexIndex + 2});
-	};
-
-	// X-axis edge: (CellX, CellY+1, CellZ+1) -> (CellX+1, CellY+1, CellZ+1)
-	// Four adjacent cells lie in the Y-Z plane; this reads the CellY+1 and CellZ+1 rings.
-	if (CellY + 1 < CellCounts.Y && CellZ + 1 < CellCounts.Z)
-	{
-		const uint8 DensityA = DualContour->GetDensity(CellX, CellY + 1, CellZ + 1);
-		const uint8 DensityB = DualContour->GetDensity(CellX + 1, CellY + 1, CellZ + 1);
-		if ((DensityA < GDualContourIsoValue) != (DensityB < GDualContourIsoValue))
-		{
-			const FDualContourCell* C00 = GetCell(CellX, CellY, CellZ);
-			const FDualContourCell* C10 = GetCell(CellX, CellY + 1, CellZ);
-			const FDualContourCell* C11 = GetCell(CellX, CellY + 1, CellZ + 1);
-			const FDualContourCell* C01 = GetCell(CellX, CellY, CellZ + 1);
-			if (DensityA >= GDualContourIsoValue) // outward = +X
-				AddQuad(C00, {0, 0}, C10, {1, 0}, C11, {1, 1}, C01, {0, 1});
-			else // outward = -X
-				AddQuad(C00, {0, 0}, C01, {0, 1}, C11, {1, 1}, C10, {1, 0});
-		}
-	}
-
-	// Y-axis edge: (CellX+1, CellY, CellZ+1) -> (CellX+1, CellY+1, CellZ+1)
-	// Four adjacent cells lie in the X-Z plane; this reads the CellX+1 and CellZ+1 rings.
-	if (CellX + 1 < CellCounts.X && CellZ + 1 < CellCounts.Z)
-	{
-		const uint8 DensityA = DualContour->GetDensity(CellX + 1, CellY, CellZ + 1);
-		const uint8 DensityB = DualContour->GetDensity(CellX + 1, CellY + 1, CellZ + 1);
-		if ((DensityA < GDualContourIsoValue) != (DensityB < GDualContourIsoValue))
-		{
-			const FDualContourCell* C00 = GetCell(CellX, CellY, CellZ);
-			const FDualContourCell* C10 = GetCell(CellX + 1, CellY, CellZ);
-			const FDualContourCell* C11 = GetCell(CellX + 1, CellY, CellZ + 1);
-			const FDualContourCell* C01 = GetCell(CellX, CellY, CellZ + 1);
-			if (DensityA >= GDualContourIsoValue) // outward = +Y
-				AddQuad(C00, {0, 0}, C01, {0, 1}, C11, {1, 1}, C10, {1, 0});
-			else // outward = -Y
-				AddQuad(C00, {0, 0}, C10, {1, 0}, C11, {1, 1}, C01, {0, 1});
-		}
-	}
-
-	// Z-axis edge: (CellX+1, CellY+1, CellZ) -> (CellX+1, CellY+1, CellZ+1)
-	// Four adjacent cells lie in the X-Y plane; this reads the CellX+1 and CellY+1 rings.
-	if (CellX + 1 < CellCounts.X && CellY + 1 < CellCounts.Y)
-	{
-		const uint8 DensityA = DualContour->GetDensity(CellX + 1, CellY + 1, CellZ);
-		const uint8 DensityB = DualContour->GetDensity(CellX + 1, CellY + 1, CellZ + 1);
-		if ((DensityA < GDualContourIsoValue) != (DensityB < GDualContourIsoValue))
-		{
-			const FDualContourCell* C00 = GetCell(CellX, CellY, CellZ);
-			const FDualContourCell* C10 = GetCell(CellX + 1, CellY, CellZ);
-			const FDualContourCell* C11 = GetCell(CellX + 1, CellY + 1, CellZ);
-			const FDualContourCell* C01 = GetCell(CellX, CellY + 1, CellZ);
-			if (DensityA >= GDualContourIsoValue) // outward = +Z
-				AddQuad(C00, {0, 0}, C10, {1, 0}, C11, {1, 1}, C01, {0, 1});
-			else // outward = -Z
-				AddQuad(C00, {0, 0}, C01, {0, 1}, C11, {1, 1}, C10, {1, 0});
-		}
-	}
-}

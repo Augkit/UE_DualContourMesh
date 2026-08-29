@@ -94,7 +94,7 @@ private:
 	void RefreshCollisionSettings();
 	void UpdateAutoDivisions();
 	void RecreateMeshComponents();
-	UDualContourMeshComponent* CreateMeshComponent(FVectorInt CellMin, FVectorInt CellMax);
+	UDualContourMeshComponent* CreateMeshComponent();
 	bool HasValidDivisions() const;
 	int32 DivisionIndex(int32 DivX, int32 DivY, int32 DivZ) const;
 	FVectorInt DivisionFromCell(int32 CellX, int32 CellY, int32 CellZ) const;
