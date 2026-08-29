@@ -47,6 +47,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Rendering")
 	TObjectPtr<UMaterialInterface> MeshMaterial = nullptr;
 
+	/** Maximum number of completed mesh chunks applied to components during one frame. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Rendering", meta = (ClampMin = "1"))
+	int32 MeshComponentsPerFrame = 4;
+
 	/** Collision profile or custom channel settings applied to every generated mesh chunk. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DualContour|Collision")
 	FBodyInstance CollisionSettings;
@@ -57,7 +61,7 @@ public:
 	UFUNCTION(CallInEditor, Category = "DualContour")
 	void RebuildMesh();
 
-	/** Sets generated contour data and immediately recreates the mesh components from it. */
+	/** Sets generated contour data, then queues its mesh chunks for application over subsequent frames. */
 	bool SetGeneratedDualContour(UDualContour* InDualContour);
 
 	/** Applies any volume sampler at a surface point, rotating its local +Z axis to the hit normal. */
@@ -69,9 +73,11 @@ public:
 
 	virtual void PostRegisterAllComponents() override;
 	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaSeconds) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 #if WITH_EDITOR
+	virtual bool ShouldTickIfViewportsOnly() const override { return true; }
 	virtual void PostLoad() override;
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
@@ -82,7 +88,21 @@ public:
 #endif
 
 private:
+	struct FPendingMeshApply
+	{
+		int32 DivisionIndex = INDEX_NONE;
+		uint64 QueueRevision = 0;
+		uint64 UpdateSerial = 0;
+		double ViewDistanceSquared = MAX_dbl;
+		FDualContourMeshData MeshData;
+	};
+
 	FDelegateHandle DualContourCellsRebuiltHandle;
+	TArray<FPendingMeshApply> PendingMeshApplies;
+	TMap<int32, uint64> DivisionUpdateSerials;
+	int32 NextPendingMeshApplyIndex = 0;
+	uint64 MeshQueueRevision = 0;
+	uint64 NextMeshUpdateSerial = 0;
 	bool bRebuildingMesh = false;
 	FVectorInt MeshCellCount;
 	float MeshCellSize = 0.f;
@@ -95,6 +115,11 @@ private:
 	void UpdateAutoDivisions();
 	void RecreateMeshComponents();
 	UDualContourMeshComponent* CreateMeshComponent();
+	void QueueMeshData(int32 DivisionIndex, FDualContourMeshData&& MeshData);
+	void SortQueuedMeshDataByViewDistance();
+	void CancelQueuedMeshData(int32 DivisionIndex);
+	void ResetQueuedMeshData();
+	void ApplyQueuedMeshData();
 	bool HasValidDivisions() const;
 	int32 DivisionIndex(int32 DivX, int32 DivY, int32 DivZ) const;
 	FVectorInt DivisionFromCell(int32 CellX, int32 CellY, int32 CellZ) const;

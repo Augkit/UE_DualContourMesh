@@ -1,7 +1,10 @@
 #include "DualContourMeshActor.h"
 #include "DualContourMeshBuilder.h"
 #include "Async/ParallelFor.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Engine/CollisionProfile.h"
+#include "Engine/World.h"
+#include "GameFramework/PlayerController.h"
 #include "ProfilingDebugging/CountersTrace.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "VolumeSampler/VolumeSampler.h"
@@ -49,6 +52,8 @@ void BuildMeshRequests(const UDualContour& DualContour, TArray<FMeshBuildRequest
 
 ADualContourMeshActor::ADualContourMeshActor()
 {
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bStartWithTickEnabled = false;
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 	RootComponent->SetMobility(EComponentMobility::Static);
 	DualContour = CreateDefaultSubobject<UDualContour>(TEXT("DualContour"));
@@ -118,8 +123,17 @@ void ADualContourMeshActor::BeginPlay()
 		RebuildMesh();
 }
 
+void ADualContourMeshActor::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+	ApplyQueuedMeshData();
+}
+
 void ADualContourMeshActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	++MeshQueueRevision;
+	DivisionUpdateSerials.Reset();
+	ResetQueuedMeshData();
 	UnbindFromDualContour();
 	Super::EndPlay(EndPlayReason);
 }
@@ -257,6 +271,9 @@ void ADualContourMeshActor::RecreateMeshComponents()
 	UpdateAutoDivisions();
 	if (!HasValidDivisions())
 	{
+		++MeshQueueRevision;
+		DivisionUpdateSerials.Reset();
+		ResetQueuedMeshData();
 		for (TPair<int32, TObjectPtr<UDualContourMeshComponent>>& Pair : MeshComponents)
 			if (Pair.Value)
 				Pair.Value->DestroyComponent();
@@ -290,6 +307,9 @@ void ADualContourMeshActor::RecreateMeshComponents()
 
 	{
 		TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_ReplaceFullComponents);
+		++MeshQueueRevision;
+		DivisionUpdateSerials.Reset();
+		ResetQueuedMeshData();
 		for (TPair<int32, TObjectPtr<UDualContourMeshComponent>>& Pair : MeshComponents)
 			if (Pair.Value)
 				Pair.Value->DestroyComponent();
@@ -298,11 +318,8 @@ void ADualContourMeshActor::RecreateMeshComponents()
 		MeshCellSize = DualContour->CellSize;
 
 		for (FMeshBuildRequest& Request : Requests)
-		{
-			UDualContourMeshComponent* MeshComponent = CreateMeshComponent();
-			MeshComponent->ApplyMeshData(MoveTemp(Request.MeshData));
-			MeshComponents.Add(Request.DivisionIndex, MeshComponent);
-		}
+			QueueMeshData(Request.DivisionIndex, MoveTemp(Request.MeshData));
+		SortQueuedMeshDataByViewDistance();
 	}
 }
 
@@ -330,6 +347,132 @@ UDualContourMeshComponent* ADualContourMeshActor::CreateMeshComponent()
 	NewComponent->RegisterComponent();
 	NewComponent->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepRelativeTransform);
 	return NewComponent;
+}
+
+void ADualContourMeshActor::QueueMeshData(int32 DivisionIndex, FDualContourMeshData&& MeshData)
+{
+	check(IsInGameThread());
+	const uint64 UpdateSerial = ++NextMeshUpdateSerial;
+	DivisionUpdateSerials.Add(DivisionIndex, UpdateSerial);
+	for (int32 PendingIndex = NextPendingMeshApplyIndex; PendingIndex < PendingMeshApplies.Num(); ++PendingIndex)
+	{
+		FPendingMeshApply& PendingApply = PendingMeshApplies[PendingIndex];
+		if (PendingApply.DivisionIndex == DivisionIndex)
+		{
+			PendingApply.QueueRevision = MeshQueueRevision;
+			PendingApply.UpdateSerial = UpdateSerial;
+			PendingApply.MeshData = MoveTemp(MeshData);
+			SetActorTickEnabled(true);
+			return;
+		}
+	}
+
+	FPendingMeshApply& PendingApply = PendingMeshApplies.AddDefaulted_GetRef();
+	PendingApply.DivisionIndex = DivisionIndex;
+	PendingApply.QueueRevision = MeshQueueRevision;
+	PendingApply.UpdateSerial = UpdateSerial;
+	PendingApply.MeshData = MoveTemp(MeshData);
+	SetActorTickEnabled(true);
+}
+
+void ADualContourMeshActor::SortQueuedMeshDataByViewDistance()
+{
+	check(IsInGameThread());
+	if (PendingMeshApplies.Num() - NextPendingMeshApplyIndex <= 1)
+		return;
+
+	// Discard entries already consumed by earlier frames before sorting the remaining work.
+	if (NextPendingMeshApplyIndex > 0)
+	{
+		PendingMeshApplies.RemoveAt(0, NextPendingMeshApplyIndex);
+		NextPendingMeshApplyIndex = 0;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+		return;
+
+	TArray<FVector> ViewLocations = World->ViewLocationsRenderedLastFrame;
+	if (ViewLocations.IsEmpty())
+	{
+		if (const APlayerController* PlayerController = World->GetFirstPlayerController())
+		{
+			if (const APlayerCameraManager* CameraManager = PlayerController->PlayerCameraManager)
+				ViewLocations.Add(CameraManager->GetCameraLocation());
+		}
+	}
+	if (ViewLocations.IsEmpty())
+		return;
+
+	const FTransform ActorTransform = GetActorTransform();
+	for (FPendingMeshApply& PendingApply : PendingMeshApplies)
+	{
+		const FBox LocalBounds = PendingApply.MeshData.LocalBounds.IsValid
+			                         ? PendingApply.MeshData.LocalBounds
+			                         : FBox(FVector::ZeroVector, FVector::ZeroVector);
+		const FBox WorldBounds = LocalBounds.TransformBy(ActorTransform);
+		PendingApply.ViewDistanceSquared = MAX_dbl;
+		for (const FVector& ViewLocation : ViewLocations)
+		{
+			PendingApply.ViewDistanceSquared = FMath::Min(
+				PendingApply.ViewDistanceSquared, WorldBounds.ComputeSquaredDistanceToPoint(ViewLocation));
+		}
+	}
+
+	PendingMeshApplies.Sort([](const FPendingMeshApply& Left, const FPendingMeshApply& Right)
+	{
+		if (Left.ViewDistanceSquared == Right.ViewDistanceSquared)
+			return Left.DivisionIndex < Right.DivisionIndex;
+		return Left.ViewDistanceSquared < Right.ViewDistanceSquared;
+	});
+}
+
+void ADualContourMeshActor::CancelQueuedMeshData(int32 DivisionIndex)
+{
+	DivisionUpdateSerials.Add(DivisionIndex, ++NextMeshUpdateSerial);
+	for (int32 PendingIndex = PendingMeshApplies.Num() - 1; PendingIndex >= NextPendingMeshApplyIndex; --PendingIndex)
+	{
+		if (PendingMeshApplies[PendingIndex].DivisionIndex == DivisionIndex)
+			PendingMeshApplies.RemoveAt(PendingIndex);
+	}
+
+	if (NextPendingMeshApplyIndex >= PendingMeshApplies.Num())
+		ResetQueuedMeshData();
+}
+
+void ADualContourMeshActor::ResetQueuedMeshData()
+{
+	PendingMeshApplies.Reset();
+	NextPendingMeshApplyIndex = 0;
+	SetActorTickEnabled(false);
+}
+
+void ADualContourMeshActor::ApplyQueuedMeshData()
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_ApplyQueuedMeshData);
+	check(IsInGameThread());
+
+	const int32 MaxApplyCount = FMath::Max(MeshComponentsPerFrame, 1);
+	int32 AppliedCount = 0;
+	while (AppliedCount < MaxApplyCount && NextPendingMeshApplyIndex < PendingMeshApplies.Num())
+	{
+		FPendingMeshApply PendingApply = MoveTemp(PendingMeshApplies[NextPendingMeshApplyIndex++]);
+		TObjectPtr<UDualContourMeshComponent>* ExistingComponent = MeshComponents.Find(PendingApply.DivisionIndex);
+		const bool bCreatedComponent = !ExistingComponent || !IsValid(ExistingComponent->Get());
+		UDualContourMeshComponent* MeshComponent = bCreatedComponent ? CreateMeshComponent() : ExistingComponent->Get();
+		MeshComponent->ApplyMeshData(MoveTemp(PendingApply.MeshData));
+		++AppliedCount;
+
+		const bool bIsStillCurrent = PendingApply.QueueRevision == MeshQueueRevision
+		                             && DivisionUpdateSerials.FindRef(PendingApply.DivisionIndex) == PendingApply.UpdateSerial;
+		if (bIsStillCurrent && IsValid(MeshComponent))
+			MeshComponents.Add(PendingApply.DivisionIndex, MeshComponent);
+		else if (bCreatedComponent && IsValid(MeshComponent))
+			MeshComponent->DestroyComponent();
+	}
+
+	if (NextPendingMeshApplyIndex >= PendingMeshApplies.Num())
+		ResetQueuedMeshData();
 }
 
 bool ADualContourMeshActor::ValidateDivisions(FString& OutStatus) const
@@ -487,9 +630,10 @@ void ADualContourMeshActor::PartialUpdateComponents(FVectorInt AffectedCellMin, 
 	BuildMeshRequests(*DualContour, Requests);
 
 	{
-		TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_ApplyPartialComponents);
+		TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_QueuePartialComponents);
 		for (const int32 DivisionIndexToRemove : DivisionsToRemove)
 		{
+			CancelQueuedMeshData(DivisionIndexToRemove);
 			if (TObjectPtr<UDualContourMeshComponent>* ExistingComponent = MeshComponents.Find(DivisionIndexToRemove))
 				if (*ExistingComponent)
 					(*ExistingComponent)->DestroyComponent();
@@ -497,15 +641,8 @@ void ADualContourMeshActor::PartialUpdateComponents(FVectorInt AffectedCellMin, 
 		}
 
 		for (FMeshBuildRequest& Request : Requests)
-		{
-			TObjectPtr<UDualContourMeshComponent>* ExistingComponent = MeshComponents.Find(Request.DivisionIndex);
-			UDualContourMeshComponent* MeshComponent = ExistingComponent && *ExistingComponent
-				                                           ? ExistingComponent->Get()
-				                                           : CreateMeshComponent();
-			MeshComponent->ApplyMeshData(MoveTemp(Request.MeshData));
-			if (!ExistingComponent || !*ExistingComponent)
-				MeshComponents.Add(Request.DivisionIndex, MeshComponent);
-		}
+			QueueMeshData(Request.DivisionIndex, MoveTemp(Request.MeshData));
+		SortQueuedMeshDataByViewDistance();
 	}
 }
 
