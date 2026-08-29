@@ -9,6 +9,9 @@ class USVTDualContour;
 class UVolumeSampledDualContour;
 class FToolBarBuilder;
 class FReply;
+struct FPropertyChangedEvent;
+
+enum class ECheckBoxState : uint8;
 
 enum class EDualContourEditorPreviewType : uint8
 {
@@ -43,6 +46,9 @@ private:
 	FReply OnGenerateDualContourClicked();
 	void GenerateDualContour();
 	bool CanGenerateDualContour() const;
+	void HandleFinishedChangingProperties(const FPropertyChangedEvent& PropertyChangedEvent);
+	ECheckBoxState GetAutoGenerateCheckState() const;
+	void HandleAutoGenerateCheckStateChanged(ECheckBoxState NewState);
 	TSharedRef<SWidget> MakePreviewTypeMenu();
 	void SetPreviewType(EDualContourEditorPreviewType InPreviewType);
 	bool IsPreviewTypeSelected(EDualContourEditorPreviewType InPreviewType) const;

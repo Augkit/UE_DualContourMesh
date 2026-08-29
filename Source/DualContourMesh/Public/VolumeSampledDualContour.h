@@ -28,6 +28,10 @@ public:
 
 	UPROPERTY(VisibleAnywhere, Transient, Category = "Preview")
 	int32 GenerationRevision = 0;
+
+	/** Whether this asset should rebuild automatically after editor property changes. */
+	UPROPERTY()
+	bool bAutoGenerate = false;
 #endif
 
 #if WITH_EDITOR

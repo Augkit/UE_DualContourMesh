@@ -8,13 +8,16 @@
 #include "PropertyEditorModule.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "Modules/ModuleManager.h"
+#include "ScopedTransaction.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "Styling/AppStyle.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SWidgetSwitcher.h"
 #include "Widgets/SBoxPanel.h"
+#include "Widgets/Text/STextBlock.h"
 
 #define LOCTEXT_NAMESPACE "DualContourEditor"
 
@@ -36,6 +39,8 @@ void FDualContourEditorToolkit::InitEditor(EToolkitMode::Type Mode,
 	Args.NameAreaSettings = FDetailsViewArgs::HideNameArea;
 	DetailsView = PropertyEditor.CreateDetailView(Args);
 	DetailsView->SetObject(Asset);
+	DetailsView->OnFinishedChangingProperties().AddSP(
+		this, &FDualContourEditorToolkit::HandleFinishedChangingProperties);
 
 	const TSharedRef<FTabManager::FLayout> Layout = FTabManager::NewLayout("Standalone_DualContourEditor_v2")
 		->AddArea(FTabManager::NewPrimaryArea()->SetOrientation(Orient_Vertical)
@@ -107,6 +112,35 @@ TSharedRef<SDockTab> FDualContourEditorToolkit::SpawnDetailsTab(const FSpawnTabA
 			.FillHeight(1.0f)
 			[
 				DetailsView.ToSharedRef()
+			]
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(8.0f, 8.0f, 8.0f, 0.0f)
+			[
+				SNew(SBox)
+				.HAlign(HAlign_Right)
+				.Visibility(GetVolumeSampledDualContour() ? EVisibility::Visible : EVisibility::Collapsed)
+				.ToolTipText(LOCTEXT("AutoGenerateTooltip",
+					"Automatically sample the volume and rebuild the dual contour after an editor property change."))
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.VAlign(VAlign_Center)
+					.Padding(0.0f, 0.0f, 6.0f, 0.0f)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("AutoGenerate", "Auto Generate"))
+					]
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.VAlign(VAlign_Center)
+					[
+						SNew(SCheckBox)
+						.IsChecked(this, &FDualContourEditorToolkit::GetAutoGenerateCheckState)
+						.OnCheckStateChanged(this, &FDualContourEditorToolkit::HandleAutoGenerateCheckStateChanged)
+					]
+				]
 			]
 			+ SVerticalBox::Slot()
 			.AutoHeight()
@@ -203,6 +237,42 @@ bool FDualContourEditorToolkit::CanGenerateDualContour() const
 	if (const UVolumeSampledDualContour* VolumeSampledDualContour = GetVolumeSampledDualContour())
 		return VolumeSampledDualContour->VolumeSampler != nullptr;
 	return false;
+}
+
+void FDualContourEditorToolkit::HandleFinishedChangingProperties(const FPropertyChangedEvent&)
+{
+	const UVolumeSampledDualContour* VolumeSampledDualContour = GetVolumeSampledDualContour();
+	if (VolumeSampledDualContour && VolumeSampledDualContour->bAutoGenerate
+	    && VolumeSampledDualContour->bRebuildRequired
+	    && CanGenerateDualContour())
+		GenerateDualContour();
+}
+
+ECheckBoxState FDualContourEditorToolkit::GetAutoGenerateCheckState() const
+{
+	const UVolumeSampledDualContour* VolumeSampledDualContour = GetVolumeSampledDualContour();
+	return VolumeSampledDualContour && VolumeSampledDualContour->bAutoGenerate
+		       ? ECheckBoxState::Checked
+		       : ECheckBoxState::Unchecked;
+}
+
+void FDualContourEditorToolkit::HandleAutoGenerateCheckStateChanged(ECheckBoxState NewState)
+{
+	UVolumeSampledDualContour* VolumeSampledDualContour = GetVolumeSampledDualContour();
+	if (!VolumeSampledDualContour)
+		return;
+
+	const bool bNewAutoGenerate = NewState == ECheckBoxState::Checked;
+	if (VolumeSampledDualContour->bAutoGenerate == bNewAutoGenerate)
+		return;
+
+	const FScopedTransaction Transaction(LOCTEXT("SetAutoGenerateTransaction", "Set Auto Generate"));
+	VolumeSampledDualContour->Modify();
+	VolumeSampledDualContour->bAutoGenerate = bNewAutoGenerate;
+	VolumeSampledDualContour->MarkPackageDirty();
+
+	if (bNewAutoGenerate && VolumeSampledDualContour->bRebuildRequired && CanGenerateDualContour())
+		GenerateDualContour();
 }
 
 TSharedRef<SWidget> FDualContourEditorToolkit::MakePreviewTypeMenu()
