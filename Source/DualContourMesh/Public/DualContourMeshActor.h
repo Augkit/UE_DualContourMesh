@@ -24,8 +24,8 @@ public:
 	UPROPERTY(Transient)
 	TMap<int32, TObjectPtr<UDualContourMeshComponent>> MeshComponents;
 
-	/** Data model and generator managed by this actor. */
-	UPROPERTY(BlueprintReadOnly, Instanced)
+	/** Runtime contour state copied from InitialDualContour. Its settings are read-only on this actor. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Instanced, Category = "DualContour")
 	TObjectPtr<UDualContour> DualContour;
 
 	/** Optional persistent DualContour asset copied into this actor when its mesh is rebuilt. */

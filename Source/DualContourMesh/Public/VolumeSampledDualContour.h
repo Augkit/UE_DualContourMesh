@@ -18,6 +18,10 @@ public:
 	UPROPERTY(EditAnywhere, Instanced, Category = "Source", meta = (ShowOnlyInnerProperties))
 	TObjectPtr<UVolumeSampler> VolumeSampler;
 
+	/** Automatically keeps VolumeSampler.VolumeSize equal to CellCount * CellSize. */
+	UPROPERTY(EditAnywhere, Category = "Source")
+	bool bAutoCalculateVolumeSize = true;
+
 	/** Translation, rotation and scale applied to VolumeSampler about its pivot. */
 	UPROPERTY(EditAnywhere, Category = "Source")
 	FTransform SampleTransform = FTransform::Identity;
@@ -30,7 +34,18 @@ public:
 	UFUNCTION(CallInEditor, Category = "Volume Sampled Dual Contour")
 	bool SampleVolume();
 
-	void NotifySamplerChanged();
+	virtual void PostLoad() override;
+	virtual void PostDuplicate(EDuplicateMode::Type DuplicateMode) override;
+	virtual void PreSave(FObjectPreSaveContext SaveContext) override;
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+	virtual void PostEditUndo() override;
+
+private:
+	void BindVolumeSampler();
+	void HandleSamplerPropertyChanged();
+	void UpdateAutomaticVolumeSize();
+
+	TWeakObjectPtr<UVolumeSampler> BoundVolumeSampler;
+	FDelegateHandle VolumeSamplerChangedHandle;
 #endif
 };

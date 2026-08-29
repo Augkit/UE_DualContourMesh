@@ -53,6 +53,11 @@ void FDualContourMeshActorDetails::CustomizeDetails(IDetailLayoutBuilder& Detail
 		if (ADualContourMeshActor* Actor = Cast<ADualContourMeshActor>(Object.Get()))
 			CustomizedActors.Add(Actor);
 
+	// Replace the default inline-object row with a read-only view. InitialDualContour is the
+	// editable source; RebuildMesh copies its current data into the actor-owned DualContour.
+	DetailBuilder.HideProperty(
+		DetailBuilder.GetProperty(GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, DualContour)));
+
 	// DualContour is reused in other editors, so keep its native categories unchanged and
 	// relocate only the properties shown for ADualContourMeshActor.
 	TArray<UObject*> DualContourObjects;
@@ -71,13 +76,13 @@ void FDualContourMeshActorDetails::CustomizeDetails(IDetailLayoutBuilder& Detail
 		DensityFieldGroup.SetDisplayMode(EDetailGroupDisplayMode::Category);
 		DensityFieldGroup.AddExternalObjectProperty(
 			DualContourObjects, GET_MEMBER_NAME_CHECKED(UDualContour, CellCount),
-			EPropertyLocation::Default, FAddPropertyParams());
+			EPropertyLocation::Default, FAddPropertyParams()).IsEnabled(false);
 		DensityFieldGroup.AddExternalObjectProperty(
 			DualContourObjects, GET_MEMBER_NAME_CHECKED(UDualContour, CellSize),
-			EPropertyLocation::Default, FAddPropertyParams());
+			EPropertyLocation::Default, FAddPropertyParams()).IsEnabled(false);
 		DensityFieldGroup.AddExternalObjectProperty(
 			DualContourObjects, GET_MEMBER_NAME_CHECKED(UDualContour, bRebuildRequired),
-			EPropertyLocation::Default, FAddPropertyParams());
+			EPropertyLocation::Default, FAddPropertyParams()).IsEnabled(false);
 	}
 
 	DualContourCategory.AddCustomRow(LOCTEXT("SaveDualContourFilter", "Save Dual Contour Asset"))
