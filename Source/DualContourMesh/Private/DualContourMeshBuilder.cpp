@@ -9,9 +9,7 @@ class FDualContourMeshBuildContext
 {
 public:
 	FDualContourMeshBuildContext(const UDualContour& InDualContour, FDualContourMeshData& InMeshData)
-		: DualContour(InDualContour), MeshData(InMeshData)
-	{
-	}
+		: DualContour(InDualContour), MeshData(InMeshData) {}
 
 	void GenerateQuadsForCell(int32 CellX, int32 CellY, int32 CellZ)
 	{
@@ -37,7 +35,7 @@ public:
 			MeshData.Normals.Append({Cell0->Normal, Cell1->Normal, Cell2->Normal, Cell3->Normal});
 			MeshData.UVs.Append({UV0, UV1, UV2, UV3});
 			MeshData.Indices.Append({BaseVertexIndex, BaseVertexIndex + 2, BaseVertexIndex + 1,
-				BaseVertexIndex, BaseVertexIndex + 3, BaseVertexIndex + 2});
+			                         BaseVertexIndex, BaseVertexIndex + 3, BaseVertexIndex + 2});
 		};
 
 		// X-axis edge: the four adjacent cells lie in the Y-Z plane.
@@ -101,8 +99,8 @@ private:
 };
 }
 
-void FDualContourMeshBuilder::Build(const UDualContour& DualContour, FVectorInt CellRangeMin,
-	FVectorInt CellRangeMax, FDualContourMeshData& OutMeshData)
+void FDualContourMeshBuilder::Build(const UDualContour& DualContour, FVectorInt CellRangeMin, FVectorInt CellRangeMax,
+	FDualContourMeshData& OutMeshData)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMeshBuilder_Build);
 	OutMeshData.Reset();

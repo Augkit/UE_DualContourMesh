@@ -2,7 +2,7 @@
 #include "CoreMinimal.h"
 #include "Components/MeshComponent.h"
 #include "Interfaces/Interface_CollisionDataProvider.h"
-#include "DualContourMeshData.h"
+#include "DualContourTypes.h"
 #include "DualContourMeshComponent.generated.h"
 
 class UBodySetup;

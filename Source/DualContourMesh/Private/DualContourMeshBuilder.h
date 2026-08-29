@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "DualContourMeshData.h"
+#include "DualContourTypes.h"
 
 class UDualContour;
 
@@ -9,6 +9,5 @@ class UDualContour;
 class FDualContourMeshBuilder
 {
 public:
-	static void Build(const UDualContour& DualContour, FVectorInt CellRangeMin, FVectorInt CellRangeMax,
-		FDualContourMeshData& OutMeshData);
+	static void Build(const UDualContour& DualContour, FVectorInt CellRangeMin, FVectorInt CellRangeMax, FDualContourMeshData& OutMeshData);
 };
