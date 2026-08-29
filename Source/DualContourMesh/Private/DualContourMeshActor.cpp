@@ -133,6 +133,7 @@ void ADualContourMeshActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	++MeshQueueRevision;
 	DivisionUpdateSerials.Reset();
+	bMeshUpdateCompletionPending = false;
 	ResetQueuedMeshData();
 	UnbindFromDualContour();
 	Super::EndPlay(EndPlayReason);
@@ -273,6 +274,7 @@ void ADualContourMeshActor::RecreateMeshComponents()
 	{
 		++MeshQueueRevision;
 		DivisionUpdateSerials.Reset();
+		bMeshUpdateCompletionPending = false;
 		ResetQueuedMeshData();
 		for (TPair<int32, TObjectPtr<UDualContourMeshComponent>>& Pair : MeshComponents)
 			if (Pair.Value)
@@ -309,6 +311,7 @@ void ADualContourMeshActor::RecreateMeshComponents()
 		TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_ReplaceFullComponents);
 		++MeshQueueRevision;
 		DivisionUpdateSerials.Reset();
+		bMeshUpdateCompletionPending = true;
 		ResetQueuedMeshData();
 		for (TPair<int32, TObjectPtr<UDualContourMeshComponent>>& Pair : MeshComponents)
 			if (Pair.Value)
@@ -320,6 +323,7 @@ void ADualContourMeshActor::RecreateMeshComponents()
 		for (FMeshBuildRequest& Request : Requests)
 			QueueMeshData(Request.DivisionIndex, MoveTemp(Request.MeshData));
 		SortQueuedMeshDataByViewDistance();
+		NotifyMeshComponentsUpdatedIfReady();
 	}
 }
 
@@ -352,6 +356,7 @@ UDualContourMeshComponent* ADualContourMeshActor::CreateMeshComponent()
 void ADualContourMeshActor::QueueMeshData(int32 DivisionIndex, FDualContourMeshData&& MeshData)
 {
 	check(IsInGameThread());
+	bMeshUpdateCompletionPending = true;
 	const uint64 UpdateSerial = ++NextMeshUpdateSerial;
 	DivisionUpdateSerials.Add(DivisionIndex, UpdateSerial);
 	for (int32 PendingIndex = NextPendingMeshApplyIndex; PendingIndex < PendingMeshApplies.Num(); ++PendingIndex)
@@ -440,6 +445,16 @@ void ADualContourMeshActor::CancelQueuedMeshData(int32 DivisionIndex)
 		ResetQueuedMeshData();
 }
 
+void ADualContourMeshActor::NotifyMeshComponentsUpdatedIfReady()
+{
+	if (!bMeshUpdateCompletionPending || NextPendingMeshApplyIndex < PendingMeshApplies.Num())
+		return;
+
+	// Clear first so callbacks that enqueue another update start a new completion cycle.
+	bMeshUpdateCompletionPending = false;
+	OnMeshComponentsUpdated.Broadcast();
+}
+
 void ADualContourMeshActor::ResetQueuedMeshData()
 {
 	PendingMeshApplies.Reset();
@@ -472,7 +487,10 @@ void ADualContourMeshActor::ApplyQueuedMeshData()
 	}
 
 	if (NextPendingMeshApplyIndex >= PendingMeshApplies.Num())
+	{
 		ResetQueuedMeshData();
+		NotifyMeshComponentsUpdatedIfReady();
+	}
 }
 
 bool ADualContourMeshActor::ValidateDivisions(FString& OutStatus) const
@@ -631,6 +649,8 @@ void ADualContourMeshActor::PartialUpdateComponents(FVectorInt AffectedCellMin, 
 
 	{
 		TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_QueuePartialComponents);
+		if (!DivisionsToRemove.IsEmpty() || !Requests.IsEmpty())
+			bMeshUpdateCompletionPending = true;
 		for (const int32 DivisionIndexToRemove : DivisionsToRemove)
 		{
 			CancelQueuedMeshData(DivisionIndexToRemove);
@@ -643,6 +663,7 @@ void ADualContourMeshActor::PartialUpdateComponents(FVectorInt AffectedCellMin, 
 		for (FMeshBuildRequest& Request : Requests)
 			QueueMeshData(Request.DivisionIndex, MoveTemp(Request.MeshData));
 		SortQueuedMeshDataByViewDistance();
+		NotifyMeshComponentsUpdatedIfReady();
 	}
 }
 

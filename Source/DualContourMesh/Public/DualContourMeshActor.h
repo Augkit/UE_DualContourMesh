@@ -11,6 +11,8 @@
 
 class UVolumeSampler;
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDualContourMeshComponentsUpdated);
+
 UCLASS()
 class DUALCONTOURMESH_API ADualContourMeshActor : public AActor
 {
@@ -58,6 +60,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Collision")
 	bool bGenerateOverlapEvents = true;
 
+	/** Broadcast after all queued mesh component creations, updates, and removals have completed. */
+	UPROPERTY(BlueprintAssignable, Category = "DualContour|Rendering")
+	FOnDualContourMeshComponentsUpdated OnMeshComponentsUpdated;
+
 	UFUNCTION(CallInEditor, Category = "DualContour")
 	void RebuildMesh();
 
@@ -103,6 +109,7 @@ private:
 	int32 NextPendingMeshApplyIndex = 0;
 	uint64 MeshQueueRevision = 0;
 	uint64 NextMeshUpdateSerial = 0;
+	bool bMeshUpdateCompletionPending = false;
 	bool bRebuildingMesh = false;
 	FVectorInt MeshCellCount;
 	float MeshCellSize = 0.f;
@@ -120,6 +127,7 @@ private:
 	void CancelQueuedMeshData(int32 DivisionIndex);
 	void ResetQueuedMeshData();
 	void ApplyQueuedMeshData();
+	void NotifyMeshComponentsUpdatedIfReady();
 	bool HasValidDivisions() const;
 	int32 DivisionIndex(int32 DivX, int32 DivY, int32 DivZ) const;
 	FVectorInt DivisionFromCell(int32 CellX, int32 CellY, int32 CellZ) const;
