@@ -152,6 +152,9 @@ bool UDualContour::CopyFrom(const UDualContour* Source)
 	Modify();
 	CellCount = Source->CellCount;
 	CellSize = Source->CellSize;
+	VertexSolveMode = Source->VertexSolveMode;
+	VertexRelaxation = Source->VertexRelaxation;
+	RelaxationNormalCosine = Source->RelaxationNormalCosine;
 	bRebuildRequired = Source->bRebuildRequired;
 	DensityChunks = Source->DensityChunks;
 	ContourChunks = Source->ContourChunks;
@@ -501,10 +504,12 @@ FDualContourCell UDualContour::BuildNewCell(int32 CellX, int32 CellY, int32 Cell
 	if (!Cell.bActive)
 		return Cell;
 
+	const bool bUseQEF = VertexSolveMode == EDualContourVertexSolveMode::QEF;
 	constexpr double Lambda = 0.1;
 	double Matrix[3][3] = {};
 	double Vector[3] = {};
 	FVector AccumNormal = FVector::ZeroVector;
+	FVector IntersectionSum = FVector::ZeroVector;
 	int32 NumIntersections = 0;
 	for (int32 EdgeIndex = 0; EdgeIndex < 12; ++EdgeIndex)
 	{
@@ -524,38 +529,52 @@ FDualContourCell UDualContour::BuildNewCell(int32 CellX, int32 CellY, int32 Cell
 		if (Normal.IsNearlyZero())
 			continue;
 
-		const double NX = Normal.X, NY = Normal.Y, NZ = Normal.Z;
-		const double Distance = FVector::DotProduct(Normal, WorldPosition);
-		Matrix[0][0] += NX * NX;
-		Matrix[0][1] += NX * NY;
-		Matrix[0][2] += NX * NZ;
-		Matrix[1][0] += NY * NX;
-		Matrix[1][1] += NY * NY;
-		Matrix[1][2] += NY * NZ;
-		Matrix[2][0] += NZ * NX;
-		Matrix[2][1] += NZ * NY;
-		Matrix[2][2] += NZ * NZ;
-		Vector[0] += NX * Distance;
-		Vector[1] += NY * Distance;
-		Vector[2] += NZ * Distance;
+		if (bUseQEF)
+		{
+			const double NX = Normal.X, NY = Normal.Y, NZ = Normal.Z;
+			const double Distance = FVector::DotProduct(Normal, WorldPosition);
+			Matrix[0][0] += NX * NX;
+			Matrix[0][1] += NX * NY;
+			Matrix[0][2] += NX * NZ;
+			Matrix[1][0] += NY * NX;
+			Matrix[1][1] += NY * NY;
+			Matrix[1][2] += NY * NZ;
+			Matrix[2][0] += NZ * NX;
+			Matrix[2][1] += NZ * NY;
+			Matrix[2][2] += NZ * NZ;
+			Vector[0] += NX * Distance;
+			Vector[1] += NY * Distance;
+			Vector[2] += NZ * Distance;
+		}
+		else
+		{
+			IntersectionSum += WorldPosition;
+		}
 		AccumNormal += Normal;
 		++NumIntersections;
 	}
 
 	if (NumIntersections > 0)
 	{
-		Matrix[0][0] += Lambda;
-		Matrix[1][1] += Lambda;
-		Matrix[2][2] += Lambda;
-		Vector[0] += Lambda * CellCenter.X;
-		Vector[1] += Lambda * CellCenter.Y;
-		Vector[2] += Lambda * CellCenter.Z;
-		double Position[3];
-		if (Solve3x3(Matrix, Vector, Position))
+		if (bUseQEF)
 		{
-			Cell.Center.X = FMath::Clamp(Position[0], CellMin.X, CellMax.X);
-			Cell.Center.Y = FMath::Clamp(Position[1], CellMin.Y, CellMax.Y);
-			Cell.Center.Z = FMath::Clamp(Position[2], CellMin.Z, CellMax.Z);
+			Matrix[0][0] += Lambda;
+			Matrix[1][1] += Lambda;
+			Matrix[2][2] += Lambda;
+			Vector[0] += Lambda * CellCenter.X;
+			Vector[1] += Lambda * CellCenter.Y;
+			Vector[2] += Lambda * CellCenter.Z;
+			double Position[3];
+			if (Solve3x3(Matrix, Vector, Position))
+			{
+				Cell.Center.X = FMath::Clamp(Position[0], CellMin.X, CellMax.X);
+				Cell.Center.Y = FMath::Clamp(Position[1], CellMin.Y, CellMax.Y);
+				Cell.Center.Z = FMath::Clamp(Position[2], CellMin.Z, CellMax.Z);
+			}
+		}
+		else
+		{
+			Cell.Center = IntersectionSum / NumIntersections;
 		}
 		Cell.Normal = AccumNormal.GetSafeNormal();
 		if (Cell.Normal.IsNearlyZero())
@@ -666,6 +685,48 @@ void UDualContour::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax)
 				ContourChunks.Remove(ChunkCoord);
 		}
 	}
+
+	const float Relaxation = FMath::Clamp(VertexRelaxation, 0.0f, 1.0f);
+	if (Relaxation > 0.0f && RangeMin.X == 0 && RangeMin.Y == 0 && RangeMin.Z == 0
+		&& RangeMax.X == CellCount.X && RangeMax.Y == CellCount.Y && RangeMax.Z == CellCount.Z)
+	{
+		const float MinimumNormalCosine = FMath::Clamp(RelaxationNormalCosine, -1.0f, 1.0f);
+		TMap<FIntVector, FVector> RelaxedCenters;
+		for (const TPair<FIntVector, FContourChunk>& ChunkPair : ContourChunks)
+		{
+			const FIntVector ChunkOrigin = ChunkPair.Key * GDualContourChunkSize;
+			for (const TPair<uint16, FDualContourCell>& CellPair : ChunkPair.Value.ActiveCells)
+			{
+				const FIntVector CellCoord(ChunkOrigin.X + (CellPair.Key & 0xF),
+					ChunkOrigin.Y + ((CellPair.Key >> 4) & 0xF), ChunkOrigin.Z + ((CellPair.Key >> 8) & 0xF));
+				FVector Sum = FVector::ZeroVector;
+				int32 Count = 0;
+				for (const FIntVector& Offset : {FIntVector(1, 0, 0), FIntVector(-1, 0, 0), FIntVector(0, 1, 0),
+					FIntVector(0, -1, 0), FIntVector(0, 0, 1), FIntVector(0, 0, -1)})
+				{
+					if (const FDualContourCell* Neighbor = GetContourCell(CellCoord.X + Offset.X, CellCoord.Y + Offset.Y, CellCoord.Z + Offset.Z))
+					{
+						if (FVector::DotProduct(CellPair.Value.Normal, Neighbor->Normal) < MinimumNormalCosine)
+							continue;
+						Sum += Neighbor->Center;
+						++Count;
+					}
+				}
+				if (Count > 0)
+				{
+					// Relaxing in 3D shrinks the surface and pulls vertices across cap/wall features.
+					// Keep only the displacement tangent to this cell's Hermite normal so the pass
+					// smooths neighbouring cells without moving the surface along its normal.
+					FVector Delta = Sum / Count - CellPair.Value.Center;
+					Delta -= CellPair.Value.Normal * FVector::DotProduct(Delta, CellPair.Value.Normal);
+					RelaxedCenters.Add(CellCoord, CellPair.Value.Center + Delta * Relaxation);
+				}
+			}
+		}
+		for (const TPair<FIntVector, FVector>& Pair : RelaxedCenters)
+			if (FDualContourCell* Cell = const_cast<FDualContourCell*>(GetContourCell(Pair.Key.X, Pair.Key.Y, Pair.Key.Z)))
+				Cell->Center = Pair.Value;
+	}
 	TRACE_COUNTER_SET_ALWAYS(DualContour_ActiveCellsBuilt, ActiveCellCount);
 
 	if (RangeMin.X < RangeMax.X && RangeMin.Y < RangeMax.Y && RangeMin.Z < RangeMax.Z)
@@ -679,7 +740,10 @@ void UDualContour::PostEditChangeProperty(FPropertyChangedEvent& PropertyChanged
 		                                 ? PropertyChangedEvent.MemberProperty->GetFName()
 		                                 : NAME_None;
 	if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, CellCount)
-	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, CellSize))
+	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, CellSize)
+	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, VertexSolveMode)
+	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, VertexRelaxation)
+	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, RelaxationNormalCosine))
 	{
 		bRebuildRequired = true;
 	}
