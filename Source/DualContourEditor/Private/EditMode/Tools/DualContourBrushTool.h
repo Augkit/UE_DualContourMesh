@@ -1,0 +1,86 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "InteractiveToolBuilder.h"
+#include "BaseBehaviors/BehaviorTargetInterfaces.h"
+#include "DualContourTypes.h"
+#include "DualContourBrushTool.generated.h"
+
+class ADualContourMeshActor;
+class UDualContourEditModeSettings;
+
+UCLASS(Transient)
+class UDualContourBrushToolBuilder final : public UInteractiveToolBuilder
+{
+	GENERATED_BODY()
+
+public:
+	void Initialize(UDualContourEditModeSettings* InSettings, ADualContourMeshActor* InTargetActor);
+	void SetTargetActor(ADualContourMeshActor* InTargetActor) { TargetActor = InTargetActor; }
+	virtual bool CanBuildTool(const FToolBuilderState& SceneState) const override;
+	virtual UInteractiveTool* BuildTool(const FToolBuilderState& SceneState) const override;
+
+private:
+	TWeakObjectPtr<UDualContourEditModeSettings> Settings;
+	TWeakObjectPtr<ADualContourMeshActor> TargetActor;
+};
+
+UCLASS(Transient)
+class UDualContourBrushTool final : public UInteractiveTool, public IClickDragBehaviorTarget, public IHoverBehaviorTarget
+{
+	GENERATED_BODY()
+
+public:
+	void Initialize(UWorld* InWorld, UDualContourEditModeSettings* InSettings, ADualContourMeshActor* InTargetActor);
+	void SetTargetActor(ADualContourMeshActor* InTargetActor);
+
+	virtual void Setup() override;
+	virtual void Shutdown(EToolShutdownType ShutdownType) override;
+	virtual void OnTick(float DeltaTime) override;
+	virtual void Render(IToolsContextRenderAPI* RenderAPI) override;
+	virtual void OnPropertyModified(UObject* PropertySet, FProperty* Property) override;
+
+	virtual FInputRayHit CanBeginClickDragSequence(const FInputDeviceRay& PressPos) override;
+	virtual void OnClickPress(const FInputDeviceRay& PressPos) override;
+	virtual void OnClickDrag(const FInputDeviceRay& DragPos) override;
+	virtual void OnClickRelease(const FInputDeviceRay& ReleasePos) override;
+	virtual void OnTerminateDragSequence() override;
+	virtual void OnUpdateModifierState(int ModifierID, bool bIsOn) override;
+
+	virtual FInputRayHit BeginHoverSequenceHitTest(const FInputDeviceRay& PressPos) override;
+	virtual void OnBeginHover(const FInputDeviceRay& DevicePos) override;
+	virtual bool OnUpdateHover(const FInputDeviceRay& DevicePos) override;
+	virtual void OnEndHover() override { bHasHit = false; }
+
+private:
+	bool UpdateHit(const FRay& WorldRay, float* OutDistance = nullptr);
+	bool ApplyStampAt(const FVector& WorldPosition, const FVector& WorldNormal, float TimeScale);
+	void ApplyPathTo(const FVector& WorldPosition, const FVector& WorldNormal);
+	void FlushStroke(bool bFinalFlush);
+	void FinishStroke(bool bCancel);
+	FDualContourBrushStamp MakeStamp(const FVector& WorldPosition, const FVector& WorldNormal, float TimeScale) const;
+
+	UPROPERTY()
+	TObjectPtr<UDualContourEditModeSettings> Settings;
+
+	UPROPERTY()
+	TObjectPtr<ADualContourMeshActor> TargetActor;
+
+	UPROPERTY()
+	TObjectPtr<UWorld> TargetWorld;
+
+	FDualContourEditBatch ActiveBatch;
+	TMap<FIntVector, FDualContourSampleDelta> StrokeDeltas;
+	FVector HitPosition = FVector::ZeroVector;
+	FVector HitNormal = FVector::UpVector;
+	FVector LastStampPosition = FVector::ZeroVector;
+	FVector ClayPlaneOrigin = FVector::ZeroVector;
+	FVector ClayPlaneNormal = FVector::UpVector;
+	double LastPreviewFlushTime = 0.0;
+	float StationaryAccumulator = 0.0f;
+	bool bHasHit = false;
+	bool bStrokeActive = false;
+	bool bShiftDown = false;
+
+	static constexpr int32 ShiftModifierId = 1;
+};

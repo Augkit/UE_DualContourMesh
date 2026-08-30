@@ -11,11 +11,14 @@ UCLASS(ClassGroup = Rendering, meta = (BlueprintSpawnableComponent))
 class DUALCONTOURMESH_API UDualContourMeshComponent : public UMeshComponent, public IInterface_CollisionDataProvider
 {
 	GENERATED_BODY()
+
 public:
 	UDualContourMeshComponent(const FObjectInitializer& ObjectInitializer);
 
 	/** Takes ownership of CPU mesh data and refreshes bounds, collision, and rendering on the game thread. */
-	void ApplyMeshData(FDualContourMeshData&& InMeshData);
+	void ApplyMeshData(FDualContourMeshData&& InMeshData, bool bUpdateCollision = true);
+	/** Rebuilds collision from the current CPU mesh data, normally once at the end of an edit stroke. */
+	void RefreshCollision();
 	const FDualContourMeshData& GetMeshData() const { return MeshData; }
 
 	virtual FPrimitiveSceneProxy* CreateSceneProxy() override;

@@ -5,6 +5,32 @@
 inline constexpr uint8 GDualContourIsoValue = 127;
 inline constexpr int32 GDualContourChunkSize = 16;
 
+UENUM(BlueprintType)
+enum class EDualContourDensityEditOperation : uint8
+{
+	Sculpt,
+	Erase,
+	Smooth,
+	StampUnion,
+	StampDifference,
+};
+
+UENUM(BlueprintType)
+enum class EDualContourBrushShape : uint8
+{
+	Sphere,
+	Box,
+};
+
+UENUM(BlueprintType)
+enum class EDualContourBrushFalloff : uint8
+{
+	Smooth,
+	Linear,
+	Spherical,
+	Tip,
+};
+
 USTRUCT(BlueprintType)
 struct DUALCONTOURMESH_API FVectorInt
 {
@@ -114,4 +140,71 @@ struct DUALCONTOURMESH_API FDualContourMeshData
 		Indices.Reset();
 		LocalBounds = FBox(ForceInit);
 	}
+};
+
+/** One changed density sample. Edit-mode undo stores only these sparse values. */
+struct DUALCONTOURMESH_API FDualContourSampleDelta
+{
+	FIntVector SampleCoord = FIntVector::ZeroValue;
+	uint8 Before = 0;
+	uint8 After = 0;
+};
+
+/** Chunk sets touched by a density edit. These are also the boundary for future async rebuilds. */
+struct DUALCONTOURMESH_API FDualContourDirtyRegion
+{
+	TSet<FIntVector> DensityChunks;
+	TSet<FIntVector> ContourChunks;
+
+	void Reset()
+	{
+		DensityChunks.Reset();
+		ContourChunks.Reset();
+	}
+};
+
+struct DUALCONTOURMESH_API FDualContourEditResult
+{
+	FDualContourDirtyRegion DirtyRegion;
+	TArray<FDualContourSampleDelta> Deltas;
+
+	bool IsEmpty() const { return Deltas.IsEmpty(); }
+};
+
+class UVolumeSampledDualContour;
+class UDualContour;
+
+/** Runtime brush description. All positions and sizes are in the target DualContour's local space. */
+struct DUALCONTOURMESH_API FDualContourBrushStamp
+{
+	EDualContourDensityEditOperation Operation = EDualContourDensityEditOperation::Sculpt;
+	EDualContourBrushShape Shape = EDualContourBrushShape::Sphere;
+	EDualContourBrushFalloff FalloffType = EDualContourBrushFalloff::Smooth;
+	FVector LocalCenter = FVector::ZeroVector;
+	FVector LocalNormal = FVector::UpVector;
+	FVector ClayPlaneOrigin = FVector::ZeroVector;
+	float Radius = 100.0f;
+	float Falloff = 0.5f;
+	float Strength = 0.3f;
+	float TimeScale = 1.0f;
+	bool bUseClayBrush = false;
+
+	/** Used only by StampUnion/StampDifference; maps source local positions into target local space. */
+	UVolumeSampledDualContour* VolumeBrush = nullptr;
+	FTransform VolumeToTarget = FTransform::Identity;
+};
+
+struct FDualContourPendingSample
+{
+	uint8 Before = 0;
+	float WorkingValue = 0.0f;
+};
+
+/** Mutable state shared by all stamps in one stroke. */
+struct DUALCONTOURMESH_API FDualContourEditBatch
+{
+	UDualContour* Owner = nullptr;
+	TMap<FIntVector, TMap<uint16, FDualContourPendingSample>> ChunkSamples;
+	TSet<FIntVector> DirtyDensityChunks;
+	bool bOpen = false;
 };

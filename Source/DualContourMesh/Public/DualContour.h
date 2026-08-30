@@ -58,6 +58,16 @@ public:
 	bool ModifyDensitySamplesInRange(FVectorInt SampleMin, FVectorInt SampleDimensions, TConstArrayView<uint8> Samples, bool bExcavate,
 		FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax);
 
+	/** Starts a stroke-style edit. Density writes are accumulated and contour rebuilds are deferred to EndEditBatch. */
+	FDualContourEditBatch BeginEditBatch() const;
+	/** Applies one local brush stamp in O(samples covered by the brush). */
+	bool ApplyBrushStamp(FDualContourEditBatch& Batch, const FDualContourBrushStamp& Stamp);
+	/** Quantizes the stroke, rebuilds only dirty contour chunks, and returns sparse undo deltas. */
+	bool EndEditBatch(FDualContourEditBatch& Batch, FDualContourEditResult& OutResult);
+	/** Restores either side of a sparse edit and performs the same local rebuild path. */
+	bool ApplyEditDeltas(TConstArrayView<FDualContourSampleDelta> Deltas, bool bUseAfterValues,
+		FDualContourEditResult* OutResult = nullptr);
+
 	uint8 GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
 	const FDualContourCell* GetContourCell(int32 CellX, int32 CellY, int32 CellZ) const;
 	float TrilinearDensity(FVector GridPos) const;
@@ -99,6 +109,8 @@ private:
 	void CompactDensityChunks(const TSet<FIntVector>& ChunkCoords);
 	void SetContourCell(int32 CellX, int32 CellY, int32 CellZ, const FDualContourCell& Cell);
 	void RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax);
+	void RebuildDirtyDensityChunks(const TSet<FIntVector>& DirtyDensityChunks, FDualContourDirtyRegion& OutDirtyRegion);
+	void WriteDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Density, TSet<FIntVector>& DirtyChunks);
 	bool ValidateGenerationSettings() const;
 	static uint16 PackLocalContourKey(int32 CellX, int32 CellY, int32 CellZ);
 };

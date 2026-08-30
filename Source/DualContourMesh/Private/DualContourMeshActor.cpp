@@ -541,7 +541,7 @@ void ADualContourMeshActor::ApplyQueuedMeshData()
 		TObjectPtr<UDualContourMeshComponent>* ExistingComponent = MeshComponents.Find(PendingApply.DivisionIndex);
 		const bool bCreatedComponent = !ExistingComponent || !IsValid(ExistingComponent->Get());
 		UDualContourMeshComponent* MeshComponent = bCreatedComponent ? CreateMeshComponent() : ExistingComponent->Get();
-		MeshComponent->ApplyMeshData(MoveTemp(PendingApply.MeshData));
+		MeshComponent->ApplyMeshData(MoveTemp(PendingApply.MeshData), !bDensityEditInProgress);
 		++AppliedCount;
 
 		const bool bIsStillCurrent = PendingApply.QueueRevision == MeshQueueRevision
@@ -770,4 +770,15 @@ bool ADualContourMeshActor::ModifyDensityWithSampler(const FVector& WorldHitPos,
 		return false;
 	}
 	return true;
+}
+
+void ADualContourMeshActor::SetDensityEditInProgress(bool bInProgress)
+{
+	if (bDensityEditInProgress == bInProgress)
+		return;
+	bDensityEditInProgress = bInProgress;
+	if (!bDensityEditInProgress)
+		for (const TPair<int32, TObjectPtr<UDualContourMeshComponent>>& Pair : MeshComponents)
+			if (IsValid(Pair.Value))
+				Pair.Value->RefreshCollision();
 }

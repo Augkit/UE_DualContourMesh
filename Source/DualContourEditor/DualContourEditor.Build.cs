@@ -20,7 +20,11 @@ public class DualContourEditor : ModuleRules
 			"Slate",
 			"SlateCore",
 			"EditorFramework",
-			"AdvancedPreviewScene"
+			"AdvancedPreviewScene",
+			"LevelEditor",
+			"InteractiveToolsFramework",
+			"EditorInteractiveToolsFramework",
+			"ToolMenus"
 		});
 	}
 }

@@ -167,14 +167,20 @@ UDualContourMeshComponent::UDualContourMeshComponent(const FObjectInitializer& O
 	SetMobility(EComponentMobility::Static);
 }
 
-void UDualContourMeshComponent::ApplyMeshData(FDualContourMeshData&& InMeshData)
+void UDualContourMeshComponent::ApplyMeshData(FDualContourMeshData&& InMeshData, bool bUpdateCollision)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_ApplyMeshData);
 	check(IsInGameThread());
 	MeshData = MoveTemp(InMeshData);
 	UpdateBounds();
-	UpdateCollision();
+	if (bUpdateCollision)
+		UpdateCollision();
 	MarkRenderStateDirty();
+}
+
+void UDualContourMeshComponent::RefreshCollision()
+{
+	UpdateCollision();
 }
 
 FPrimitiveSceneProxy* UDualContourMeshComponent::CreateSceneProxy()
@@ -199,8 +205,8 @@ int32 UDualContourMeshComponent::GetNumMaterials() const
 FBoxSphereBounds UDualContourMeshComponent::CalcBounds(const FTransform& LocalToWorld) const
 {
 	FBox EffectiveLocalBounds = MeshData.LocalBounds.IsValid
-		                               ? MeshData.LocalBounds
-		                               : FBox(FVector::ZeroVector, FVector::ZeroVector);
+		                            ? MeshData.LocalBounds
+		                            : FBox(FVector::ZeroVector, FVector::ZeroVector);
 	return FBoxSphereBounds(EffectiveLocalBounds).TransformBy(LocalToWorld);
 }
 
@@ -309,4 +315,3 @@ UMaterialInterface* UDualContourMeshComponent::GetMaterialFromCollisionFaceIndex
 	SectionIndex = FaceIndex >= 0 ? 0 : INDEX_NONE;
 	return FaceIndex >= 0 ? GetMaterial(0) : nullptr;
 }
-
