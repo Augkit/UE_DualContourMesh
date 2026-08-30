@@ -688,7 +688,7 @@ void UDualContour::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax)
 
 	const float Relaxation = FMath::Clamp(VertexRelaxation, 0.0f, 1.0f);
 	if (Relaxation > 0.0f && RangeMin.X == 0 && RangeMin.Y == 0 && RangeMin.Z == 0
-		&& RangeMax.X == CellCount.X && RangeMax.Y == CellCount.Y && RangeMax.Z == CellCount.Z)
+	    && RangeMax.X == CellCount.X && RangeMax.Y == CellCount.Y && RangeMax.Z == CellCount.Z)
 	{
 		const float MinimumNormalCosine = FMath::Clamp(RelaxationNormalCosine, -1.0f, 1.0f);
 		TMap<FIntVector, FVector> RelaxedCenters;
@@ -702,7 +702,7 @@ void UDualContour::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax)
 				FVector Sum = FVector::ZeroVector;
 				int32 Count = 0;
 				for (const FIntVector& Offset : {FIntVector(1, 0, 0), FIntVector(-1, 0, 0), FIntVector(0, 1, 0),
-					FIntVector(0, -1, 0), FIntVector(0, 0, 1), FIntVector(0, 0, -1)})
+				                                 FIntVector(0, -1, 0), FIntVector(0, 0, 1), FIntVector(0, 0, -1)})
 				{
 					if (const FDualContourCell* Neighbor = GetContourCell(CellCoord.X + Offset.X, CellCoord.Y + Offset.Y, CellCoord.Z + Offset.Z))
 					{
