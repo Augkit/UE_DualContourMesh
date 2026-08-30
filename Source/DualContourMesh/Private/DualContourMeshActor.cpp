@@ -127,6 +127,9 @@ void ADualContourMeshActor::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	ApplyQueuedMeshData();
+#if WITH_EDITOR
+	ProcessPendingDebugComponentRefresh();
+#endif
 }
 
 void ADualContourMeshActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -134,6 +137,10 @@ void ADualContourMeshActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	++MeshQueueRevision;
 	DivisionUpdateSerials.Reset();
 	bMeshUpdateCompletionPending = false;
+#if WITH_EDITOR
+	bDebugRefreshPending = false;
+	bDebugRefreshImmediatelyAfterMeshUpdate = false;
+#endif
 	ResetQueuedMeshData();
 	UnbindFromDualContour();
 	Super::EndPlay(EndPlayReason);
@@ -171,10 +178,52 @@ void ADualContourMeshActor::PostEditChangeProperty(FPropertyChangedEvent& Proper
 
 void ADualContourMeshActor::RefreshDebugComponent()
 {
-	if (DebugComponent && DualContour)
+	if (!DebugComponent || !DualContour || !UDualContourDebugComponent::IsDrawEnabled())
+		return;
+
+	DebugComponent->UpdateFromMeshComponents(MeshComponents, DualContour->CellCount, DualContour->CellSize, Divisions);
+	DebugComponent->MarkRenderStateDirty();
+}
+
+void ADualContourMeshActor::RefreshDebugVisualization()
+{
+	RequestDebugComponentRefresh(true);
+}
+
+void ADualContourMeshActor::RequestDebugComponentRefresh(bool bImmediate)
+{
+	if (!UDualContourDebugComponent::IsDrawEnabled())
 	{
-		DebugComponent->UpdateFromGrid(DualContour->GetContourChunks(), DualContour->CellCount, DualContour->CellSize);
-		DebugComponent->MarkRenderStateDirty();
+		bDebugRefreshPending = false;
+		UpdateActorTickEnabled();
+		return;
+	}
+
+	if (bImmediate)
+	{
+		bDebugRefreshPending = false;
+		RefreshDebugComponent();
+		UpdateActorTickEnabled();
+		return;
+	}
+
+	// A brush can produce many small contour rebuilds per second. The debug proxy is a full
+	// snapshot, so coalesce them and refresh only after edits have been quiet briefly.
+	bDebugRefreshPending = true;
+	DebugRefreshDeadline = FPlatformTime::Seconds() + 0.15;
+	UpdateActorTickEnabled();
+}
+
+void ADualContourMeshActor::ProcessPendingDebugComponentRefresh()
+{
+	if (!bDebugRefreshPending)
+		return;
+
+	if (!UDualContourDebugComponent::IsDrawEnabled() || FPlatformTime::Seconds() >= DebugRefreshDeadline)
+	{
+		bDebugRefreshPending = false;
+		RefreshDebugComponent();
+		UpdateActorTickEnabled();
 	}
 }
 
@@ -259,7 +308,11 @@ void ADualContourMeshActor::OnDualContourCellsRebuilt(FVectorInt AffectedCellMin
 	}
 
 #if WITH_EDITOR
-	RefreshDebugComponent();
+	const bool bFullGridRebuild = AffectedCellMin.X == 0 && AffectedCellMin.Y == 0 && AffectedCellMin.Z == 0
+	                              && AffectedCellMax.X == DualContour->CellCount.X
+	                              && AffectedCellMax.Y == DualContour->CellCount.Y
+	                              && AffectedCellMax.Z == DualContour->CellCount.Z;
+	bDebugRefreshImmediatelyAfterMeshUpdate |= bFullGridRebuild;
 #endif
 	PartialUpdateComponents(AffectedCellMin, AffectedCellMax);
 }
@@ -280,11 +333,14 @@ void ADualContourMeshActor::RecreateMeshComponents()
 			if (Pair.Value)
 				Pair.Value->DestroyComponent();
 		MeshComponents.Reset();
+#if WITH_EDITOR
+		RequestDebugComponentRefresh(true);
+#endif
 		return;
 	}
 
 #if WITH_EDITOR
-	RefreshDebugComponent();
+	bDebugRefreshImmediatelyAfterMeshUpdate = true;
 #endif
 
 	TArray<FMeshBuildRequest> Requests;
@@ -367,7 +423,7 @@ void ADualContourMeshActor::QueueMeshData(int32 DivisionIndex, FDualContourMeshD
 			PendingApply.QueueRevision = MeshQueueRevision;
 			PendingApply.UpdateSerial = UpdateSerial;
 			PendingApply.MeshData = MoveTemp(MeshData);
-			SetActorTickEnabled(true);
+			UpdateActorTickEnabled();
 			return;
 		}
 	}
@@ -377,7 +433,7 @@ void ADualContourMeshActor::QueueMeshData(int32 DivisionIndex, FDualContourMeshD
 	PendingApply.QueueRevision = MeshQueueRevision;
 	PendingApply.UpdateSerial = UpdateSerial;
 	PendingApply.MeshData = MoveTemp(MeshData);
-	SetActorTickEnabled(true);
+	UpdateActorTickEnabled();
 }
 
 void ADualContourMeshActor::SortQueuedMeshDataByViewDistance()
@@ -452,6 +508,11 @@ void ADualContourMeshActor::NotifyMeshComponentsUpdatedIfReady()
 
 	// Clear first so callbacks that enqueue another update start a new completion cycle.
 	bMeshUpdateCompletionPending = false;
+#if WITH_EDITOR
+	const bool bImmediateDebugRefresh = bDebugRefreshImmediatelyAfterMeshUpdate;
+	bDebugRefreshImmediatelyAfterMeshUpdate = false;
+	RequestDebugComponentRefresh(bImmediateDebugRefresh);
+#endif
 	OnMeshComponentsUpdated.Broadcast();
 }
 
@@ -459,7 +520,17 @@ void ADualContourMeshActor::ResetQueuedMeshData()
 {
 	PendingMeshApplies.Reset();
 	NextPendingMeshApplyIndex = 0;
-	SetActorTickEnabled(false);
+	UpdateActorTickEnabled();
+}
+
+void ADualContourMeshActor::UpdateActorTickEnabled()
+{
+	const bool bHasPendingMeshData = NextPendingMeshApplyIndex < PendingMeshApplies.Num();
+#if WITH_EDITOR
+	SetActorTickEnabled(bHasPendingMeshData || bDebugRefreshPending);
+#else
+	SetActorTickEnabled(bHasPendingMeshData);
+#endif
 }
 
 void ADualContourMeshActor::ApplyQueuedMeshData()

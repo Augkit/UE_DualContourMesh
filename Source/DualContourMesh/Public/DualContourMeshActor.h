@@ -67,6 +67,12 @@ public:
 	UFUNCTION(CallInEditor, Category = "DualContour")
 	void RebuildMesh();
 
+#if WITH_EDITOR
+	/** Rebuilds the editor-only mesh-chunk visualization when DualContour.Debug.DrawMeshComponents is enabled. */
+	UFUNCTION(CallInEditor, Category = "DualContour|Debug")
+	void RefreshDebugVisualization();
+#endif
+
 	/** Sets generated contour data, then queues its mesh chunks for application over subsequent frames. */
 	bool SetGeneratedDualContour(UDualContour* InDualContour);
 
@@ -128,6 +134,7 @@ private:
 	void ResetQueuedMeshData();
 	void ApplyQueuedMeshData();
 	void NotifyMeshComponentsUpdatedIfReady();
+	void UpdateActorTickEnabled();
 	bool HasValidDivisions() const;
 	int32 DivisionIndex(int32 DivX, int32 DivY, int32 DivZ) const;
 	FVectorInt DivisionFromCell(int32 CellX, int32 CellY, int32 CellZ) const;
@@ -137,7 +144,12 @@ private:
 
 #if WITH_EDITOR
 	void RefreshDebugComponent();
+	void RequestDebugComponentRefresh(bool bImmediate);
+	void ProcessPendingDebugComponentRefresh();
 	bool bRebuildInitialDualContourAfterLoad = false;
+	bool bDebugRefreshPending = false;
+	bool bDebugRefreshImmediatelyAfterMeshUpdate = false;
+	double DebugRefreshDeadline = 0.0;
 #endif
 
 };
