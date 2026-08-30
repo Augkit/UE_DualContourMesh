@@ -5,15 +5,10 @@
 #include "Engine/CollisionProfile.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
-#include "ProfilingDebugging/CountersTrace.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "VolumeSampler/VolumeSampler.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDualContourMesh, Log, All);
-
-TRACE_DECLARE_INT_COUNTER(DualContourMesh_CellsProcessed, TEXT("DualContourMesh/Last Build/Cells Processed"));
-TRACE_DECLARE_INT_COUNTER(DualContourMesh_Vertices, TEXT("DualContourMesh/Last Build/Vertices"));
-TRACE_DECLARE_INT_COUNTER(DualContourMesh_Triangles, TEXT("DualContourMesh/Last Build/Triangles"));
 
 namespace
 {

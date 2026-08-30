@@ -15,10 +15,7 @@
 #include "SceneView.h"
 #include "PhysicsEngine/BodySetup.h"
 #include "PhysicsEngine/PhysicsSettings.h"
-#include "ProfilingDebugging/CountersTrace.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
-
-TRACE_DECLARE_INT_COUNTER(DualContourMesh_CollisionTriangles, TEXT("DualContourMesh/Last Collision Build/Triangles"));
 
 // ---------------------------------------------------------------------------
 // Scene proxy: one mesh per component
@@ -216,7 +213,6 @@ bool UDualContourMeshComponent::GetTriMeshSizeEstimates(FTriMeshCollisionDataEst
 bool UDualContourMeshComponent::GetPhysicsTriMeshData(FTriMeshCollisionData* CollisionData, bool bInUseAllTriData)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_GetPhysicsTriMeshData);
-	TRACE_COUNTER_SET_ALWAYS(DualContourMesh_CollisionTriangles, 0);
 	if (!CollisionData || !ContainsPhysicsTriMeshData(bInUseAllTriData))
 		return false;
 
@@ -228,7 +224,6 @@ bool UDualContourMeshComponent::GetPhysicsTriMeshData(FTriMeshCollisionData* Col
 		CollisionData->Vertices.Add(FVector3f(Position));
 	}
 
-	const int32 InitialCollisionTriangleCount = CollisionData->Indices.Num();
 	const int32 TriangleCount = MeshData.Indices.Num() / 3;
 	CollisionData->Indices.Reserve(TriangleCount);
 	CollisionData->MaterialIndices.Reserve(TriangleCount);
@@ -269,8 +264,6 @@ bool UDualContourMeshComponent::GetPhysicsTriMeshData(FTriMeshCollisionData* Col
 	CollisionData->bFlipNormals = true;
 	CollisionData->bDeformableMesh = false;
 	CollisionData->bFastCook = false;
-	TRACE_COUNTER_SET_ALWAYS(DualContourMesh_CollisionTriangles,
-		CollisionData->Indices.Num() - InitialCollisionTriangleCount);
 
 	return !CollisionData->Indices.IsEmpty();
 }

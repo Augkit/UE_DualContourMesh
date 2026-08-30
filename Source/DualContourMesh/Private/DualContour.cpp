@@ -1,15 +1,9 @@
 #include "DualContour.h"
 #include "Async/ParallelFor.h"
-#include "ProfilingDebugging/CountersTrace.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "UObject/ObjectSaveContext.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDualContour, Log, All);
-
-TRACE_DECLARE_INT_COUNTER(DualContour_DensitySamplesProcessed, TEXT("DualContour/Last Operation/Density Samples Processed"));
-TRACE_DECLARE_INT_COUNTER(DualContour_DensitySamplesModified, TEXT("DualContour/Last Modify/Density Samples Modified"));
-TRACE_DECLARE_INT_COUNTER(DualContour_CellsProcessed, TEXT("DualContour/Last Cell Rebuild/Cells Processed"));
-TRACE_DECLARE_INT_COUNTER(DualContour_ActiveCellsBuilt, TEXT("DualContour/Last Cell Rebuild/Active Cells Built"));
 
 namespace
 {
@@ -171,7 +165,6 @@ bool UDualContour::ReplaceDensitySamples(const TArray<uint8>& Samples)
 bool UDualContour::ReplaceDensitySamplesInRange(FVectorInt SampleMin, FVectorInt SampleDimensions, TConstArrayView<uint8> Samples)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_ReplaceDensitySamplesInRange);
-	TRACE_COUNTER_SET_ALWAYS(DualContour_DensitySamplesProcessed, Samples.Num());
 	bRebuildRequired = true;
 	if (!ValidateGenerationSettings())
 		return false;
@@ -282,8 +275,6 @@ bool UDualContour::ModifyDensitySamplesInRange(FVectorInt SampleMin, FVectorInt 
 	FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_ModifyDensitySamplesInRange);
-	TRACE_COUNTER_SET_ALWAYS(DualContour_DensitySamplesProcessed, Samples.Num());
-	TRACE_COUNTER_SET_ALWAYS(DualContour_DensitySamplesModified, 0);
 	OutAffectedCellMin = FVectorInt();
 	OutAffectedCellMax = FVectorInt();
 	const FVectorInt FullSampleDimensions = GetSampleDims();
@@ -291,7 +282,6 @@ bool UDualContour::ModifyDensitySamplesInRange(FVectorInt SampleMin, FVectorInt 
 		return false;
 
 	bool bModified = false;
-	int64 ModifiedSampleCount = 0;
 	TSet<FIntVector> ModifiedChunks;
 	FVectorInt ModifiedSampleMin(FullSampleDimensions.X, FullSampleDimensions.Y, FullSampleDimensions.Z);
 	FVectorInt ModifiedSampleMax(-1, -1, -1);
@@ -333,10 +323,8 @@ bool UDualContour::ModifyDensitySamplesInRange(FVectorInt SampleMin, FVectorInt 
 				ModifiedSampleMax.X = FMath::Max(ModifiedSampleMax.X, SampleX);
 				ModifiedSampleMax.Y = FMath::Max(ModifiedSampleMax.Y, SampleY);
 				ModifiedSampleMax.Z = FMath::Max(ModifiedSampleMax.Z, SampleZ);
-				++ModifiedSampleCount;
 				bModified = true;
 			}
-	TRACE_COUNTER_SET_ALWAYS(DualContour_DensitySamplesModified, ModifiedSampleCount);
 	if (!bModified)
 		return false;
 	CompactDensityChunks(ModifiedChunks);
@@ -591,10 +579,8 @@ void UDualContour::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax)
 	RangeMax = FVectorInt(FMath::Min(CellCount.X, RangeMax.X), FMath::Min(CellCount.Y, RangeMax.Y), FMath::Min(CellCount.Z, RangeMax.Z));
 	const int64 ProcessedCellCount = static_cast<int64>(FMath::Max(0, RangeMax.X - RangeMin.X))
 	                                 * FMath::Max(0, RangeMax.Y - RangeMin.Y) * FMath::Max(0, RangeMax.Z - RangeMin.Z);
-	TRACE_COUNTER_SET_ALWAYS(DualContour_CellsProcessed, ProcessedCellCount);
 	if (ProcessedCellCount == 0)
 	{
-		TRACE_COUNTER_SET_ALWAYS(DualContour_ActiveCellsBuilt, 0);
 		return;
 	}
 
@@ -614,12 +600,9 @@ void UDualContour::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax)
 
 	TArray<FContourChunk> BuiltChunks;
 	BuiltChunks.SetNum(ChunkCoords.Num());
-	TArray<int32> ActiveCellCounts;
-	ActiveCellCounts.SetNumZeroed(ChunkCoords.Num());
 
 	ParallelFor(TEXT("DualContour.BuildContourChunks"), ChunkCoords.Num(), 1,
-		[this, RangeMin, RangeMax, &ChunkCoords, &BuiltChunks,
-			&ActiveCellCounts](int32 Index)
+		[this, RangeMin, RangeMax, &ChunkCoords, &BuiltChunks](int32 Index)
 		{
 			const FIntVector ChunkCoord = ChunkCoords[Index];
 			const FVectorInt ChunkOrigin(ChunkCoord.X * GDualContourChunkSize,
@@ -631,7 +614,6 @@ void UDualContour::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax)
 				FMath::Min(RangeMax.Z, ChunkOrigin.Z + GDualContourChunkSize));
 
 			FContourChunk& BuiltChunk = BuiltChunks[Index];
-			int32 LocalActiveCellCount = 0;
 			for (int32 CellZ = BuildMin.Z; CellZ < BuildMax.Z; ++CellZ)
 				for (int32 CellY = BuildMin.Y; CellY < BuildMax.Y; ++CellY)
 					for (int32 CellX = BuildMin.X; CellX < BuildMax.X; ++CellX)
@@ -643,17 +625,13 @@ void UDualContour::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax)
 						                                            | ((CellY % GDualContourChunkSize) << 4)
 						                                            | ((CellZ % GDualContourChunkSize) << 8));
 						BuiltChunk.ActiveCells.Add(LocalKey, MoveTemp(Cell));
-						++LocalActiveCellCount;
 					}
-			ActiveCellCounts[Index] = LocalActiveCellCount;
 		}, EParallelForFlags::Unbalanced);
 
-	int64 ActiveCellCount = 0;
 	{
 		TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_MergeContourChunks);
 		for (int32 Index = 0; Index < ChunkCoords.Num(); ++Index)
 		{
-			ActiveCellCount += ActiveCellCounts[Index];
 			const FIntVector ChunkCoord = ChunkCoords[Index];
 			const FVectorInt ChunkOrigin(ChunkCoord.X * GDualContourChunkSize,
 				ChunkCoord.Y * GDualContourChunkSize, ChunkCoord.Z * GDualContourChunkSize);
@@ -727,8 +705,6 @@ void UDualContour::RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax)
 			if (FDualContourCell* Cell = const_cast<FDualContourCell*>(GetContourCell(Pair.Key.X, Pair.Key.Y, Pair.Key.Z)))
 				Cell->Center = Pair.Value;
 	}
-	TRACE_COUNTER_SET_ALWAYS(DualContour_ActiveCellsBuilt, ActiveCellCount);
-
 	if (RangeMin.X < RangeMax.X && RangeMin.Y < RangeMax.Y && RangeMin.Z < RangeMax.Z)
 		OnCellsRebuilt.Broadcast(RangeMin, RangeMax);
 }
