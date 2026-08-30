@@ -6,6 +6,7 @@
 #include "DualContour.generated.h"
 
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDualContourCellsRebuilt, FVectorInt, FVectorInt);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnDirtyDualContourChunksRebuilt, const FDualContourDirtyRegion&);
 
 UENUM(BlueprintType)
 enum class EDualContourVertexSolveMode : uint8
@@ -44,6 +45,8 @@ public:
 
 	/** Broadcast after generated contour data changes. The range is [CellMin, CellMax). */
 	FOnDualContourCellsRebuilt OnCellsRebuilt;
+	/** Broadcast once per edit-batch flush after all unique contour chunks have been rebuilt. */
+	FOnDirtyDualContourChunksRebuilt OnDirtyChunksRebuilt;
 
 	bool Rebuild();
 	/** Copies persistent grid settings and generated data from another current DualContour. */
@@ -107,8 +110,8 @@ private:
 	FDualContourCell BuildNewCell(int32 CellX, int32 CellY, int32 CellZ) const;
 	void CompactAllDensityChunks();
 	void CompactDensityChunks(const TSet<FIntVector>& ChunkCoords);
-	void SetContourCell(int32 CellX, int32 CellY, int32 CellZ, const FDualContourCell& Cell);
 	void RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax);
+	void RebuildDirtyContourChunks(const TSet<FIntVector>& ChunkCoords);
 	void RebuildDirtyDensityChunks(const TSet<FIntVector>& DirtyDensityChunks, FDualContourDirtyRegion& OutDirtyRegion);
 	void WriteDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Density, TSet<FIntVector>& DirtyChunks);
 	bool ValidateGenerationSettings() const;

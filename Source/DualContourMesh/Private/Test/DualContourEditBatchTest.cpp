@@ -14,6 +14,12 @@ bool FDualContourEditBatchTest::RunTest(const FString& Parameters)
 	DualContour->CellSize = 10.0f;
 	DualContour->VertexRelaxation = 0.0f;
 	TestTrue(TEXT("Empty density field builds"), DualContour->Rebuild());
+	int32 ChunkRebuildNotificationCount = 0;
+	DualContour->OnDirtyChunksRebuilt.AddLambda(
+		[&ChunkRebuildNotificationCount](const FDualContourDirtyRegion&)
+		{
+			++ChunkRebuildNotificationCount;
+		});
 
 	FDualContourEditBatch Batch = DualContour->BeginEditBatch();
 	TestTrue(TEXT("Batch opens for current generated data"), Batch.bOpen);
@@ -27,6 +33,7 @@ bool FDualContourEditBatchTest::RunTest(const FString& Parameters)
 
 	FDualContourEditResult Result;
 	TestTrue(TEXT("Batch flush produces a result"), DualContour->EndEditBatch(Batch, Result));
+	TestEqual(TEXT("A batch flush sends one chunk rebuild notification"), ChunkRebuildNotificationCount, 1);
 	TestFalse(TEXT("Undo data is sparse and non-empty"), Result.Deltas.IsEmpty());
 	TestTrue(TEXT("Center density became solid"), DualContour->GetDensity(8, 8, 8) > GDualContourIsoValue);
 	TestTrue(TEXT("Uncovered sample stays empty"), DualContour->GetDensity(0, 0, 0) == 0);

@@ -137,7 +137,7 @@ void UDualContourBrushTool::OnClickDrag(const FInputDeviceRay& DragPos)
 	if (!bStrokeActive || !UpdateHit(DragPos.WorldRay))
 		return;
 	ApplyPathTo(HitPosition, HitNormal);
-	if (FPlatformTime::Seconds() - LastPreviewFlushTime >= 0.04)
+	if (FPlatformTime::Seconds() - LastPreviewFlushTime >= FMath::Max(0.033f, Settings->PreviewUpdateInterval))
 		FlushStroke(false);
 }
 
@@ -185,7 +185,7 @@ void UDualContourBrushTool::OnTick(float DeltaTime)
 		ApplyStampAt(HitPosition, HitNormal, FixedStep);
 		StationaryAccumulator -= FixedStep;
 	}
-	if (FPlatformTime::Seconds() - LastPreviewFlushTime >= 0.04)
+	if (FPlatformTime::Seconds() - LastPreviewFlushTime >= FMath::Max(0.033f, Settings->PreviewUpdateInterval))
 		FlushStroke(false);
 }
 

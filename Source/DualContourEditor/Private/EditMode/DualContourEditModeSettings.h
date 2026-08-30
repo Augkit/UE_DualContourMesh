@@ -55,6 +55,10 @@ public:
 	UPROPERTY(EditAnywhere, Config, Category = "Tool Settings", meta = (EditCondition = "ActiveTool != EDualContourEditTool::Brush", EditConditionHides))
 	bool bApplyWithoutMoving = true;
 
+	/** Seconds between synchronous preview rebuilds while dragging. The final result always flushes immediately. */
+	UPROPERTY(EditAnywhere, Config, Category = "Performance", meta = (ClampMin = "0.033", ClampMax = "0.5", UIMin = "0.033", UIMax = "0.2"))
+	float PreviewUpdateInterval = 0.08f;
+
 	UPROPERTY(EditAnywhere, Config, Category = "Brush Stamp", meta = (EditCondition = "ActiveTool == EDualContourEditTool::Brush", EditConditionHides))
 	TSoftObjectPtr<UVolumeSampledDualContour> VolumeBrush;
 

@@ -596,15 +596,13 @@ bool UDualContour::EndEditBatch(FDualContourEditBatch& Batch, FDualContourEditRe
 	return true;
 }
 
-bool UDualContour::ApplyEditDeltas(TConstArrayView<FDualContourSampleDelta> Deltas, bool bUseAfterValues,
-	FDualContourEditResult* OutResult)
+bool UDualContour::ApplyEditDeltas(TConstArrayView<FDualContourSampleDelta> Deltas, bool bUseAfterValues, FDualContourEditResult* OutResult)
 {
 	if (!HasCurrentGeneratedData() || Deltas.IsEmpty())
 		return false;
 	TSet<FIntVector> DirtyChunks;
 	for (const FDualContourSampleDelta& Delta : Deltas)
-		WriteDensitySample(Delta.SampleCoord.X, Delta.SampleCoord.Y, Delta.SampleCoord.Z,
-			bUseAfterValues ? Delta.After : Delta.Before, DirtyChunks);
+		WriteDensitySample(Delta.SampleCoord.X, Delta.SampleCoord.Y, Delta.SampleCoord.Z, bUseAfterValues ? Delta.After : Delta.Before, DirtyChunks);
 	if (DirtyChunks.IsEmpty())
 		return false;
 	CompactDensityChunks(DirtyChunks);
@@ -648,13 +646,50 @@ void UDualContour::RebuildDirtyDensityChunks(const TSet<FIntVector>& DirtyDensit
 					OutDirtyRegion.ContourChunks.Add(FIntVector(ChunkX, ChunkY, ChunkZ));
 	}
 
-	for (const FIntVector& ContourChunk : OutDirtyRegion.ContourChunks)
+	RebuildDirtyContourChunks(OutDirtyRegion.ContourChunks);
+	if (!OutDirtyRegion.ContourChunks.IsEmpty())
+		OnDirtyChunksRebuilt.Broadcast(OutDirtyRegion);
+}
+
+void UDualContour::RebuildDirtyContourChunks(const TSet<FIntVector>& InChunkCoords)
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_RebuildDirtyContourChunks);
+	check(IsInGameThread());
+	if (InChunkCoords.IsEmpty())
+		return;
+
+	TArray<FIntVector> ChunkCoords = InChunkCoords.Array();
+	TArray<FContourChunk> BuiltChunks;
+	BuiltChunks.SetNum(ChunkCoords.Num());
+	ParallelFor(TEXT("DualContour.BuildDirtyContourChunks"), ChunkCoords.Num(), 1,
+		[this, &ChunkCoords, &BuiltChunks](int32 Index)
+		{
+			const FIntVector ChunkCoord = ChunkCoords[Index];
+			const FVectorInt BuildMin(ChunkCoord.X * GDualContourChunkSize,
+				ChunkCoord.Y * GDualContourChunkSize, ChunkCoord.Z * GDualContourChunkSize);
+			const FVectorInt BuildMax(FMath::Min(CellCount.X, BuildMin.X + GDualContourChunkSize),
+				FMath::Min(CellCount.Y, BuildMin.Y + GDualContourChunkSize),
+				FMath::Min(CellCount.Z, BuildMin.Z + GDualContourChunkSize));
+			FContourChunk& BuiltChunk = BuiltChunks[Index];
+			for (int32 CellZ = BuildMin.Z; CellZ < BuildMax.Z; ++CellZ)
+				for (int32 CellY = BuildMin.Y; CellY < BuildMax.Y; ++CellY)
+					for (int32 CellX = BuildMin.X; CellX < BuildMax.X; ++CellX)
+					{
+						FDualContourCell Cell = BuildNewCell(CellX, CellY, CellZ);
+						if (Cell.bActive)
+							BuiltChunk.ActiveCells.Add(PackLocalContourKey(CellX, CellY, CellZ), MoveTemp(Cell));
+					}
+		}, EParallelForFlags::Unbalanced);
+
 	{
-		const FVectorInt CellMin(ContourChunk.X * GDualContourChunkSize, ContourChunk.Y * GDualContourChunkSize,
-			ContourChunk.Z * GDualContourChunkSize);
-		const FVectorInt CellMax(FMath::Min(CellCount.X, CellMin.X + GDualContourChunkSize),
-			FMath::Min(CellCount.Y, CellMin.Y + GDualContourChunkSize), FMath::Min(CellCount.Z, CellMin.Z + GDualContourChunkSize));
-		RebuildCellsInRange(CellMin, CellMax);
+		TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_MergeDirtyContourChunks);
+		for (int32 Index = 0; Index < ChunkCoords.Num(); ++Index)
+		{
+			if (BuiltChunks[Index].ActiveCells.IsEmpty())
+				ContourChunks.Remove(ChunkCoords[Index]);
+			else
+				ContourChunks.Add(ChunkCoords[Index], MoveTemp(BuiltChunks[Index]));
+		}
 	}
 }
 
@@ -706,22 +741,6 @@ const FDualContourCell* UDualContour::GetContourCell(int32 CellX, int32 CellY, i
 	const FIntVector ChunkCoord(CellX / GDualContourChunkSize, CellY / GDualContourChunkSize, CellZ / GDualContourChunkSize);
 	const FContourChunk* Chunk = ContourChunks.Find(ChunkCoord);
 	return Chunk ? Chunk->ActiveCells.Find(PackLocalContourKey(CellX, CellY, CellZ)) : nullptr;
-}
-
-void UDualContour::SetContourCell(int32 CellX, int32 CellY, int32 CellZ, const FDualContourCell& Cell)
-{
-	const FIntVector ChunkCoord(CellX / GDualContourChunkSize, CellY / GDualContourChunkSize, CellZ / GDualContourChunkSize);
-	if (!Cell.bActive)
-	{
-		if (FContourChunk* Chunk = ContourChunks.Find(ChunkCoord))
-		{
-			Chunk->ActiveCells.Remove(PackLocalContourKey(CellX, CellY, CellZ));
-			if (Chunk->ActiveCells.IsEmpty())
-				ContourChunks.Remove(ChunkCoord);
-		}
-		return;
-	}
-	ContourChunks.FindOrAdd(ChunkCoord).ActiveCells.Add(PackLocalContourKey(CellX, CellY, CellZ), Cell);
 }
 
 bool UDualContour::HasActiveCellInRange(FVectorInt CellMin, FVectorInt CellMax) const

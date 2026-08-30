@@ -112,8 +112,10 @@ private:
 	};
 
 	FDelegateHandle DualContourCellsRebuiltHandle;
+	FDelegateHandle DualContourChunksRebuiltHandle;
 	TArray<FPendingMeshApply> PendingMeshApplies;
 	TMap<int32, uint64> DivisionUpdateSerials;
+	TSet<int32> DensityEditDirtyDivisions;
 	int32 NextPendingMeshApplyIndex = 0;
 	uint64 MeshQueueRevision = 0;
 	uint64 NextMeshUpdateSerial = 0;
@@ -125,6 +127,8 @@ private:
 	void BindToDualContour();
 	void UnbindFromDualContour();
 	void OnDualContourCellsRebuilt(FVectorInt AffectedCellMin, FVectorInt AffectedCellMax);
+	void OnDualContourChunksRebuilt(const FDualContourDirtyRegion& DirtyRegion);
+	void UpdateMeshDivisions(const TSet<int32>& AffectedDivisions);
 
 	void ApplyCollisionSettings(UDualContourMeshComponent* MeshComponent) const;
 	void RefreshCollisionSettings();
