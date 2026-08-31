@@ -49,16 +49,16 @@ void FDualContourEdModeToolkit::BuildToolPalette(FName Palette, FToolBarBuilder&
 			FIsActionChecked::CreateLambda([WeakMode, Tool]
 			{
 				return WeakMode.IsValid() && WeakMode->GetSettings()
-					&& WeakMode->GetSettings()->ActiveTool == Tool;
+				       && WeakMode->GetSettings()->ActiveTool == Tool;
 			}));
 		ToolbarBuilder.AddToolBarButton(Action, NAME_None, Label, Tooltip,
 			FSlateIcon(StyleSetName, IconName), EUserInterfaceActionType::RadioButton);
 	};
 
 	AddTool(EDualContourEditTool::Sculpt, LOCTEXT("Sculpt", "Sculpt"),
-		LOCTEXT("SculptTooltip", "Add volume. Hold Shift to erase."), TEXT("LandscapeEditor.SculptTool"));
+		LOCTEXT("SculptTooltip", "Add volume. Hold Shift to remove volume."), TEXT("LandscapeEditor.SculptTool"));
 	AddTool(EDualContourEditTool::Erase, LOCTEXT("Erase", "Erase"),
-		LOCTEXT("EraseTooltip", "Remove volume. Hold Shift to sculpt."), TEXT("LandscapeEditor.EraseTool"));
+		LOCTEXT("EraseTooltip", "Restore the initial volume."), TEXT("LandscapeEditor.EraseTool"));
 	AddTool(EDualContourEditTool::Smooth, LOCTEXT("Smooth", "Smooth"),
 		LOCTEXT("SmoothTooltip", "Smooth the sampled density field."), TEXT("LandscapeEditor.SmoothTool"));
 	AddTool(EDualContourEditTool::Brush, LOCTEXT("BrushStamp", "Brush Stamp"),

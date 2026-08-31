@@ -9,6 +9,7 @@ UENUM(BlueprintType)
 enum class EDualContourDensityEditOperation : uint8
 {
 	Sculpt,
+	SculptSubtract,
 	Erase,
 	Smooth,
 	StampUnion,

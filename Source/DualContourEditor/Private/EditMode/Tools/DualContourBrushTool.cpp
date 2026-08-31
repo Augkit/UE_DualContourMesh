@@ -28,14 +28,14 @@ float EvaluateFalloff(float NormalizedDistance, float Falloff, EDualContourBrush
 	const float T = FMath::Clamp((NormalizedDistance - Inner) / FMath::Max(Falloff, UE_SMALL_NUMBER), 0.0f, 1.0f);
 	switch (FalloffType)
 	{
-	case EDualContourBrushFalloff::Linear:
-		return 1.0f - T;
-	case EDualContourBrushFalloff::Spherical:
-		return FMath::Sqrt(FMath::Max(0.0f, 1.0f - T * T));
-	case EDualContourBrushFalloff::Tip:
-		return FMath::Square(1.0f - T);
-	default:
-		return 1.0f - FMath::SmoothStep(0.0f, 1.0f, T);
+		case EDualContourBrushFalloff::Linear:
+			return 1.0f - T;
+		case EDualContourBrushFalloff::Spherical:
+			return FMath::Sqrt(FMath::Max(0.0f, 1.0f - T * T));
+		case EDualContourBrushFalloff::Tip:
+			return FMath::Square(1.0f - T);
+		default:
+			return 1.0f - FMath::SmoothStep(0.0f, 1.0f, T);
 	}
 }
 }
@@ -213,7 +213,7 @@ bool UDualContourBrushTool::OnUpdateHover(const FInputDeviceRay& DevicePos)
 void UDualContourBrushTool::OnTick(float DeltaTime)
 {
 	if (!bStrokeActive || !bHasHit || !Settings || !Settings->bApplyWithoutMoving
-		|| Settings->ActiveTool == EDualContourEditTool::Brush)
+	    || Settings->ActiveTool == EDualContourEditTool::Brush)
 		return;
 	StationaryAccumulator += DeltaTime;
 	constexpr float FixedStep = 1.0f / 30.0f;
@@ -245,7 +245,7 @@ void UDualContourBrushTool::ApplyPathTo(const FVector& WorldPosition, const FVec
 bool UDualContourBrushTool::ApplyStampAt(const FVector& WorldPosition, const FVector& WorldNormal, float TimeScale)
 {
 	return TargetActor && TargetActor->DualContour
-		&& ApplyBrushStamp(ActiveBatch, MakeStamp(WorldPosition, WorldNormal, TimeScale));
+	       && ApplyBrushStamp(ActiveBatch, MakeStamp(WorldPosition, WorldNormal, TimeScale));
 }
 
 bool UDualContourBrushTool::ApplyBrushStamp(FDualContourEditBatch& Batch, const FDualContourBrushStamp& Stamp) const
@@ -258,6 +258,17 @@ bool UDualContourBrushTool::ApplyBrushStamp(FDualContourEditBatch& Batch, const 
 	}
 
 	const FIntVector SampleDims = DualContour->GetSampleDimensions();
+	const UDualContour* RestoreSource = Stamp.Operation == EDualContourDensityEditOperation::Erase && TargetActor
+		                                    ? TargetActor->InitialDualContour.Get()
+		                                    : nullptr;
+	if (Stamp.Operation == EDualContourDensityEditOperation::Erase
+	    && (!IsValid(RestoreSource) || !RestoreSource->HasCurrentGeneratedData()
+	        || RestoreSource->GetSampleDimensions() != SampleDims
+	        || !FMath::IsNearlyEqual(RestoreSource->CellSize, DualContour->CellSize)))
+	{
+		return false;
+	}
+
 	auto GetWorkingDensity = [DualContour, &Batch](int32 X, int32 Y, int32 Z) -> float
 	{
 		const FIntVector ChunkCoord = DualContourUtils::ChunkCoord(X, Y, Z);
@@ -394,6 +405,10 @@ bool UDualContourBrushTool::ApplyBrushStamp(FDualContourEditBatch& Batch, const 
 						const int32 SZ = Z - static_cast<int32>(BoundsMin.Z);
 						TargetDensity = SmoothedValues[DualContourUtils::LinearIndex(SmoothDims, SX, SY, SZ)];
 					}
+					else if (Stamp.Operation == EDualContourDensityEditOperation::Erase)
+					{
+						TargetDensity = RestoreSource->GetDensity(X, Y, Z);
+					}
 					else if (Stamp.bUseClayBrush)
 					{
 						const float SignedDistance = FVector::DotProduct(LocalPosition - Stamp.ClayPlaneOrigin,
@@ -408,16 +423,16 @@ bool UDualContourBrushTool::ApplyBrushStamp(FDualContourEditBatch& Batch, const 
 
 				const float OldDensity = GetWorkingDensity(X, Y, Z);
 				float CombinedDensity = TargetDensity;
-				const bool bDifference = Stamp.Operation == EDualContourDensityEditOperation::Erase
-					                         || Stamp.Operation == EDualContourDensityEditOperation::StampDifference;
-				if (bDifference)
+				if (Stamp.Operation == EDualContourDensityEditOperation::SculptSubtract
+				    || Stamp.Operation == EDualContourDensityEditOperation::StampDifference)
 				{
 					const float DifferenceDensity = TargetDensity >= GDualContourIsoValue
 						                                ? 2.0f * GDualContourIsoValue - TargetDensity
 						                                : 255.0f;
 					CombinedDensity = FMath::Min(OldDensity, DifferenceDensity);
 				}
-				else if (Stamp.Operation != EDualContourDensityEditOperation::Smooth)
+				else if (Stamp.Operation == EDualContourDensityEditOperation::Sculpt
+				         || Stamp.Operation == EDualContourDensityEditOperation::StampUnion)
 				{
 					CombinedDensity = FMath::Max(OldDensity, TargetDensity);
 				}
@@ -450,29 +465,30 @@ FDualContourBrushStamp UDualContourBrushTool::MakeStamp(const FVector& WorldPosi
 
 	switch (Settings->ActiveTool)
 	{
-	case EDualContourEditTool::Erase:
-		Stamp.Operation = bShiftDown ? EDualContourDensityEditOperation::Sculpt : EDualContourDensityEditOperation::Erase;
-		break;
-	case EDualContourEditTool::Smooth:
-		Stamp.Operation = EDualContourDensityEditOperation::Smooth;
-		break;
-	case EDualContourEditTool::Brush:
-		Stamp.Operation = bShiftDown ? EDualContourDensityEditOperation::StampDifference : EDualContourDensityEditOperation::StampUnion;
-		Stamp.VolumeBrush = Settings->VolumeBrush.LoadSynchronous();
-		if (Stamp.VolumeBrush)
-		{
-			const FVector SourceSize(Stamp.VolumeBrush->CellCount.X * Stamp.VolumeBrush->CellSize,
-				Stamp.VolumeBrush->CellCount.Y * Stamp.VolumeBrush->CellSize, Stamp.VolumeBrush->CellCount.Z * Stamp.VolumeBrush->CellSize);
-			const FVector SourcePivot = SourceSize * 0.5f;
-			const FQuat Rotation = Settings->bAlignVolumeBrushToSurface
-				? FQuat::FindBetweenNormals(FVector::UpVector, Stamp.LocalNormal) : FQuat::Identity;
-			const float LocalScale = Settings->VolumeBrushScale / FMath::Max(ActorScale, UE_SMALL_NUMBER);
-			Stamp.VolumeToTarget = FTransform(Rotation, Stamp.LocalCenter - Rotation.RotateVector(SourcePivot * LocalScale), FVector(LocalScale));
-		}
-		break;
-	default:
-		Stamp.Operation = bShiftDown ? EDualContourDensityEditOperation::Erase : EDualContourDensityEditOperation::Sculpt;
-		break;
+		case EDualContourEditTool::Erase:
+			Stamp.Operation = EDualContourDensityEditOperation::Erase;
+			break;
+		case EDualContourEditTool::Smooth:
+			Stamp.Operation = EDualContourDensityEditOperation::Smooth;
+			break;
+		case EDualContourEditTool::Brush:
+			Stamp.Operation = bShiftDown ? EDualContourDensityEditOperation::StampDifference : EDualContourDensityEditOperation::StampUnion;
+			Stamp.VolumeBrush = Settings->VolumeBrush.LoadSynchronous();
+			if (Stamp.VolumeBrush)
+			{
+				const FVector SourceSize(Stamp.VolumeBrush->CellCount.X * Stamp.VolumeBrush->CellSize,
+					Stamp.VolumeBrush->CellCount.Y * Stamp.VolumeBrush->CellSize, Stamp.VolumeBrush->CellCount.Z * Stamp.VolumeBrush->CellSize);
+				const FVector SourcePivot = SourceSize * 0.5f;
+				const FQuat Rotation = Settings->bAlignVolumeBrushToSurface
+					                       ? FQuat::FindBetweenNormals(FVector::UpVector, Stamp.LocalNormal)
+					                       : FQuat::Identity;
+				const float LocalScale = Settings->VolumeBrushScale / FMath::Max(ActorScale, UE_SMALL_NUMBER);
+				Stamp.VolumeToTarget = FTransform(Rotation, Stamp.LocalCenter - Rotation.RotateVector(SourcePivot * LocalScale), FVector(LocalScale));
+			}
+			break;
+		default:
+			Stamp.Operation = bShiftDown ? EDualContourDensityEditOperation::SculptSubtract : EDualContourDensityEditOperation::Sculpt;
+			break;
 	}
 	return Stamp;
 }
