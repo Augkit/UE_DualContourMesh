@@ -2,8 +2,10 @@
 
 #include "EditMode/DualContourEditModeSettings.h"
 #include "EditMode/Editing/DualContourEditChange.h"
+#include "DualContour.h"
 #include "DualContourMeshActor.h"
 #include "DualContourMeshComponent.h"
+#include "DualContourUtils.h"
 #include "VolumeSampledDualContour.h"
 #include "BaseBehaviors/ClickDragBehavior.h"
 #include "BaseBehaviors/MouseHoverBehavior.h"
@@ -13,6 +15,30 @@
 #include "ToolContextInterfaces.h"
 
 #define LOCTEXT_NAMESPACE "DualContourBrushTool"
+
+namespace
+{
+float EvaluateFalloff(float NormalizedDistance, float Falloff, EDualContourBrushFalloff FalloffType)
+{
+	if (NormalizedDistance >= 1.0f)
+		return 0.0f;
+	const float Inner = 1.0f - FMath::Clamp(Falloff, 0.0f, 1.0f);
+	if (NormalizedDistance <= Inner || Falloff <= UE_SMALL_NUMBER)
+		return 1.0f;
+	const float T = FMath::Clamp((NormalizedDistance - Inner) / FMath::Max(Falloff, UE_SMALL_NUMBER), 0.0f, 1.0f);
+	switch (FalloffType)
+	{
+	case EDualContourBrushFalloff::Linear:
+		return 1.0f - T;
+	case EDualContourBrushFalloff::Spherical:
+		return FMath::Sqrt(FMath::Max(0.0f, 1.0f - T * T));
+	case EDualContourBrushFalloff::Tip:
+		return FMath::Square(1.0f - T);
+	default:
+		return 1.0f - FMath::SmoothStep(0.0f, 1.0f, T);
+	}
+}
+}
 
 void UDualContourBrushToolBuilder::Initialize(UDualContourEditModeSettings* InSettings, ADualContourMeshActor* InTargetActor)
 {
@@ -208,7 +234,189 @@ void UDualContourBrushTool::ApplyPathTo(const FVector& WorldPosition, const FVec
 bool UDualContourBrushTool::ApplyStampAt(const FVector& WorldPosition, const FVector& WorldNormal, float TimeScale)
 {
 	return TargetActor && TargetActor->DualContour
-		&& TargetActor->DualContour->ApplyBrushStamp(ActiveBatch, MakeStamp(WorldPosition, WorldNormal, TimeScale));
+		&& ApplyBrushStamp(ActiveBatch, MakeStamp(WorldPosition, WorldNormal, TimeScale));
+}
+
+bool UDualContourBrushTool::ApplyBrushStamp(FDualContourEditBatch& Batch, const FDualContourBrushStamp& Stamp) const
+{
+	UDualContour* DualContour = TargetActor ? TargetActor->DualContour.Get() : nullptr;
+	if (!IsValid(DualContour) || !Batch.bOpen || Batch.Owner != DualContour || !DualContour->HasCurrentGeneratedData()
+	    || !FMath::IsFinite(Stamp.Radius) || Stamp.Radius <= UE_SMALL_NUMBER || !FMath::IsFinite(Stamp.Strength))
+	{
+		return false;
+	}
+
+	const FIntVector SampleDims = DualContour->GetSampleDimensions();
+	auto GetWorkingDensity = [DualContour, &Batch](int32 X, int32 Y, int32 Z) -> float
+	{
+		const FIntVector ChunkCoord = DualContourUtils::ChunkCoord(X, Y, Z);
+		if (const TMap<uint16, FDualContourPendingSample>* Chunk = Batch.ChunkSamples.Find(ChunkCoord))
+			if (const FDualContourPendingSample* Pending = Chunk->Find(DualContourUtils::ChunkLocalIndex(X, Y, Z)))
+				return Pending->WorkingValue;
+		return static_cast<float>(DualContour->GetDensity(X, Y, Z));
+	};
+	auto SetWorkingDensity = [DualContour, &Batch, &GetWorkingDensity](int32 X, int32 Y, int32 Z, float Value)
+	{
+		const FIntVector ChunkCoord = DualContourUtils::ChunkCoord(X, Y, Z);
+		TMap<uint16, FDualContourPendingSample>& Chunk = Batch.ChunkSamples.FindOrAdd(ChunkCoord);
+		const uint16 LocalIndex = DualContourUtils::ChunkLocalIndex(X, Y, Z);
+		FDualContourPendingSample* Existing = Chunk.Find(LocalIndex);
+		if (!Existing)
+		{
+			FDualContourPendingSample Pending;
+			Pending.Before = DualContour->GetDensity(X, Y, Z);
+			Pending.WorkingValue = GetWorkingDensity(X, Y, Z);
+			Existing = &Chunk.Add(LocalIndex, Pending);
+		}
+		Existing->WorkingValue = FMath::Clamp(Value, 0.0f, 255.0f);
+	};
+
+	FVector BoundsMin = Stamp.LocalCenter - FVector(Stamp.Radius);
+	FVector BoundsMax = Stamp.LocalCenter + FVector(Stamp.Radius);
+	const bool bVolumeStamp = Stamp.Operation == EDualContourDensityEditOperation::StampUnion
+	                          || Stamp.Operation == EDualContourDensityEditOperation::StampDifference;
+	if (bVolumeStamp)
+	{
+		if (!IsValid(Stamp.VolumeBrush) || !Stamp.VolumeBrush->HasCurrentGeneratedData())
+			return false;
+		const FVector SourceMax(
+			Stamp.VolumeBrush->CellCount.X * Stamp.VolumeBrush->CellSize,
+			Stamp.VolumeBrush->CellCount.Y * Stamp.VolumeBrush->CellSize,
+			Stamp.VolumeBrush->CellCount.Z * Stamp.VolumeBrush->CellSize);
+		FBox TargetBounds(ForceInit);
+		for (int32 Z = 0; Z <= 1; ++Z)
+			for (int32 Y = 0; Y <= 1; ++Y)
+				for (int32 X = 0; X <= 1; ++X)
+					TargetBounds += Stamp.VolumeToTarget.TransformPosition(FVector(X * SourceMax.X, Y * SourceMax.Y, Z * SourceMax.Z));
+		BoundsMin = TargetBounds.Min;
+		BoundsMax = TargetBounds.Max;
+	}
+
+	const FIntVector SampleMin(
+		FMath::Clamp(FMath::FloorToInt(BoundsMin.X / DualContour->CellSize), 0, SampleDims.X - 1),
+		FMath::Clamp(FMath::FloorToInt(BoundsMin.Y / DualContour->CellSize), 0, SampleDims.Y - 1),
+		FMath::Clamp(FMath::FloorToInt(BoundsMin.Z / DualContour->CellSize), 0, SampleDims.Z - 1));
+	const FIntVector SampleMax(
+		FMath::Clamp(FMath::CeilToInt(BoundsMax.X / DualContour->CellSize), 0, SampleDims.X - 1),
+		FMath::Clamp(FMath::CeilToInt(BoundsMax.Y / DualContour->CellSize), 0, SampleDims.Y - 1),
+		FMath::Clamp(FMath::CeilToInt(BoundsMax.Z / DualContour->CellSize), 0, SampleDims.Z - 1));
+	const float BaseStrength = FMath::Clamp(Stamp.Strength * Stamp.TimeScale, 0.0f, 1.0f);
+	if (BaseStrength <= 0.0f)
+		return false;
+
+	TArray<float> SmoothedValues;
+	FIntVector SmoothDims = FIntVector::ZeroValue;
+	if (Stamp.Operation == EDualContourDensityEditOperation::Smooth)
+	{
+		const FIntVector HaloMin(FMath::Max(0, SampleMin.X - 1), FMath::Max(0, SampleMin.Y - 1), FMath::Max(0, SampleMin.Z - 1));
+		const FIntVector HaloMax(FMath::Min(SampleDims.X - 1, SampleMax.X + 1), FMath::Min(SampleDims.Y - 1, SampleMax.Y + 1),
+			FMath::Min(SampleDims.Z - 1, SampleMax.Z + 1));
+		SmoothDims = FIntVector(HaloMax.X - HaloMin.X + 1, HaloMax.Y - HaloMin.Y + 1, HaloMax.Z - HaloMin.Z + 1);
+		TArray<float> Source;
+		Source.SetNumUninitialized(DualContourUtils::Volume(SmoothDims));
+		for (int32 Z = 0; Z < SmoothDims.Z; ++Z)
+			for (int32 Y = 0; Y < SmoothDims.Y; ++Y)
+				for (int32 X = 0; X < SmoothDims.X; ++X)
+					Source[DualContourUtils::LinearIndex(SmoothDims, X, Y, Z)] = GetWorkingDensity(HaloMin.X + X, HaloMin.Y + Y, HaloMin.Z + Z);
+
+		TArray<float> PassX;
+		TArray<float> PassY;
+		PassX.SetNumUninitialized(Source.Num());
+		PassY.SetNumUninitialized(Source.Num());
+		SmoothedValues.SetNumUninitialized(Source.Num());
+		auto AtClamped = [&SmoothDims](const TArray<float>& Values, int32 X, int32 Y, int32 Z)
+		{
+			return Values[DualContourUtils::LinearIndex(SmoothDims, FMath::Clamp(X, 0, SmoothDims.X - 1), FMath::Clamp(Y, 0, SmoothDims.Y - 1),
+				FMath::Clamp(Z, 0, SmoothDims.Z - 1))];
+		};
+		for (int32 Z = 0; Z < SmoothDims.Z; ++Z)
+			for (int32 Y = 0; Y < SmoothDims.Y; ++Y)
+				for (int32 X = 0; X < SmoothDims.X; ++X)
+					PassX[DualContourUtils::LinearIndex(SmoothDims, X, Y, Z)] =
+						(AtClamped(Source, X - 1, Y, Z) + 2.0f * AtClamped(Source, X, Y, Z) + AtClamped(Source, X + 1, Y, Z)) * 0.25f;
+		for (int32 Z = 0; Z < SmoothDims.Z; ++Z)
+			for (int32 Y = 0; Y < SmoothDims.Y; ++Y)
+				for (int32 X = 0; X < SmoothDims.X; ++X)
+					PassY[DualContourUtils::LinearIndex(SmoothDims, X, Y, Z)] =
+						(AtClamped(PassX, X, Y - 1, Z) + 2.0f * AtClamped(PassX, X, Y, Z) + AtClamped(PassX, X, Y + 1, Z)) * 0.25f;
+		for (int32 Z = 0; Z < SmoothDims.Z; ++Z)
+			for (int32 Y = 0; Y < SmoothDims.Y; ++Y)
+				for (int32 X = 0; X < SmoothDims.X; ++X)
+					SmoothedValues[DualContourUtils::LinearIndex(SmoothDims, X, Y, Z)] =
+						(AtClamped(PassY, X, Y, Z - 1) + 2.0f * AtClamped(PassY, X, Y, Z) + AtClamped(PassY, X, Y, Z + 1)) * 0.25f;
+
+		// Store the snapshot origin in BoundsMin for indexing below; bounds are no longer needed.
+		BoundsMin = FVector(HaloMin.X, HaloMin.Y, HaloMin.Z);
+	}
+
+	bool bChanged = false;
+	for (int32 Z = SampleMin.Z; Z <= SampleMax.Z; ++Z)
+		for (int32 Y = SampleMin.Y; Y <= SampleMax.Y; ++Y)
+			for (int32 X = SampleMin.X; X <= SampleMax.X; ++X)
+			{
+				const FVector LocalPosition = DualContour->GetSampleLocalPosition(X, Y, Z);
+				float TargetDensity = 0.0f;
+				float Weight = 1.0f;
+				if (bVolumeStamp)
+				{
+					const FVector SourcePosition = Stamp.VolumeToTarget.InverseTransformPosition(LocalPosition);
+					const FVector SourceGrid = SourcePosition / Stamp.VolumeBrush->CellSize;
+					if (SourceGrid.X < 0.0 || SourceGrid.Y < 0.0 || SourceGrid.Z < 0.0
+					    || SourceGrid.X > Stamp.VolumeBrush->CellCount.X || SourceGrid.Y > Stamp.VolumeBrush->CellCount.Y
+					    || SourceGrid.Z > Stamp.VolumeBrush->CellCount.Z)
+						continue;
+					TargetDensity = Stamp.VolumeBrush->TrilinearDensity(SourceGrid);
+				}
+				else
+				{
+					const FVector Offset = LocalPosition - Stamp.LocalCenter;
+					const float Distance = Stamp.Shape == EDualContourBrushShape::Box
+						                       ? FMath::Max3(FMath::Abs(Offset.X), FMath::Abs(Offset.Y), FMath::Abs(Offset.Z))
+						                       : Offset.Length();
+					Weight = EvaluateFalloff(Distance / Stamp.Radius, Stamp.Falloff, Stamp.FalloffType);
+					if (Weight <= 0.0f)
+						continue;
+					if (Stamp.Operation == EDualContourDensityEditOperation::Smooth)
+					{
+						const int32 SX = X - static_cast<int32>(BoundsMin.X);
+						const int32 SY = Y - static_cast<int32>(BoundsMin.Y);
+						const int32 SZ = Z - static_cast<int32>(BoundsMin.Z);
+						TargetDensity = SmoothedValues[DualContourUtils::LinearIndex(SmoothDims, SX, SY, SZ)];
+					}
+					else if (Stamp.bUseClayBrush)
+					{
+						const float SignedDistance = FVector::DotProduct(LocalPosition - Stamp.ClayPlaneOrigin,
+							Stamp.LocalNormal.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector));
+						TargetDensity = GDualContourIsoValue - SignedDistance * (128.0f / FMath::Max(DualContour->CellSize, UE_SMALL_NUMBER));
+					}
+					else
+					{
+						TargetDensity = GDualContourIsoValue + (255.0f - GDualContourIsoValue) * (1.0f - Distance / Stamp.Radius);
+					}
+				}
+
+				const float OldDensity = GetWorkingDensity(X, Y, Z);
+				float CombinedDensity = TargetDensity;
+				const bool bDifference = Stamp.Operation == EDualContourDensityEditOperation::Erase
+					                         || Stamp.Operation == EDualContourDensityEditOperation::StampDifference;
+				if (bDifference)
+				{
+					const float DifferenceDensity = TargetDensity >= GDualContourIsoValue
+						                                ? 2.0f * GDualContourIsoValue - TargetDensity
+						                                : 255.0f;
+					CombinedDensity = FMath::Min(OldDensity, DifferenceDensity);
+				}
+				else if (Stamp.Operation != EDualContourDensityEditOperation::Smooth)
+				{
+					CombinedDensity = FMath::Max(OldDensity, TargetDensity);
+				}
+				const float NewDensity = FMath::Lerp(OldDensity, CombinedDensity, BaseStrength * Weight);
+				if (FMath::IsNearlyEqual(NewDensity, OldDensity, KINDA_SMALL_NUMBER))
+					continue;
+				SetWorkingDensity(X, Y, Z, NewDensity);
+				bChanged = true;
+			}
+	return bChanged;
 }
 
 FDualContourBrushStamp UDualContourBrushTool::MakeStamp(const FVector& WorldPosition, const FVector& WorldNormal, float TimeScale) const

@@ -52,8 +52,6 @@ public:
 
 	/** Starts a stroke-style edit. Density writes are accumulated and contour rebuilds are deferred to EndEditBatch. */
 	FDualContourEditBatch BeginEditBatch() const;
-	/** Applies one local brush stamp in O(samples covered by the brush). */
-	bool ApplyBrushStamp(FDualContourEditBatch& Batch, const FDualContourBrushStamp& Stamp);
 	/** Quantizes the stroke, rebuilds only dirty contour chunks, and returns sparse undo deltas. */
 	bool EndEditBatch(FDualContourEditBatch& Batch, FDualContourEditResult& OutResult);
 	/** Restores either side of a sparse edit and performs the same local rebuild path. */
@@ -66,6 +64,7 @@ public:
 	FVector ComputeGradient(const FVector& GridPos) const;
 	bool HasCurrentGeneratedData() const;
 	bool HasActiveCellInRange(FIntVector CellMin, FIntVector CellMax) const;
+	FIntVector GetSampleDimensions() const { return FIntVector(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }
 
 	FVector GetSampleLocalPosition(int32 SampleX, int32 SampleY, int32 SampleZ) const
 	{
@@ -91,7 +90,6 @@ private:
 	UPROPERTY()
 	FIntVector LastBuiltCellCount = FIntVector(0, 0, 0);
 
-	FIntVector GetSampleDims() const { return FIntVector(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }
 	void BuildCells();
 	FDualContourCell BuildNewCell(int32 CellX, int32 CellY, int32 CellZ) const;
 	void CompactAllDensityChunks();
