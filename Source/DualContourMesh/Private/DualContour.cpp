@@ -336,7 +336,7 @@ bool UDualContour::EndEditBatch(FDualContourEditBatch& Batch, FDualContourEditRe
 		return false;
 
 	CompactDensityChunks(ActuallyDirtyChunks);
-	RebuildDirtyDensityChunks(ActuallyDirtyChunks, OutResult.DirtyRegion);
+	RebuildDirtyCellChunks(ActuallyDirtyChunks, OutResult.DirtyRegion);
 	return true;
 }
 
@@ -351,7 +351,7 @@ bool UDualContour::ApplyEditDeltas(TConstArrayView<FDualContourSampleDelta> Delt
 		return false;
 	CompactDensityChunks(DirtyChunks);
 	FDualContourDirtyRegion DirtyRegion;
-	RebuildDirtyDensityChunks(DirtyChunks, DirtyRegion);
+	RebuildDirtyCellChunks(DirtyChunks, DirtyRegion);
 	if (OutResult)
 	{
 		OutResult->DirtyRegion = MoveTemp(DirtyRegion);
@@ -372,8 +372,10 @@ void UDualContour::WriteDensitySample(int32 SampleX, int32 SampleY, int32 Sample
 	DirtyChunks.Add(ChunkCoord);
 }
 
-void UDualContour::RebuildDirtyDensityChunks(const TSet<FIntVector>& DirtyDensityChunks, FDualContourDirtyRegion& OutDirtyRegion)
+void UDualContour::RebuildDirtyCellChunks(const TSet<FIntVector>& DirtyDensityChunks, FDualContourDirtyRegion& OutDirtyRegion)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_RebuildDirtyCellChunks);
+	check(IsInGameThread());
 	OutDirtyRegion.DensityChunks.Append(DirtyDensityChunks);
 	for (const FIntVector& DensityChunk : DirtyDensityChunks)
 	{
@@ -389,19 +391,10 @@ void UDualContour::RebuildDirtyDensityChunks(const TSet<FIntVector>& DirtyDensit
 					OutDirtyRegion.CellChunks.Add(FIntVector(ChunkX, ChunkY, ChunkZ));
 	}
 
-	RebuildDirtyCellChunks(OutDirtyRegion.CellChunks);
-	if (!OutDirtyRegion.CellChunks.IsEmpty())
-		OnDirtyChunksRebuilt.Broadcast(OutDirtyRegion);
-}
-
-void UDualContour::RebuildDirtyCellChunks(const TSet<FIntVector>& InChunkCoords)
-{
-	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_RebuildDirtyCellChunks);
-	check(IsInGameThread());
-	if (InChunkCoords.IsEmpty())
+	if (OutDirtyRegion.CellChunks.IsEmpty())
 		return;
 
-	TArray<FIntVector> ChunkCoords = InChunkCoords.Array();
+	TArray<FIntVector> ChunkCoords = OutDirtyRegion.CellChunks.Array();
 	TArray<FCellChunk> BuiltChunks;
 	BuiltChunks.SetNum(ChunkCoords.Num());
 	ParallelFor(TEXT("DualContour.BuildDirtyCellChunks"), ChunkCoords.Num(), 1,
@@ -434,6 +427,8 @@ void UDualContour::RebuildDirtyCellChunks(const TSet<FIntVector>& InChunkCoords)
 				CellChunks.Add(ChunkCoords[Index], MoveTemp(BuiltChunks[Index]));
 		}
 	}
+
+	OnDirtyChunksRebuilt.Broadcast(OutDirtyRegion);
 }
 
 uint8 UDualContour::GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const

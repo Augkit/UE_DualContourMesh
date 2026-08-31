@@ -96,7 +96,6 @@ private:
 	void CompactDensityChunks(const TSet<FIntVector>& ChunkCoords);
 	void RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax);
 	void WriteDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Density, TSet<FIntVector>& DirtyChunks);
-	void RebuildDirtyDensityChunks(const TSet<FIntVector>& DirtyDensityChunks, FDualContourDirtyRegion& OutDirtyRegion);
-	void RebuildDirtyCellChunks(const TSet<FIntVector>& ChunkCoords);
+	void RebuildDirtyCellChunks(const TSet<FIntVector>& DirtyDensityChunks, FDualContourDirtyRegion& OutDirtyRegion);
 	bool ValidateGenerationSettings() const;
 };
