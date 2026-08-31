@@ -8,13 +8,6 @@
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDualContourCellsRebuilt, FVectorInt, FVectorInt);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnDirtyDualContourChunksRebuilt, const FDualContourDirtyRegion&);
 
-UENUM(BlueprintType)
-enum class EDualContourVertexSolveMode : uint8
-{
-	HermiteIntersectionCentroid UMETA(DisplayName = "Hermite Intersection Centroid"),
-	QEF UMETA(DisplayName = "Regularized QEF"),
-};
-
 /** Owns the dual-contour source data, generation settings, and contour-building algorithms. */
 UCLASS(BlueprintType, EditInlineNew)
 class DUALCONTOURMESH_API UDualContour : public UObject
@@ -45,7 +38,7 @@ public:
 
 	/** Broadcast after generated contour data changes. The range is [CellMin, CellMax). */
 	FOnDualContourCellsRebuilt OnCellsRebuilt;
-	/** Broadcast once per edit-batch flush after all unique contour chunks have been rebuilt. */
+	/** Broadcast once per edit-batch flush after all unique cell chunks have been rebuilt. */
 	FOnDirtyDualContourChunksRebuilt OnDirtyChunksRebuilt;
 
 	bool Rebuild();
@@ -72,7 +65,7 @@ public:
 		FDualContourEditResult* OutResult = nullptr);
 
 	uint8 GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
-	const FDualContourCell* GetContourCell(int32 CellX, int32 CellY, int32 CellZ) const;
+	const FDualContourCell* GetCell(int32 CellX, int32 CellY, int32 CellZ) const;
 	float TrilinearDensity(FVector GridPos) const;
 	FVector ComputeGradient(FVector GridPos) const;
 	bool HasCurrentGeneratedData() const;
@@ -84,7 +77,7 @@ public:
 	}
 
 	const TMap<FIntVector, FDensityChunk>& GetDensityChunks() const { return DensityChunks; }
-	const TMap<FIntVector, FContourChunk>& GetContourChunks() const { return ContourChunks; }
+	const TMap<FIntVector, FCellChunk>& GetCellChunks() const { return CellChunks; }
 
 	virtual void PostLoad() override;
 	virtual void PreSave(FObjectPreSaveContext SaveContext) override;
@@ -100,7 +93,7 @@ private:
 
 	/** Runtime cache rebuilt from DensityChunks after loading. It is intentionally excluded from assets. */
 	UPROPERTY(Transient, NonTransactional)
-	TMap<FIntVector, FContourChunk> ContourChunks;
+	TMap<FIntVector, FCellChunk> CellChunks;
 
 	UPROPERTY()
 	FVectorInt LastBuiltCellCount;
@@ -111,9 +104,9 @@ private:
 	void CompactAllDensityChunks();
 	void CompactDensityChunks(const TSet<FIntVector>& ChunkCoords);
 	void RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax);
-	void RebuildDirtyContourChunks(const TSet<FIntVector>& ChunkCoords);
-	void RebuildDirtyDensityChunks(const TSet<FIntVector>& DirtyDensityChunks, FDualContourDirtyRegion& OutDirtyRegion);
 	void WriteDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Density, TSet<FIntVector>& DirtyChunks);
+	void RebuildDirtyDensityChunks(const TSet<FIntVector>& DirtyDensityChunks, FDualContourDirtyRegion& OutDirtyRegion);
+	void RebuildDirtyCellChunks(const TSet<FIntVector>& ChunkCoords);
 	bool ValidateGenerationSettings() const;
-	static uint16 PackLocalContourKey(int32 CellX, int32 CellY, int32 CellZ);
+	static uint16 PackLocalCellKey(int32 CellX, int32 CellY, int32 CellZ);
 };

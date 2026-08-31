@@ -322,7 +322,7 @@ void ADualContourMeshActor::OnDualContourCellsRebuilt(FVectorInt AffectedCellMin
 void ADualContourMeshActor::OnDualContourChunksRebuilt(const FDualContourDirtyRegion& DirtyRegion)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_OnDualContourChunksRebuilt);
-	if (bRebuildingMesh || !DualContour || DirtyRegion.ContourChunks.IsEmpty())
+	if (bRebuildingMesh || !DualContour || DirtyRegion.CellChunks.IsEmpty())
 		return;
 	if (MeshCellCount.X != DualContour->CellCount.X || MeshCellCount.Y != DualContour->CellCount.Y
 		|| MeshCellCount.Z != DualContour->CellCount.Z || MeshCellSize != DualContour->CellSize)
@@ -332,7 +332,7 @@ void ADualContourMeshActor::OnDualContourChunksRebuilt(const FDualContourDirtyRe
 	}
 
 	TSet<int32> AffectedDivisions;
-	for (const FIntVector& ChunkCoord : DirtyRegion.ContourChunks)
+	for (const FIntVector& ChunkCoord : DirtyRegion.CellChunks)
 	{
 		const FVectorInt CellMin(ChunkCoord.X * GDualContourChunkSize, ChunkCoord.Y * GDualContourChunkSize,
 			ChunkCoord.Z * GDualContourChunkSize);

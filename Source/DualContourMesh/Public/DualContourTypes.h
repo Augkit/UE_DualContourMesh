@@ -31,6 +31,13 @@ enum class EDualContourBrushFalloff : uint8
 	Tip,
 };
 
+UENUM(BlueprintType)
+enum class EDualContourVertexSolveMode : uint8
+{
+	HermiteIntersectionCentroid UMETA(DisplayName = "Hermite Intersection Centroid"),
+	QEF UMETA(DisplayName = "Regularized QEF"),
+};
+
 USTRUCT(BlueprintType)
 struct DUALCONTOURMESH_API FVectorInt
 {
@@ -112,9 +119,9 @@ struct DUALCONTOURMESH_API FDensityChunk
 	}
 };
 
-// Sparse contour chunk. Only active (surface-crossing) cells are stored.
+// Sparse cell chunk. Only active (surface-crossing) cells are stored.
 USTRUCT(BlueprintType)
-struct DUALCONTOURMESH_API FContourChunk
+struct DUALCONTOURMESH_API FCellChunk
 {
 	GENERATED_BODY()
 
@@ -154,12 +161,12 @@ struct DUALCONTOURMESH_API FDualContourSampleDelta
 struct DUALCONTOURMESH_API FDualContourDirtyRegion
 {
 	TSet<FIntVector> DensityChunks;
-	TSet<FIntVector> ContourChunks;
+	TSet<FIntVector> CellChunks;
 
 	void Reset()
 	{
 		DensityChunks.Reset();
-		ContourChunks.Reset();
+		CellChunks.Reset();
 	}
 };
 

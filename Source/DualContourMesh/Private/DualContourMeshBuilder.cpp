@@ -19,7 +19,7 @@ public:
 		{
 			if (!CellCounts.IsValid(QueryCellX, QueryCellY, QueryCellZ))
 				return nullptr;
-			return DualContour.GetContourCell(QueryCellX, QueryCellY, QueryCellZ);
+			return DualContour.GetCell(QueryCellX, QueryCellY, QueryCellZ);
 		};
 
 		// Reversed winding, (0,2,1) + (0,3,2), makes faces visible from the outward side in UE.
