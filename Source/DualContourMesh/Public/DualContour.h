@@ -107,14 +107,13 @@ private:
 
 	bool ValidateGenerationSettings() const;
 
-	void RebuildCells();
-	FVector ComputeGradient(const FVector& GridPos) const;
-	FDualContourCell CreateNewCell(int32 CellX, int32 CellY, int32 CellZ) const;
+	void WriteDirtyDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Density, TSet<FIntVector>& DirtyChunks);
 	void CompactAllDensityChunks();
 	void CompactDensityChunks(const TSet<FIntVector>& ChunkCoords);
-	void RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax);
 
-	void WriteDirtyDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Density, TSet<FIntVector>& DirtyChunks);
+	void RebuildCells();
+	FDualContourCell CreateNewCell(int32 CellX, int32 CellY, int32 CellZ) const;
+	void RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax);
 	void RebuildDirtyCellChunks(const TSet<FIntVector>& DirtyDensityChunks, FDualContourDirtyRegion& OutDirtyRegion);
 
 	void RecordModifiedDensityChunks(const TSet<FIntVector>& ChunkCoords);
