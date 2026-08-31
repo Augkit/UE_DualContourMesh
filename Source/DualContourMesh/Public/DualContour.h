@@ -62,8 +62,8 @@ public:
 
 	uint8 GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
 	const FDualContourCell* GetCell(int32 CellX, int32 CellY, int32 CellZ) const;
-	float TrilinearDensity(FVector GridPos) const;
-	FVector ComputeGradient(FVector GridPos) const;
+	float TrilinearDensity(const FVector& GridPos) const;
+	FVector ComputeGradient(const FVector& GridPos) const;
 	bool HasCurrentGeneratedData() const;
 	bool HasActiveCellInRange(FIntVector CellMin, FIntVector CellMax) const;
 
@@ -71,9 +71,6 @@ public:
 	{
 		return FVector(static_cast<double>(SampleX), static_cast<double>(SampleY), static_cast<double>(SampleZ)) * CellSize;
 	}
-
-	const TMap<FIntVector, FDensityChunk>& GetDensityChunks() const { return DensityChunks; }
-	const TMap<FIntVector, FCellChunk>& GetCellChunks() const { return CellChunks; }
 
 	virtual void PostLoad() override;
 	virtual void PreSave(FObjectPreSaveContext SaveContext) override;
@@ -104,5 +101,4 @@ private:
 	void RebuildDirtyDensityChunks(const TSet<FIntVector>& DirtyDensityChunks, FDualContourDirtyRegion& OutDirtyRegion);
 	void RebuildDirtyCellChunks(const TSet<FIntVector>& ChunkCoords);
 	bool ValidateGenerationSettings() const;
-	static uint16 PackLocalCellKey(int32 CellX, int32 CellY, int32 CellZ);
 };

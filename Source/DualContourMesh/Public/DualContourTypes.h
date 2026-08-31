@@ -123,7 +123,7 @@ struct DUALCONTOURMESH_API FCellChunk
 {
 	GENERATED_BODY()
 
-	// Key: LocalX | (LocalY << 4) | (LocalZ << 8), each in [0, ChunkSize).
+	// Key: chunk-local linear index, with X as the fastest-changing axis.
 	UPROPERTY()
 	TMap<uint16, FDualContourCell> ActiveCells;
 };
@@ -210,6 +210,5 @@ struct DUALCONTOURMESH_API FDualContourEditBatch
 {
 	UDualContour* Owner = nullptr;
 	TMap<FIntVector, TMap<uint16, FDualContourPendingSample>> ChunkSamples;
-	TSet<FIntVector> DirtyDensityChunks;
 	bool bOpen = false;
 };

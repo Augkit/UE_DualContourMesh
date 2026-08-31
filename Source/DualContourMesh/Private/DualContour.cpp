@@ -15,13 +15,6 @@ constexpr int32 EdgeCorners[12][2][3] = {
 	{{0, 0, 0}, {0, 0, 1}}, {{1, 0, 0}, {1, 0, 1}}, {{0, 1, 0}, {0, 1, 1}}, {{1, 1, 0}, {1, 1, 1}}
 };
 
-uint16 MakeDensityLocalIndex(int32 SampleX, int32 SampleY, int32 SampleZ)
-{
-	return static_cast<uint16>((SampleX % GDualContourChunkSize)
-	                           + (SampleY % GDualContourChunkSize) * GDualContourChunkSize
-	                           + (SampleZ % GDualContourChunkSize) * GDualContourChunkSize * GDualContourChunkSize);
-}
-
 float EvaluateFalloff(float NormalizedDistance, float Falloff, EDualContourBrushFalloff FalloffType)
 {
 	if (NormalizedDistance >= 1.0f)
@@ -115,11 +108,6 @@ bool IsValidSampledRegion(const FIntVector& FullDimensions, const FDualContourSa
 	}
 	return true;
 }
-}
-
-uint16 UDualContour::PackLocalCellKey(int32 CellX, int32 CellY, int32 CellZ)
-{
-	return static_cast<uint16>((CellX % GDualContourChunkSize) | ((CellY % GDualContourChunkSize) << 4) | ((CellZ % GDualContourChunkSize) << 8));
 }
 
 bool UDualContour::HasCurrentGeneratedData() const
@@ -270,7 +258,7 @@ bool UDualContour::ModifyDensityChunks(const FDualContourSampledRegion& SampledR
 			continue;
 		}
 
-		const FIntVector ChunkOrigin = SampledChunk.ChunkCoord * GDualContourChunkSize;
+		const FIntVector ChunkOrigin = DualContourUtils::ChunkOrigin(SampledChunk.ChunkCoord);
 		const FIntVector BuildMin(
 			FMath::Max(SampledRegion.SampleMin.X, ChunkOrigin.X),
 			FMath::Max(SampledRegion.SampleMin.Y, ChunkOrigin.Y),
@@ -284,12 +272,7 @@ bool UDualContour::ModifyDensityChunks(const FDualContourSampledRegion& SampledR
 			for (int32 SampleY = BuildMin.Y; SampleY < BuildMax.Y; ++SampleY)
 				for (int32 SampleX = BuildMin.X; SampleX < BuildMax.X; ++SampleX)
 				{
-					const int32 LocalX = SampleX - ChunkOrigin.X;
-					const int32 LocalY = SampleY - ChunkOrigin.Y;
-					const int32 LocalZ = SampleZ - ChunkOrigin.Z;
-					const int32 LocalIndex = LocalX
-					                         + LocalY * GDualContourChunkSize
-					                         + LocalZ * GDualContourChunkSize * GDualContourChunkSize;
+					const uint16 LocalIndex = DualContourUtils::ChunkLocalIndex(SampleX, SampleY, SampleZ);
 					const int32 SamplerDensity = SampledChunk.Density.IsUniform()
 						                             ? SampledChunk.Density.UniformValue
 						                             : SampledChunk.Density.DensitySamples[LocalIndex];
@@ -355,17 +338,17 @@ bool UDualContour::ApplyBrushStamp(FDualContourEditBatch& Batch, const FDualCont
 	const FIntVector SampleDims = GetSampleDims();
 	auto GetWorkingDensity = [this, &Batch](int32 X, int32 Y, int32 Z) -> float
 	{
-		const FIntVector ChunkCoord(X / GDualContourChunkSize, Y / GDualContourChunkSize, Z / GDualContourChunkSize);
+		const FIntVector ChunkCoord = DualContourUtils::ChunkCoord(X, Y, Z);
 		if (const TMap<uint16, FDualContourPendingSample>* Chunk = Batch.ChunkSamples.Find(ChunkCoord))
-			if (const FDualContourPendingSample* Pending = Chunk->Find(MakeDensityLocalIndex(X, Y, Z)))
+			if (const FDualContourPendingSample* Pending = Chunk->Find(DualContourUtils::ChunkLocalIndex(X, Y, Z)))
 				return Pending->WorkingValue;
 		return static_cast<float>(GetDensity(X, Y, Z));
 	};
 	auto SetWorkingDensity = [this, &Batch, &GetWorkingDensity](int32 X, int32 Y, int32 Z, float Value)
 	{
-		const FIntVector ChunkCoord(X / GDualContourChunkSize, Y / GDualContourChunkSize, Z / GDualContourChunkSize);
+		const FIntVector ChunkCoord = DualContourUtils::ChunkCoord(X, Y, Z);
 		TMap<uint16, FDualContourPendingSample>& Chunk = Batch.ChunkSamples.FindOrAdd(ChunkCoord);
-		const uint16 LocalIndex = MakeDensityLocalIndex(X, Y, Z);
+		const uint16 LocalIndex = DualContourUtils::ChunkLocalIndex(X, Y, Z);
 		FDualContourPendingSample* Existing = Chunk.Find(LocalIndex);
 		if (!Existing)
 		{
@@ -375,7 +358,6 @@ bool UDualContour::ApplyBrushStamp(FDualContourEditBatch& Batch, const FDualCont
 			Existing = &Chunk.Add(LocalIndex, Pending);
 		}
 		Existing->WorkingValue = FMath::Clamp(Value, 0.0f, 255.0f);
-		Batch.DirtyDensityChunks.Add(ChunkCoord);
 	};
 
 	FVector BoundsMin = Stamp.LocalCenter - FVector(Stamp.Radius);
@@ -537,16 +519,13 @@ bool UDualContour::EndEditBatch(FDualContourEditBatch& Batch, FDualContourEditRe
 	TSet<FIntVector> ActuallyDirtyChunks;
 	for (const TPair<FIntVector, TMap<uint16, FDualContourPendingSample>>& ChunkPair : Batch.ChunkSamples)
 	{
-		const FIntVector ChunkOrigin = ChunkPair.Key * GDualContourChunkSize;
+		const FIntVector ChunkOrigin = DualContourUtils::ChunkOrigin(ChunkPair.Key);
 		for (const TPair<uint16, FDualContourPendingSample>& SamplePair : ChunkPair.Value)
 		{
 			const uint8 After = static_cast<uint8>(FMath::Clamp(FMath::RoundToInt(SamplePair.Value.WorkingValue), 0, 255));
 			if (After == SamplePair.Value.Before)
 				continue;
-			const int32 LocalIndex = SamplePair.Key;
-			const FIntVector SampleCoord(ChunkOrigin.X + LocalIndex % GDualContourChunkSize,
-				ChunkOrigin.Y + (LocalIndex / GDualContourChunkSize) % GDualContourChunkSize,
-				ChunkOrigin.Z + LocalIndex / (GDualContourChunkSize * GDualContourChunkSize));
+			const FIntVector SampleCoord = ChunkOrigin + DualContourUtils::ChunkLocalCoord(SamplePair.Key);
 			WriteDensitySample(SampleCoord.X, SampleCoord.Y, SampleCoord.Z, After, ActuallyDirtyChunks);
 			FDualContourSampleDelta& Delta = OutResult.Deltas.AddDefaulted_GetRef();
 			Delta.SampleCoord = SampleCoord;
@@ -555,7 +534,6 @@ bool UDualContour::EndEditBatch(FDualContourEditBatch& Batch, FDualContourEditRe
 		}
 	}
 	Batch.ChunkSamples.Reset();
-	Batch.DirtyDensityChunks.Reset();
 	if (OutResult.Deltas.IsEmpty())
 		return false;
 
@@ -589,10 +567,10 @@ void UDualContour::WriteDensitySample(int32 SampleX, int32 SampleY, int32 Sample
 	const FIntVector SampleDims = GetSampleDims();
 	if (!DualContourUtils::IsValidCoordinate(SampleDims, SampleX, SampleY, SampleZ) || GetDensity(SampleX, SampleY, SampleZ) == Density)
 		return;
-	const FIntVector ChunkCoord(SampleX / GDualContourChunkSize, SampleY / GDualContourChunkSize, SampleZ / GDualContourChunkSize);
+	const FIntVector ChunkCoord = DualContourUtils::ChunkCoord(SampleX, SampleY, SampleZ);
 	FDensityChunk& Chunk = DensityChunks.FindOrAdd(ChunkCoord);
 	Chunk.Expand();
-	Chunk.DensitySamples[MakeDensityLocalIndex(SampleX, SampleY, SampleZ)] = Density;
+	Chunk.DensitySamples[DualContourUtils::ChunkLocalIndex(SampleX, SampleY, SampleZ)] = Density;
 	DirtyChunks.Add(ChunkCoord);
 }
 
@@ -601,8 +579,7 @@ void UDualContour::RebuildDirtyDensityChunks(const TSet<FIntVector>& DirtyDensit
 	OutDirtyRegion.DensityChunks.Append(DirtyDensityChunks);
 	for (const FIntVector& DensityChunk : DirtyDensityChunks)
 	{
-		const FIntVector SampleMin(DensityChunk.X * GDualContourChunkSize, DensityChunk.Y * GDualContourChunkSize,
-			DensityChunk.Z * GDualContourChunkSize);
+		const FIntVector SampleMin = DualContourUtils::ChunkOrigin(DensityChunk);
 		const FIntVector SampleMax(FMath::Min(CellCount.X, SampleMin.X + GDualContourChunkSize),
 			FMath::Min(CellCount.Y, SampleMin.Y + GDualContourChunkSize), FMath::Min(CellCount.Z, SampleMin.Z + GDualContourChunkSize));
 		const FIntVector CellMin(FMath::Max(0, SampleMin.X - 2), FMath::Max(0, SampleMin.Y - 2), FMath::Max(0, SampleMin.Z - 2));
@@ -645,7 +622,7 @@ void UDualContour::RebuildDirtyCellChunks(const TSet<FIntVector>& InChunkCoords)
 					{
 						FDualContourCell Cell = BuildNewCell(CellX, CellY, CellZ);
 						if (Cell.bActive)
-							BuiltChunk.ActiveCells.Add(PackLocalCellKey(CellX, CellY, CellZ), MoveTemp(Cell));
+							BuiltChunk.ActiveCells.Add(DualContourUtils::ChunkLocalIndex(CellX, CellY, CellZ), MoveTemp(Cell));
 					}
 		}, EParallelForFlags::Unbalanced);
 
@@ -667,18 +644,14 @@ uint8 UDualContour::GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) cons
 	if (!DualContourUtils::IsValidCoordinate(SampleDimensions, SampleX, SampleY, SampleZ))
 		return 0;
 
-	const FIntVector ChunkCoord(SampleX / GDualContourChunkSize, SampleY / GDualContourChunkSize, SampleZ / GDualContourChunkSize);
+	const FIntVector ChunkCoord = DualContourUtils::ChunkCoord(SampleX, SampleY, SampleZ);
 	const FDensityChunk* Chunk = DensityChunks.Find(ChunkCoord);
 	if (!Chunk)
 		return 0;
 	if (Chunk->IsUniform())
 		return Chunk->UniformValue;
 
-	const int32 LocalX = SampleX % GDualContourChunkSize;
-	const int32 LocalY = SampleY % GDualContourChunkSize;
-	const int32 LocalZ = SampleZ % GDualContourChunkSize;
-	return Chunk->DensitySamples[LocalX + LocalY * GDualContourChunkSize
-	                             + LocalZ * GDualContourChunkSize * GDualContourChunkSize];
+	return Chunk->DensitySamples[DualContourUtils::ChunkLocalIndex(SampleX, SampleY, SampleZ)];
 }
 
 void UDualContour::CompactAllDensityChunks()
@@ -706,9 +679,12 @@ void UDualContour::CompactDensityChunks(const TSet<FIntVector>& ChunkCoords)
 
 const FDualContourCell* UDualContour::GetCell(int32 CellX, int32 CellY, int32 CellZ) const
 {
-	const FIntVector ChunkCoord(CellX / GDualContourChunkSize, CellY / GDualContourChunkSize, CellZ / GDualContourChunkSize);
+	if (!DualContourUtils::IsValidCoordinate(CellCount, CellX, CellY, CellZ))
+		return nullptr;
+
+	const FIntVector ChunkCoord = DualContourUtils::ChunkCoord(CellX, CellY, CellZ);
 	const FCellChunk* Chunk = CellChunks.Find(ChunkCoord);
-	return Chunk ? Chunk->ActiveCells.Find(PackLocalCellKey(CellX, CellY, CellZ)) : nullptr;
+	return Chunk ? Chunk->ActiveCells.Find(DualContourUtils::ChunkLocalIndex(CellX, CellY, CellZ)) : nullptr;
 }
 
 bool UDualContour::HasActiveCellInRange(FIntVector CellMin, FIntVector CellMax) const
@@ -729,18 +705,17 @@ bool UDualContour::HasActiveCellInRange(FIntVector CellMin, FIntVector CellMax) 
 					continue;
 				for (const TPair<uint16, FDualContourCell>& Pair : Chunk->ActiveCells)
 				{
-					const int32 AbsX = ChunkX * GDualContourChunkSize + (Pair.Key & 0xF);
-					const int32 AbsY = ChunkY * GDualContourChunkSize + ((Pair.Key >> 4) & 0xF);
-					const int32 AbsZ = ChunkZ * GDualContourChunkSize + ((Pair.Key >> 8) & 0xF);
-					if (AbsX >= CellMin.X && AbsX < CellMax.X && AbsY >= CellMin.Y && AbsY < CellMax.Y
-					    && AbsZ >= CellMin.Z && AbsZ < CellMax.Z)
+					const FIntVector CellCoord = DualContourUtils::ChunkOrigin(FIntVector(ChunkX, ChunkY, ChunkZ))
+						+ DualContourUtils::ChunkLocalCoord(Pair.Key);
+					if (CellCoord.X >= CellMin.X && CellCoord.X < CellMax.X && CellCoord.Y >= CellMin.Y && CellCoord.Y < CellMax.Y
+					    && CellCoord.Z >= CellMin.Z && CellCoord.Z < CellMax.Z)
 						return true;
 				}
 			}
 	return false;
 }
 
-float UDualContour::TrilinearDensity(FVector GridPos) const
+float UDualContour::TrilinearDensity(const FVector& GridPos) const
 {
 	const FIntVector Dims = GetSampleDims();
 	const float GridX = FMath::Clamp(GridPos.X, 0., static_cast<double>(Dims.X - 1));
@@ -763,7 +738,7 @@ float UDualContour::TrilinearDensity(FVector GridPos) const
 			BlendY), BlendZ);
 }
 
-FVector UDualContour::ComputeGradient(FVector GridPos) const
+FVector UDualContour::ComputeGradient(const FVector& GridPos) const
 {
 	constexpr float Step = 0.5f;
 	return FVector(
@@ -908,8 +883,7 @@ void UDualContour::RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax)
 		[this, RangeMin, RangeMax, &ChunkCoords, &BuiltChunks](int32 Index)
 		{
 			const FIntVector ChunkCoord = ChunkCoords[Index];
-			const FIntVector ChunkOrigin(ChunkCoord.X * GDualContourChunkSize,
-				ChunkCoord.Y * GDualContourChunkSize, ChunkCoord.Z * GDualContourChunkSize);
+			const FIntVector ChunkOrigin = DualContourUtils::ChunkOrigin(ChunkCoord);
 			const FIntVector BuildMin(FMath::Max(RangeMin.X, ChunkOrigin.X),
 				FMath::Max(RangeMin.Y, ChunkOrigin.Y), FMath::Max(RangeMin.Z, ChunkOrigin.Z));
 			const FIntVector BuildMax(FMath::Min(RangeMax.X, ChunkOrigin.X + GDualContourChunkSize),
@@ -924,9 +898,7 @@ void UDualContour::RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax)
 						FDualContourCell Cell = BuildNewCell(CellX, CellY, CellZ);
 						if (!Cell.bActive)
 							continue;
-						const uint16 LocalKey = static_cast<uint16>((CellX % GDualContourChunkSize)
-						                                            | ((CellY % GDualContourChunkSize) << 4)
-						                                            | ((CellZ % GDualContourChunkSize) << 8));
+						const uint16 LocalKey = DualContourUtils::ChunkLocalIndex(CellX, CellY, CellZ);
 						BuiltChunk.ActiveCells.Add(LocalKey, MoveTemp(Cell));
 					}
 		}, EParallelForFlags::Unbalanced);
@@ -936,19 +908,16 @@ void UDualContour::RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax)
 		for (int32 Index = 0; Index < ChunkCoords.Num(); ++Index)
 		{
 			const FIntVector ChunkCoord = ChunkCoords[Index];
-			const FIntVector ChunkOrigin(ChunkCoord.X * GDualContourChunkSize,
-				ChunkCoord.Y * GDualContourChunkSize, ChunkCoord.Z * GDualContourChunkSize);
+			const FIntVector ChunkOrigin = DualContourUtils::ChunkOrigin(ChunkCoord);
 
 			if (FCellChunk* ExistingChunk = CellChunks.Find(ChunkCoord))
 			{
 				for (auto CellIt = ExistingChunk->ActiveCells.CreateIterator(); CellIt; ++CellIt)
 				{
 					const uint16 LocalKey = CellIt.Key();
-					const int32 CellX = ChunkOrigin.X + (LocalKey & 0xF);
-					const int32 CellY = ChunkOrigin.Y + ((LocalKey >> 4) & 0xF);
-					const int32 CellZ = ChunkOrigin.Z + ((LocalKey >> 8) & 0xF);
-					if (CellX >= RangeMin.X && CellX < RangeMax.X && CellY >= RangeMin.Y && CellY < RangeMax.Y
-					    && CellZ >= RangeMin.Z && CellZ < RangeMax.Z)
+					const FIntVector CellCoord = ChunkOrigin + DualContourUtils::ChunkLocalCoord(LocalKey);
+					if (CellCoord.X >= RangeMin.X && CellCoord.X < RangeMax.X && CellCoord.Y >= RangeMin.Y && CellCoord.Y < RangeMax.Y
+					    && CellCoord.Z >= RangeMin.Z && CellCoord.Z < RangeMax.Z)
 						CellIt.RemoveCurrent();
 				}
 			}
@@ -975,11 +944,10 @@ void UDualContour::RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax)
 		TMap<FIntVector, FVector> RelaxedCenters;
 		for (const TPair<FIntVector, FCellChunk>& ChunkPair : CellChunks)
 		{
-			const FIntVector ChunkOrigin = ChunkPair.Key * GDualContourChunkSize;
+			const FIntVector ChunkOrigin = DualContourUtils::ChunkOrigin(ChunkPair.Key);
 			for (const TPair<uint16, FDualContourCell>& CellPair : ChunkPair.Value.ActiveCells)
 			{
-				const FIntVector CellCoord(ChunkOrigin.X + (CellPair.Key & 0xF),
-					ChunkOrigin.Y + ((CellPair.Key >> 4) & 0xF), ChunkOrigin.Z + ((CellPair.Key >> 8) & 0xF));
+				const FIntVector CellCoord = ChunkOrigin + DualContourUtils::ChunkLocalCoord(CellPair.Key);
 				FVector Sum = FVector::ZeroVector;
 				int32 Count = 0;
 				for (const FIntVector& Offset : {FIntVector(1, 0, 0), FIntVector(-1, 0, 0), FIntVector(0, 1, 0),

@@ -3,6 +3,7 @@
 #if WITH_EDITOR
 
 #include "SVTDualContour.h"
+#include "DualContourUtils.h"
 #include "SparseVolumeTexture/SparseVolumeTexture.h"
 #include "SparseVolumeTexture/ISparseVolumeTextureStreamingManager.h"
 #include "Async/ParallelFor.h"
@@ -223,7 +224,7 @@ bool FSVTDualContourBuilder::Sample(const USVTDualContour& SVTDualContour,
 			FDualContourSampledChunk& SampledChunk = OutRegion.Chunks[Index];
 			SampledChunk.ChunkCoord = FIntVector(ChunkX, ChunkY, ChunkZ);
 
-			const FIntVector ChunkOrigin = SampledChunk.ChunkCoord * GDualContourChunkSize;
+			const FIntVector ChunkOrigin = DualContourUtils::ChunkOrigin(SampledChunk.ChunkCoord);
 			const FIntVector BuildMax(
 				FMath::Min(SampleDims.X, ChunkOrigin.X + GDualContourChunkSize),
 				FMath::Min(SampleDims.Y, ChunkOrigin.Y + GDualContourChunkSize),
@@ -233,9 +234,7 @@ bool FSVTDualContourBuilder::Sample(const USVTDualContour& SVTDualContour,
 				for (int32 SampleY = ChunkOrigin.Y; SampleY < BuildMax.Y; ++SampleY)
 					for (int32 SampleX = ChunkOrigin.X; SampleX < BuildMax.X; ++SampleX)
 					{
-						const int32 SourceIndex = SampleX
-							+ SampleY * SampleDims.X
-							+ SampleZ * SampleDims.X * SampleDims.Y;
+						const int32 SourceIndex = DualContourUtils::LinearIndex(SampleDims, SampleX, SampleY, SampleZ);
 						const uint8 Density = static_cast<uint8>(FMath::Min((*ReadbackValues)[SourceIndex], 255u));
 						if (Density == 0)
 							continue;
@@ -244,12 +243,7 @@ bool FSVTDualContourBuilder::Sample(const USVTDualContour& SVTDualContour,
 							SampledChunk.Density.Expand();
 							bExpanded = true;
 						}
-						const int32 LocalX = SampleX - ChunkOrigin.X;
-						const int32 LocalY = SampleY - ChunkOrigin.Y;
-						const int32 LocalZ = SampleZ - ChunkOrigin.Z;
-						SampledChunk.Density.DensitySamples[LocalX
-							+ LocalY * GDualContourChunkSize
-							+ LocalZ * GDualContourChunkSize * GDualContourChunkSize] = Density;
+						SampledChunk.Density.DensitySamples[DualContourUtils::ChunkLocalIndex(SampleX, SampleY, SampleZ)] = Density;
 					}
 			if (bExpanded)
 				SampledChunk.Density.TryCollapse();

@@ -1,5 +1,6 @@
 #include "VolumeSampler/VolumeSampler.h"
 #include "DualContour.h"
+#include "DualContourUtils.h"
 #include "Async/ParallelFor.h"
 #include "Misc/ScopeExit.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
@@ -130,7 +131,7 @@ bool UVolumeSampler::BuildDensityChunks(UDualContour* Target, const FTransform& 
 		FDualContourSampledChunk& SampledChunk = OutRegion.Chunks[Index];
 		SampledChunk.ChunkCoord = ChunkMin + FIntVector(ChunkX, ChunkY, ChunkZ);
 
-		const FIntVector ChunkOrigin = SampledChunk.ChunkCoord * GDualContourChunkSize;
+		const FIntVector ChunkOrigin = DualContourUtils::ChunkOrigin(SampledChunk.ChunkCoord);
 		const FIntVector SampleMax = OutRegion.SampleMin + OutRegion.SampleDimensions;
 		const FIntVector BuildMin(
 			FMath::Max(OutRegion.SampleMin.X, ChunkOrigin.X),
@@ -166,12 +167,7 @@ bool UVolumeSampler::BuildDensityChunks(UDualContour* Target, const FTransform& 
 						SampledChunk.Density.Expand();
 						bExpanded = true;
 					}
-					const int32 LocalX = SampleX - ChunkOrigin.X;
-					const int32 LocalY = SampleY - ChunkOrigin.Y;
-					const int32 LocalZ = SampleZ - ChunkOrigin.Z;
-					SampledChunk.Density.DensitySamples[LocalX
-					                                    + LocalY * GDualContourChunkSize
-					                                    + LocalZ * GDualContourChunkSize * GDualContourChunkSize] = QuantizedDensity;
+					SampledChunk.Density.DensitySamples[DualContourUtils::ChunkLocalIndex(SampleX, SampleY, SampleZ)] = QuantizedDensity;
 				}
 		if (bExpanded)
 			SampledChunk.Density.TryCollapse();
