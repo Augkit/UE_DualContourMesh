@@ -226,7 +226,7 @@ bool UDualContour::CopyFrom(const UDualContour* Source)
 	ModifiedDensityChunks.Reset();
 	CellChunks = Source->CellChunks;
 	LastBuiltCellCount = Source->LastBuiltCellCount;
-	OnCellsRebuilt.Broadcast(FIntVector(0, 0, 0), CellCount);
+	OnCellsRebuilt.Broadcast(FIntVector::ZeroValue, CellCount);
 	return true;
 }
 
@@ -858,6 +858,6 @@ void UDualContour::PostEditUndo()
 {
 	Super::PostEditUndo();
 	if (HasCurrentGeneratedData())
-		OnCellsRebuilt.Broadcast(FIntVector(0, 0, 0), CellCount);
+		OnCellsRebuilt.Broadcast(FIntVector::ZeroValue, CellCount);
 }
 #endif
