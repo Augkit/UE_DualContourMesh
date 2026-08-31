@@ -56,10 +56,8 @@ public:
 	bool ModifyDensityChunks(const FDualContourSampledRegion& SampledRegion, bool bExcavate,
 		FIntVector& OutAffectedCellMin, FIntVector& OutAffectedCellMax);
 
-	/** Starts a stroke-style edit. Density writes are accumulated and contour rebuilds are deferred to EndEditBatch. */
-	FDualContourEditBatch BeginEditBatch() const;
-	/** Quantizes the stroke, rebuilds only dirty contour chunks, and returns sparse undo deltas. */
-	bool EndEditBatch(FDualContourEditBatch& Batch, FDualContourEditResult& OutResult);
+	/** Applies an accumulated stroke batch, rebuilds only dirty contour chunks, and returns sparse undo deltas. */
+	bool ApplyEditBatch(FDualContourEditBatch& Batch, FDualContourEditResult& OutResult);
 	/** Restores either side of a sparse edit and performs the same local rebuild path. */
 	bool ApplyEditDeltas(TConstArrayView<FDualContourSampleDelta> Deltas, bool bUseAfterValues, FDualContourEditResult* OutResult = nullptr);
 

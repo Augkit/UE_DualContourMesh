@@ -142,8 +142,7 @@ void UDualContourBrushTool::OnClickPress(const FInputDeviceRay& PressPos)
 {
 	if (!UpdateHit(PressPos.WorldRay) || !TargetActor || !TargetActor->DualContour)
 		return;
-	ActiveBatch = TargetActor->DualContour->BeginEditBatch();
-	if (!ActiveBatch.bOpen)
+	if (!BeginEditBatch())
 		return;
 	bStrokeActive = true;
 	TargetActor->SetDensityEditInProgress(true);
@@ -156,6 +155,18 @@ void UDualContourBrushTool::OnClickPress(const FInputDeviceRay& PressPos)
 	ApplyStampAt(HitPosition, HitNormal, 1.0f);
 	if (Settings->ActiveTool == EDualContourEditTool::Brush)
 		FinishStroke(false);
+}
+
+bool UDualContourBrushTool::BeginEditBatch()
+{
+	ActiveBatch = FDualContourEditBatch();
+	UDualContour* DualContour = TargetActor ? TargetActor->DualContour.Get() : nullptr;
+	if (!IsValid(DualContour) || !DualContour->HasCurrentGeneratedData())
+		return false;
+
+	ActiveBatch.bOpen = true;
+	ActiveBatch.Owner = DualContour;
+	return true;
 }
 
 void UDualContourBrushTool::OnClickDrag(const FInputDeviceRay& DragPos)
@@ -471,7 +482,7 @@ void UDualContourBrushTool::FlushStroke(bool bFinalFlush)
 	if (!bStrokeActive || !TargetActor || !TargetActor->DualContour)
 		return;
 	FDualContourEditResult Result;
-	if (TargetActor->DualContour->EndEditBatch(ActiveBatch, Result))
+	if (TargetActor->DualContour->ApplyEditBatch(ActiveBatch, Result))
 	{
 		for (const FDualContourSampleDelta& Delta : Result.Deltas)
 		{
@@ -483,7 +494,7 @@ void UDualContourBrushTool::FlushStroke(bool bFinalFlush)
 		}
 	}
 	if (!bFinalFlush)
-		ActiveBatch = TargetActor->DualContour->BeginEditBatch();
+		BeginEditBatch();
 	LastPreviewFlushTime = FPlatformTime::Seconds();
 }
 

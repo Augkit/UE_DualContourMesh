@@ -54,6 +54,7 @@ public:
 
 private:
 	bool UpdateHit(const FRay& WorldRay, float* OutDistance = nullptr);
+	bool BeginEditBatch();
 	bool ApplyStampAt(const FVector& WorldPosition, const FVector& WorldNormal, float TimeScale);
 	bool ApplyBrushStamp(FDualContourEditBatch& Batch, const FDualContourBrushStamp& Stamp) const;
 	void ApplyPathTo(const FVector& WorldPosition, const FVector& WorldNormal);

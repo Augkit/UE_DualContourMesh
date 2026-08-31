@@ -352,15 +352,7 @@ bool UDualContour::ModifyDensityChunks(const FDualContourSampledRegion& SampledR
 	return true;
 }
 
-FDualContourEditBatch UDualContour::BeginEditBatch() const
-{
-	FDualContourEditBatch Batch;
-	Batch.bOpen = HasCurrentGeneratedData();
-	Batch.Owner = Batch.bOpen ? const_cast<UDualContour*>(this) : nullptr;
-	return Batch;
-}
-
-bool UDualContour::EndEditBatch(FDualContourEditBatch& Batch, FDualContourEditResult& OutResult)
+bool UDualContour::ApplyEditBatch(FDualContourEditBatch& Batch, FDualContourEditResult& OutResult)
 {
 	OutResult = FDualContourEditResult();
 	if (!Batch.bOpen || Batch.Owner != this)
