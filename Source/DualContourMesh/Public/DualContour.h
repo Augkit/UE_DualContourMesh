@@ -6,7 +6,6 @@
 #include "DualContour.generated.h"
 
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDualContourCellsRebuilt, FIntVector, FIntVector);
-DECLARE_MULTICAST_DELEGATE_OneParam(FOnDirtyDualContourChunksRebuilt, const FDualContourDirtyRegion&);
 
 /** Owns the dual-contour source data, generation settings, and contour-building algorithms. */
 UCLASS(BlueprintType, EditInlineNew)
@@ -38,8 +37,6 @@ public:
 
 	/** Broadcast after generated contour data changes. The range is [CellMin, CellMax). */
 	FOnDualContourCellsRebuilt OnCellsRebuilt;
-	/** Broadcast once per edit-batch flush after all unique cell chunks have been rebuilt. */
-	FOnDirtyDualContourChunksRebuilt OnDirtyChunksRebuilt;
 
 	bool HasCurrentGeneratedData() const;
 
@@ -114,7 +111,7 @@ private:
 	void RebuildCells();
 	FDualContourCell CreateNewCell(int32 CellX, int32 CellY, int32 CellZ) const;
 	void RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax, bool bBroadcastCellsRebuilt = true);
-	void RebuildDirtyCellChunks(const TSet<FIntVector>& DirtyDensityChunks, FDualContourDirtyRegion& OutDirtyRegion);
+	void RebuildDirtyCellChunks(const TSet<FIntVector>& DirtyDensityChunks, bool bBroadcastCellsRebuilt = true);
 
 	void RecordModifiedDensityChunks(const TSet<FIntVector>& ChunkCoords);
 };

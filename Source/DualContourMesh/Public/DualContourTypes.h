@@ -159,22 +159,8 @@ struct DUALCONTOURMESH_API FDualContourSampleDelta
 	uint8 After = 0;
 };
 
-/** Chunk sets touched by a density edit. These are also the boundary for future async rebuilds. */
-struct DUALCONTOURMESH_API FDualContourDirtyRegion
-{
-	TSet<FIntVector> DensityChunks;
-	TSet<FIntVector> CellChunks;
-
-	void Reset()
-	{
-		DensityChunks.Reset();
-		CellChunks.Reset();
-	}
-};
-
 struct DUALCONTOURMESH_API FDualContourEditResult
 {
-	FDualContourDirtyRegion DirtyRegion;
 	TArray<FDualContourSampleDelta> Deltas;
 
 	bool IsEmpty() const { return Deltas.IsEmpty(); }

@@ -370,13 +370,11 @@ bool ADualContourMeshActor::SetGeneratedDualContour(UDualContour* InDualContour)
 
 void ADualContourMeshActor::BindToDualContour()
 {
-	if (!DualContour || DualContourCellsRebuiltHandle.IsValid() || DualContourChunksRebuiltHandle.IsValid())
+	if (!DualContour || DualContourCellsRebuiltHandle.IsValid())
 		return;
 
 	DualContourCellsRebuiltHandle = DualContour->OnCellsRebuilt.AddUObject(
 		this, &ADualContourMeshActor::OnDualContourCellsRebuilt);
-	DualContourChunksRebuiltHandle = DualContour->OnDirtyChunksRebuilt.AddUObject(
-		this, &ADualContourMeshActor::OnDualContourChunksRebuilt);
 }
 
 void ADualContourMeshActor::UnbindFromDualContour()
@@ -385,11 +383,6 @@ void ADualContourMeshActor::UnbindFromDualContour()
 	{
 		DualContour->OnCellsRebuilt.Remove(DualContourCellsRebuiltHandle);
 		DualContourCellsRebuiltHandle.Reset();
-	}
-	if (DualContour && DualContourChunksRebuiltHandle.IsValid())
-	{
-		DualContour->OnDirtyChunksRebuilt.Remove(DualContourChunksRebuiltHandle);
-		DualContourChunksRebuiltHandle.Reset();
 	}
 }
 
@@ -413,42 +406,6 @@ void ADualContourMeshActor::OnDualContourCellsRebuilt(FIntVector AffectedCellMin
 	bDebugRefreshImmediatelyAfterMeshUpdate |= bFullGridRebuild;
 #endif
 	PartialUpdateComponents(AffectedCellMin, AffectedCellMax);
-}
-
-void ADualContourMeshActor::OnDualContourChunksRebuilt(const FDualContourDirtyRegion& DirtyRegion)
-{
-	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_OnDualContourChunksRebuilt);
-	if (bRebuildingMesh || !DualContour || DirtyRegion.CellChunks.IsEmpty())
-		return;
-	if (MeshCellCount.X != DualContour->CellCount.X || MeshCellCount.Y != DualContour->CellCount.Y
-	    || MeshCellCount.Z != DualContour->CellCount.Z || MeshCellSize != DualContour->CellSize)
-	{
-		RecreateMeshComponents();
-		return;
-	}
-
-	TSet<int32> AffectedDivisions;
-	for (const FIntVector& ChunkCoord : DirtyRegion.CellChunks)
-	{
-		const FIntVector CellMin(ChunkCoord.X * GDualContourChunkSize, ChunkCoord.Y * GDualContourChunkSize,
-			ChunkCoord.Z * GDualContourChunkSize);
-		const FIntVector CellMax(FMath::Min(DualContour->CellCount.X, CellMin.X + GDualContourChunkSize),
-			FMath::Min(DualContour->CellCount.Y, CellMin.Y + GDualContourChunkSize),
-			FMath::Min(DualContour->CellCount.Z, CellMin.Z + GDualContourChunkSize));
-		if (CellMin.X >= CellMax.X || CellMin.Y >= CellMax.Y || CellMin.Z >= CellMax.Z)
-			continue;
-
-		const FIntVector OwnerCellMin(FMath::Max(0, CellMin.X - 1), FMath::Max(0, CellMin.Y - 1),
-			FMath::Max(0, CellMin.Z - 1));
-		const FIntVector LastCell(CellMax.X - 1, CellMax.Y - 1, CellMax.Z - 1);
-		const FIntVector DivisionMin = DivisionFromCell(OwnerCellMin.X, OwnerCellMin.Y, OwnerCellMin.Z);
-		const FIntVector DivisionMax = DivisionFromCell(LastCell.X, LastCell.Y, LastCell.Z);
-		for (int32 DivisionZ = DivisionMin.Z; DivisionZ <= DivisionMax.Z; ++DivisionZ)
-			for (int32 DivisionY = DivisionMin.Y; DivisionY <= DivisionMax.Y; ++DivisionY)
-				for (int32 DivisionX = DivisionMin.X; DivisionX <= DivisionMax.X; ++DivisionX)
-					AffectedDivisions.Add(DivisionIndex(DivisionX, DivisionY, DivisionZ));
-	}
-	UpdateMeshDivisions(AffectedDivisions);
 }
 
 void ADualContourMeshActor::RecreateMeshComponents()
