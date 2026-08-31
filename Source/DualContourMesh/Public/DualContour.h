@@ -55,10 +55,10 @@ public:
 	 * The base CellChunks are copied as-is; only chunks affected by the overlay are rebuilt.
 	 */
 	bool Initialize(const UDualContour* InitialDualContour, const FDualContourDensityChunks* InModifiedDensityChunks = nullptr);
-
-	bool Rebuild();
 	/** Copies persistent grid settings and generated data from another current DualContour. */
 	bool CopyFrom(const UDualContour* Source);
+
+	bool Rebuild();
 	/** Moves sampler-built density chunks into this grid; density outside the sampled range becomes zero. */
 	bool ReplaceDensityChunks(FDualContourSampledRegion&& SampledRegion);
 	/** Combines sampler-built density chunks and rebuilds only changed cells. */

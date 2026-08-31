@@ -207,19 +207,6 @@ bool UDualContour::Initialize(const UDualContour* InitialDualContour,
 	return !InModifiedDensityChunks || ApplyModifiedDensityChunks(*InModifiedDensityChunks);
 }
 
-bool UDualContour::Rebuild()
-{
-	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_Rebuild);
-	bRebuildRequired = true;
-	if (!ValidateGenerationSettings())
-		return false;
-
-	LastBuiltCellCount = CellCount;
-	bRebuildRequired = false;
-	RebuildCells();
-	return true;
-}
-
 bool UDualContour::CopyFrom(const UDualContour* Source)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_CopyFrom);
@@ -240,6 +227,19 @@ bool UDualContour::CopyFrom(const UDualContour* Source)
 	CellChunks = Source->CellChunks;
 	LastBuiltCellCount = Source->LastBuiltCellCount;
 	OnCellsRebuilt.Broadcast(FIntVector(0, 0, 0), CellCount);
+	return true;
+}
+
+bool UDualContour::Rebuild()
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_Rebuild);
+	bRebuildRequired = true;
+	if (!ValidateGenerationSettings())
+		return false;
+
+	LastBuiltCellCount = CellCount;
+	bRebuildRequired = false;
+	RebuildCells();
 	return true;
 }
 
