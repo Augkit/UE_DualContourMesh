@@ -41,6 +41,12 @@ public:
 	/** Broadcast once per edit-batch flush after all unique cell chunks have been rebuilt. */
 	FOnDirtyDualContourChunksRebuilt OnDirtyChunksRebuilt;
 
+	bool HasCurrentGeneratedData() const;
+	
+	uint8 GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
+	const FDualContourCell* GetCell(int32 CellX, int32 CellY, int32 CellZ) const;
+	bool HasActiveCellInRange(FIntVector CellMin, FIntVector CellMax) const;
+
 	bool Rebuild();
 	/** Copies persistent grid settings and generated data from another current DualContour. */
 	bool CopyFrom(const UDualContour* Source);
@@ -55,21 +61,16 @@ public:
 	/** Quantizes the stroke, rebuilds only dirty contour chunks, and returns sparse undo deltas. */
 	bool EndEditBatch(FDualContourEditBatch& Batch, FDualContourEditResult& OutResult);
 	/** Restores either side of a sparse edit and performs the same local rebuild path. */
-	bool ApplyEditDeltas(TConstArrayView<FDualContourSampleDelta> Deltas, bool bUseAfterValues,
-		FDualContourEditResult* OutResult = nullptr);
+	bool ApplyEditDeltas(TConstArrayView<FDualContourSampleDelta> Deltas, bool bUseAfterValues, FDualContourEditResult* OutResult = nullptr);
 
-	uint8 GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
-	const FDualContourCell* GetCell(int32 CellX, int32 CellY, int32 CellZ) const;
-	float TrilinearDensity(const FVector& GridPos) const;
-	FVector ComputeGradient(const FVector& GridPos) const;
-	bool HasCurrentGeneratedData() const;
-	bool HasActiveCellInRange(FIntVector CellMin, FIntVector CellMax) const;
 	FIntVector GetSampleDimensions() const { return FIntVector(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }
 
 	FVector GetSampleLocalPosition(int32 SampleX, int32 SampleY, int32 SampleZ) const
 	{
 		return FVector(static_cast<double>(SampleX), static_cast<double>(SampleY), static_cast<double>(SampleZ)) * CellSize;
 	}
+
+	float TrilinearDensity(const FVector& GridPos) const;
 
 	virtual void PostLoad() override;
 	virtual void PreSave(FObjectPreSaveContext SaveContext) override;
@@ -90,12 +91,15 @@ private:
 	UPROPERTY()
 	FIntVector LastBuiltCellCount = FIntVector(0, 0, 0);
 
-	void BuildCells();
+	bool ValidateGenerationSettings() const;
+
+	void RebuildCells();
+	FVector ComputeGradient(const FVector& GridPos) const;
 	FDualContourCell CreateNewCell(int32 CellX, int32 CellY, int32 CellZ) const;
 	void CompactAllDensityChunks();
 	void CompactDensityChunks(const TSet<FIntVector>& ChunkCoords);
+
 	void RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax);
 	void WriteDirtyDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Density, TSet<FIntVector>& DirtyChunks);
 	void RebuildDirtyCellChunks(const TSet<FIntVector>& DirtyDensityChunks, FDualContourDirtyRegion& OutDirtyRegion);
-	bool ValidateGenerationSettings() const;
 };
