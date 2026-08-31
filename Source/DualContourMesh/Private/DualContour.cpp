@@ -324,7 +324,7 @@ bool UDualContour::EndEditBatch(FDualContourEditBatch& Batch, FDualContourEditRe
 			if (After == SamplePair.Value.Before)
 				continue;
 			const FIntVector SampleCoord = ChunkOrigin + DualContourUtils::ChunkLocalCoord(SamplePair.Key);
-			WriteDensitySample(SampleCoord.X, SampleCoord.Y, SampleCoord.Z, After, ActuallyDirtyChunks);
+			WriteDirtyDensitySample(SampleCoord.X, SampleCoord.Y, SampleCoord.Z, After, ActuallyDirtyChunks);
 			FDualContourSampleDelta& Delta = OutResult.Deltas.AddDefaulted_GetRef();
 			Delta.SampleCoord = SampleCoord;
 			Delta.Before = SamplePair.Value.Before;
@@ -346,7 +346,7 @@ bool UDualContour::ApplyEditDeltas(TConstArrayView<FDualContourSampleDelta> Delt
 		return false;
 	TSet<FIntVector> DirtyChunks;
 	for (const FDualContourSampleDelta& Delta : Deltas)
-		WriteDensitySample(Delta.SampleCoord.X, Delta.SampleCoord.Y, Delta.SampleCoord.Z, bUseAfterValues ? Delta.After : Delta.Before, DirtyChunks);
+		WriteDirtyDensitySample(Delta.SampleCoord.X, Delta.SampleCoord.Y, Delta.SampleCoord.Z, bUseAfterValues ? Delta.After : Delta.Before, DirtyChunks);
 	if (DirtyChunks.IsEmpty())
 		return false;
 	CompactDensityChunks(DirtyChunks);
@@ -360,7 +360,7 @@ bool UDualContour::ApplyEditDeltas(TConstArrayView<FDualContourSampleDelta> Delt
 	return true;
 }
 
-void UDualContour::WriteDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Density, TSet<FIntVector>& DirtyChunks)
+void UDualContour::WriteDirtyDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Density, TSet<FIntVector>& DirtyChunks)
 {
 	const FIntVector SampleDims = GetSampleDimensions();
 	if (!DualContourUtils::IsValidCoordinate(SampleDims, SampleX, SampleY, SampleZ) || GetDensity(SampleX, SampleY, SampleZ) == Density)
