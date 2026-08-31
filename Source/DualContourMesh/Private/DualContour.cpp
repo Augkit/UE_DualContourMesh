@@ -110,6 +110,31 @@ void UDualContour::PreSave(FObjectPreSaveContext SaveContext)
 	Super::PreSave(SaveContext);
 }
 
+#if WITH_EDITOR
+void UDualContour::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	const FName MemberPropertyName = PropertyChangedEvent.MemberProperty
+										 ? PropertyChangedEvent.MemberProperty->GetFName()
+										 : NAME_None;
+	if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, CellCount)
+		|| MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, CellSize)
+		|| MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, VertexSolveMode)
+		|| MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, VertexRelaxation)
+		|| MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, RelaxationNormalCosine))
+	{
+		bRebuildRequired = true;
+	}
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+}
+
+void UDualContour::PostEditUndo()
+{
+	Super::PostEditUndo();
+	if (HasCurrentGeneratedData())
+		OnCellsRebuilt.Broadcast(FIntVector::ZeroValue, CellCount);
+}
+#endif
+
 bool UDualContour::ValidateGenerationSettings() const
 {
 	if (CellCount.X <= 0 || CellCount.Y <= 0 || CellCount.Z <= 0)
@@ -842,28 +867,3 @@ void UDualContour::RecordModifiedDensityChunks(const TSet<FIntVector>& ChunkCoor
 		}
 	}
 }
-
-#if WITH_EDITOR
-void UDualContour::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
-{
-	const FName MemberPropertyName = PropertyChangedEvent.MemberProperty
-		                                 ? PropertyChangedEvent.MemberProperty->GetFName()
-		                                 : NAME_None;
-	if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, CellCount)
-	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, CellSize)
-	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, VertexSolveMode)
-	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, VertexRelaxation)
-	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, RelaxationNormalCosine))
-	{
-		bRebuildRequired = true;
-	}
-	Super::PostEditChangeProperty(PropertyChangedEvent);
-}
-
-void UDualContour::PostEditUndo()
-{
-	Super::PostEditUndo();
-	if (HasCurrentGeneratedData())
-		OnCellsRebuilt.Broadcast(FIntVector::ZeroValue, CellCount);
-}
-#endif
