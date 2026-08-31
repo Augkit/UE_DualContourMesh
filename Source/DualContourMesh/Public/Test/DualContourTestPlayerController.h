@@ -4,6 +4,7 @@
 #include "DualContourTestPlayerController.generated.h"
 
 class UProceduralVolumeSampler;
+class ADualContourMeshActor;
 
 UCLASS()
 class DUALCONTOURMESH_API ADualContourTestPlayerController : public APlayerController
@@ -35,5 +36,8 @@ private:
 	void SelectTorusSampler();
 	void DecreaseSamplerScale();
 	void IncreaseSamplerScale();
+	void SaveRuntimeDensityIncrement();
+	void LoadRuntimeDensityIncrement();
+	ADualContourMeshActor* FindDualContourMeshActor() const;
 	void SelectSampler(TSubclassOf<UProceduralVolumeSampler> SamplerClass);
 };

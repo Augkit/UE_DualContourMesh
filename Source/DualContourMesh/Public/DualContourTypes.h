@@ -60,10 +60,10 @@ struct DUALCONTOURMESH_API FDensityChunk
 {
 	GENERATED_BODY()
 
-	UPROPERTY()
+	UPROPERTY(SaveGame)
 	uint8 UniformValue = 0;
 
-	UPROPERTY()
+	UPROPERTY(SaveGame)
 	TArray<uint8> DensitySamples; // size = ChunkSize^3 when expanded
 
 	bool IsUniform() const { return DensitySamples.IsEmpty(); }
@@ -95,6 +95,9 @@ struct DUALCONTOURMESH_API FDensityChunk
 		FMemory::Memset(DensitySamples.GetData(), UniformValue, N);
 	}
 };
+
+/** Sparse density storage shared by DualContour runtime data and runtime save games. */
+#define FDualContourDensityChunks TMap<FIntVector, FDensityChunk>
 
 /** One chunk produced by a volume sampler before it is merged into a DualContour. */
 struct DUALCONTOURMESH_API FDualContourSampledChunk

@@ -64,8 +64,30 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "DualContour|Rendering")
 	FOnDualContourMeshComponentsUpdated OnMeshComponentsUpdated;
 
+	/** Slot used by the test save/load buttons below. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Runtime Save")
+	FString RuntimeSaveSlotName = TEXT("DualContourRuntime");
+
+	/** Platform user index used by the test save/load buttons below. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Runtime Save", meta = (ClampMin = "0"))
+	int32 RuntimeSaveUserIndex = 0;
+
 	UFUNCTION(CallInEditor, Category = "DualContour")
 	void RebuildMesh();
+
+	/** Saves the modified density-chunk overlay accumulated since InitialDualContour was copied. */
+	UFUNCTION(BlueprintCallable, Category = "DualContour|Runtime Save")
+	bool SaveRuntimeDensityIncrement(const FString& SlotName, int32 UserIndex = 0) const;
+
+	/** Rebuilds from InitialDualContour and applies a previously saved density-chunk overlay. */
+	UFUNCTION(BlueprintCallable, Category = "DualContour|Runtime Save")
+	bool LoadRuntimeDensityIncrement(const FString& SlotName, int32 UserIndex = 0);
+
+	UFUNCTION(CallInEditor, Category = "DualContour|Runtime Save", meta = (DisplayName = "Test Save Density Increment"))
+	void TestSaveRuntimeDensityIncrement();
+
+	UFUNCTION(CallInEditor, Category = "DualContour|Runtime Save", meta = (DisplayName = "Test Load Density Increment"))
+	void TestLoadRuntimeDensityIncrement();
 
 #if WITH_EDITOR
 	/** Rebuilds the editor-only mesh-chunk visualization when DualContour.Debug.DrawMeshComponents is enabled. */

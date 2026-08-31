@@ -42,12 +42,21 @@ public:
 	FOnDirtyDualContourChunksRebuilt OnDirtyChunksRebuilt;
 
 	bool HasCurrentGeneratedData() const;
-	
+
 	uint8 GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
+	/** Returns the chunk overlay accumulated by runtime density mutation paths. */
+	const FDualContourDensityChunks& GetModifiedDensityChunks() const { return ModifiedDensityChunks; }
+
 	const FDualContourCell* GetCell(int32 CellX, int32 CellY, int32 CellZ) const;
 	bool HasActiveCellInRange(FIntVector CellMin, FIntVector CellMax) const;
 
 	bool Rebuild();
+	/**
+	 * Initializes this runtime contour from a current base contour and optionally overlays saved density chunks.
+	 * The base CellChunks are copied as-is; only chunks affected by the overlay are rebuilt.
+	 */
+	bool Initialize(const UDualContour* InitialDualContour,
+		const FDualContourDensityChunks* InModifiedDensityChunks = nullptr);
 	/** Copies persistent grid settings and generated data from another current DualContour. */
 	bool CopyFrom(const UDualContour* Source);
 	/** Moves sampler-built density chunks into this grid; density outside the sampled range becomes zero. */
@@ -60,6 +69,9 @@ public:
 	bool ApplyEditBatch(FDualContourEditBatch& Batch, FDualContourEditResult& OutResult);
 	/** Restores either side of a sparse edit and performs the same local rebuild path. */
 	bool ApplyEditDeltas(TConstArrayView<FDualContourSampleDelta> Deltas, bool bUseAfterValues, FDualContourEditResult* OutResult = nullptr);
+
+	/** Applies a validated chunk overlay to the current density grid and records it for subsequent saves. */
+	bool ApplyModifiedDensityChunks(const FDualContourDensityChunks& InModifiedDensityChunks);
 
 	FIntVector GetSampleDimensions() const { return FIntVector(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }
 
@@ -82,6 +94,10 @@ private:
 	UPROPERTY(NonTransactional)
 	TMap<FIntVector, FDensityChunk> DensityChunks;
 
+	/** Latest complete state of every density chunk touched since the base contour was copied or generated. */
+	UPROPERTY(Transient, NonTransactional)
+	TMap<FIntVector, FDensityChunk> ModifiedDensityChunks;
+
 	/** Runtime cache rebuilt from DensityChunks after loading. It is intentionally excluded from assets. */
 	UPROPERTY(Transient, NonTransactional)
 	TMap<FIntVector, FCellChunk> CellChunks;
@@ -96,8 +112,10 @@ private:
 	FDualContourCell CreateNewCell(int32 CellX, int32 CellY, int32 CellZ) const;
 	void CompactAllDensityChunks();
 	void CompactDensityChunks(const TSet<FIntVector>& ChunkCoords);
-
 	void RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax);
+
 	void WriteDirtyDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Density, TSet<FIntVector>& DirtyChunks);
 	void RebuildDirtyCellChunks(const TSet<FIntVector>& DirtyDensityChunks, FDualContourDirtyRegion& OutDirtyRegion);
+
+	void RecordModifiedDensityChunks(const TSet<FIntVector>& ChunkCoords);
 };

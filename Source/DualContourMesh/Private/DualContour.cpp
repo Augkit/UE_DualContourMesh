@@ -93,6 +93,7 @@ void UDualContour::PostLoad()
 {
 	Super::PostLoad();
 	CompactAllDensityChunks();
+	ModifiedDensityChunks.Reset();
 
 	// CellChunks is derived entirely from the persistent density grid. Keeping it transient
 	// avoids serializing the large nested map while preserving the existing runtime query API.
@@ -207,6 +208,18 @@ bool UDualContour::Rebuild()
 	return true;
 }
 
+bool UDualContour::Initialize(const UDualContour* InitialDualContour,
+	const FDualContourDensityChunks* InModifiedDensityChunks)
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_Initialize);
+	if (!CopyFrom(InitialDualContour))
+		return false;
+
+	// CopyFrom transfers the already-built cell cache. Applying the sparse overlay then
+	// rebuilds only the cell chunks whose density inputs may have changed.
+	return !InModifiedDensityChunks || ApplyModifiedDensityChunks(*InModifiedDensityChunks);
+}
+
 bool UDualContour::CopyFrom(const UDualContour* Source)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_CopyFrom);
@@ -223,6 +236,7 @@ bool UDualContour::CopyFrom(const UDualContour* Source)
 	RelaxationNormalCosine = Source->RelaxationNormalCosine;
 	bRebuildRequired = Source->bRebuildRequired;
 	DensityChunks = Source->DensityChunks;
+	ModifiedDensityChunks.Reset();
 	CellChunks = Source->CellChunks;
 	LastBuiltCellCount = Source->LastBuiltCellCount;
 	OnCellsRebuilt.Broadcast(FIntVector(0, 0, 0), CellCount);
@@ -244,6 +258,7 @@ bool UDualContour::ReplaceDensityChunks(FDualContourSampledRegion&& SampledRegio
 	const FIntVector SampleDimensions = SampledRegion.SampleDimensions;
 	const FIntVector SampleMax = SampleMin + SampleDimensions;
 	DensityChunks.Empty(SampledRegion.Chunks.Num());
+	ModifiedDensityChunks.Reset();
 	for (FDualContourSampledChunk& SampledChunk : SampledRegion.Chunks)
 	{
 		SampledChunk.Density.TryCollapse();
@@ -341,6 +356,7 @@ bool UDualContour::ModifyDensityChunks(const FDualContourSampledRegion& SampledR
 	if (ModifiedChunks.IsEmpty())
 		return false;
 	CompactDensityChunks(ModifiedChunks);
+	RecordModifiedDensityChunks(ModifiedChunks);
 
 	const FIntVector CellRangeMin(FMath::Max(0, ModifiedSampleMin.X - 1), FMath::Max(0, ModifiedSampleMin.Y - 1),
 		FMath::Max(0, ModifiedSampleMin.Z - 1));
@@ -382,6 +398,7 @@ bool UDualContour::ApplyEditBatch(FDualContourEditBatch& Batch, FDualContourEdit
 		return false;
 
 	CompactDensityChunks(ActuallyDirtyChunks);
+	RecordModifiedDensityChunks(ActuallyDirtyChunks);
 	RebuildDirtyCellChunks(ActuallyDirtyChunks, OutResult.DirtyRegion);
 	return true;
 }
@@ -396,6 +413,7 @@ bool UDualContour::ApplyEditDeltas(TConstArrayView<FDualContourSampleDelta> Delt
 	if (DirtyChunks.IsEmpty())
 		return false;
 	CompactDensityChunks(DirtyChunks);
+	RecordModifiedDensityChunks(DirtyChunks);
 	FDualContourDirtyRegion DirtyRegion;
 	RebuildDirtyCellChunks(DirtyChunks, DirtyRegion);
 	if (OutResult)
@@ -521,6 +539,46 @@ float UDualContour::TrilinearDensity(const FVector& GridPos) const
 				BlendX),
 			FMath::Lerp(static_cast<float>(GetDensity(LowerX, UpperY, UpperZ)), static_cast<float>(GetDensity(UpperX, UpperY, UpperZ)), BlendX),
 			BlendY), BlendZ);
+}
+
+bool UDualContour::ApplyModifiedDensityChunks(const FDualContourDensityChunks& InModifiedDensityChunks)
+{
+	if (!HasCurrentGeneratedData())
+		return false;
+
+	const FIntVector SampleDimensions = GetSampleDimensions();
+	const int32 ExpandedChunkSize = GDualContourChunkSize * GDualContourChunkSize * GDualContourChunkSize;
+	for (const TPair<FIntVector, FDensityChunk>& Pair : InModifiedDensityChunks)
+	{
+		const FIntVector ChunkOrigin = DualContourUtils::ChunkOrigin(Pair.Key);
+		if (ChunkOrigin.X < 0 || ChunkOrigin.Y < 0 || ChunkOrigin.Z < 0
+			|| ChunkOrigin.X >= SampleDimensions.X || ChunkOrigin.Y >= SampleDimensions.Y || ChunkOrigin.Z >= SampleDimensions.Z
+			|| (!Pair.Value.IsUniform() && Pair.Value.DensitySamples.Num() != ExpandedChunkSize))
+		{
+			return false;
+		}
+	}
+
+	TSet<FIntVector> DirtyChunks;
+	DirtyChunks.Reserve(InModifiedDensityChunks.Num());
+	for (const TPair<FIntVector, FDensityChunk>& Pair : InModifiedDensityChunks)
+	{
+		FDensityChunk Chunk = Pair.Value;
+		Chunk.TryCollapse();
+		if (Chunk.IsUniform() && Chunk.UniformValue == 0)
+			DensityChunks.Remove(Pair.Key);
+		else
+			DensityChunks.Add(Pair.Key, MoveTemp(Chunk));
+		DirtyChunks.Add(Pair.Key);
+	}
+	ModifiedDensityChunks = InModifiedDensityChunks;
+
+	if (!DirtyChunks.IsEmpty())
+	{
+		FDualContourDirtyRegion DirtyRegion;
+		RebuildDirtyCellChunks(DirtyChunks, DirtyRegion);
+	}
+	return true;
 }
 
 void UDualContour::RebuildCells()
@@ -763,6 +821,23 @@ void UDualContour::RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax)
 	}
 	if (RangeMin.X < RangeMax.X && RangeMin.Y < RangeMax.Y && RangeMin.Z < RangeMax.Z)
 		OnCellsRebuilt.Broadcast(RangeMin, RangeMax);
+}
+
+void UDualContour::RecordModifiedDensityChunks(const TSet<FIntVector>& ChunkCoords)
+{
+	for (const FIntVector& ChunkCoord : ChunkCoords)
+	{
+		if (const FDensityChunk* Chunk = DensityChunks.Find(ChunkCoord))
+		{
+			ModifiedDensityChunks.Add(ChunkCoord, *Chunk);
+		}
+		else
+		{
+			// A missing chunk means uniform zero in the main sparse grid. Keep an explicit
+			// zero override so loading can remove a non-zero chunk from the base contour.
+			ModifiedDensityChunks.Add(ChunkCoord, FDensityChunk());
+		}
+	}
 }
 
 #if WITH_EDITOR

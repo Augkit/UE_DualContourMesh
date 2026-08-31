@@ -4,6 +4,7 @@
 #include "VolumeSampler/ProceduralVolumeSampler.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "InputCoreTypes.h"
 
 void ADualContourTestPlayerController::SetupInputComponent()
@@ -18,6 +19,8 @@ void ADualContourTestPlayerController::SetupInputComponent()
 	InputComponent->BindKey(EKeys::Five, IE_Pressed, this, &ADualContourTestPlayerController::SelectTorusSampler);
 	InputComponent->BindKey(EKeys::LeftBracket, IE_Pressed, this, &ADualContourTestPlayerController::DecreaseSamplerScale);
 	InputComponent->BindKey(EKeys::RightBracket, IE_Pressed, this, &ADualContourTestPlayerController::IncreaseSamplerScale);
+	InputComponent->BindKey(EKeys::K, IE_Pressed, this, &ADualContourTestPlayerController::SaveRuntimeDensityIncrement);
+	InputComponent->BindKey(EKeys::L, IE_Pressed, this, &ADualContourTestPlayerController::LoadRuntimeDensityIncrement);
 
 	if (!SelectedSampler)
 		SelectSphereSampler();
@@ -72,6 +75,29 @@ void ADualContourTestPlayerController::DecreaseSamplerScale()
 void ADualContourTestPlayerController::IncreaseSamplerScale()
 {
 	SamplerScale = FMath::Min(10.0f, SamplerScale * FMath::Max(1.01f, SamplerScaleStep));
+}
+
+void ADualContourTestPlayerController::SaveRuntimeDensityIncrement()
+{
+	if (ADualContourMeshActor* MeshActor = FindDualContourMeshActor())
+		MeshActor->TestSaveRuntimeDensityIncrement();
+}
+
+void ADualContourTestPlayerController::LoadRuntimeDensityIncrement()
+{
+	if (ADualContourMeshActor* MeshActor = FindDualContourMeshActor())
+		MeshActor->TestLoadRuntimeDensityIncrement();
+}
+
+ADualContourMeshActor* ADualContourTestPlayerController::FindDualContourMeshActor() const
+{
+	UWorld* World = GetWorld();
+	if (!World)
+		return nullptr;
+
+	for (TActorIterator<ADualContourMeshActor> It(World); It; ++It)
+		return *It;
+	return nullptr;
 }
 
 void ADualContourTestPlayerController::ApplySelectedSampler(bool bExcavate)

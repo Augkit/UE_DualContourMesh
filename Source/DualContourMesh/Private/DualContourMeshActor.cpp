@@ -1,11 +1,14 @@
 #include "DualContourMeshActor.h"
 #include "DualContourMeshBuilder.h"
+#include "DualContourRuntimeSaveGame.h"
 #include "Async/ParallelFor.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Engine/CollisionProfile.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
+#include "Kismet/GameplayStatics.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
+#include "UObject/StrongObjectPtr.h"
 #include "VolumeSampler/VolumeSampler.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDualContourMesh, Log, All);
@@ -236,7 +239,7 @@ void ADualContourMeshActor::RebuildMesh()
 			return;
 		}
 
-		if (!DualContour->CopyFrom(InitialDualContour))
+		if (!DualContour->Initialize(InitialDualContour))
 		{
 			UE_LOG(LogDualContourMesh, Error,
 				TEXT("Mesh rebuild aborted for %s because InitialDualContour is missing current generated data."), *GetName());
@@ -250,6 +253,99 @@ void ADualContourMeshActor::RebuildMesh()
 	if (!DualContour || !DualContour->Rebuild())
 		return;
 	RecreateMeshComponents();
+}
+
+bool ADualContourMeshActor::SaveRuntimeDensityIncrement(const FString& SlotName, int32 UserIndex) const
+{
+	if (SlotName.IsEmpty() || UserIndex < 0 || !InitialDualContour || !DualContour
+	    || !InitialDualContour->HasCurrentGeneratedData() || !DualContour->HasCurrentGeneratedData())
+	{
+		UE_LOG(LogDualContourMesh, Warning,
+			TEXT("Runtime density save failed for %s because its slot, user index, InitialDualContour, or runtime data is invalid."),
+			*GetName());
+		return false;
+	}
+	if (InitialDualContour->CellCount != DualContour->CellCount)
+	{
+		UE_LOG(LogDualContourMesh, Warning, TEXT("Runtime density save failed for %s because InitialDualContour and DualContour dimensions differ."),
+			*GetName());
+		return false;
+	}
+
+	TStrongObjectPtr<UDualContourRuntimeSaveGame> SaveGame(
+		Cast<UDualContourRuntimeSaveGame>(UGameplayStatics::CreateSaveGameObject(UDualContourRuntimeSaveGame::StaticClass())));
+	if (!SaveGame.IsValid())
+		return false;
+
+	SaveGame->BaseDualContourPath = FSoftObjectPath(InitialDualContour);
+	SaveGame->BaseCellCount = InitialDualContour->CellCount;
+	SaveGame->DensityChunks = DualContour->GetModifiedDensityChunks();
+
+	const bool bSaved = UGameplayStatics::SaveGameToSlot(SaveGame.Get(), SlotName, UserIndex);
+	if (bSaved)
+	{
+		UE_LOG(LogDualContourMesh, Log, TEXT("Runtime density save completed for %s: slot '%s', user %d, %d modified chunks."),
+			*GetName(), *SlotName, UserIndex, SaveGame->DensityChunks.Num());
+	}
+	else
+	{
+		UE_LOG(LogDualContourMesh, Error, TEXT("Runtime density save failed for %s: slot '%s', user %d."),
+			*GetName(), *SlotName, UserIndex);
+	}
+	return bSaved;
+}
+
+bool ADualContourMeshActor::LoadRuntimeDensityIncrement(const FString& SlotName, int32 UserIndex)
+{
+	if (SlotName.IsEmpty() || UserIndex < 0 || !InitialDualContour || !DualContour
+	    || !InitialDualContour->HasCurrentGeneratedData())
+	{
+		UE_LOG(LogDualContourMesh, Warning,
+			TEXT("Runtime density load failed for %s because its slot, user index, InitialDualContour, or runtime target is invalid."),
+			*GetName());
+		return false;
+	}
+
+	TStrongObjectPtr<USaveGame> LoadedObject(UGameplayStatics::LoadGameFromSlot(SlotName, UserIndex));
+	const UDualContourRuntimeSaveGame* SaveGame = Cast<UDualContourRuntimeSaveGame>(LoadedObject.Get());
+	if (!SaveGame || SaveGame->SaveVersion != 4)
+	{
+		UE_LOG(LogDualContourMesh, Warning, TEXT("Runtime density load failed for %s: slot '%s' is missing or incompatible."),
+			*GetName(), *SlotName);
+		return false;
+	}
+	if (SaveGame->BaseCellCount != InitialDualContour->CellCount
+	    || (!SaveGame->BaseDualContourPath.IsNull() && SaveGame->BaseDualContourPath != FSoftObjectPath(InitialDualContour)))
+	{
+		UE_LOG(LogDualContourMesh, Warning,
+			TEXT("Runtime density load failed for %s because the save was created from a different InitialDualContour."), *GetName());
+		return false;
+	}
+
+	TGuardValue<bool> RebuildingMeshGuard(bRebuildingMesh, true);
+	if (!DualContour->Initialize(InitialDualContour, &SaveGame->DensityChunks))
+	{
+		RecreateMeshComponents();
+		UE_LOG(LogDualContourMesh, Error,
+			TEXT("Runtime density load failed for %s while initializing from InitialDualContour and slot '%s'."), *GetName(), *SlotName);
+		return false;
+	}
+	RecreateMeshComponents();
+
+	UE_LOG(LogDualContourMesh, Log,
+		TEXT("Runtime density load completed for %s: slot '%s', user %d, %d modified chunks."),
+		*GetName(), *SlotName, UserIndex, SaveGame->DensityChunks.Num());
+	return true;
+}
+
+void ADualContourMeshActor::TestSaveRuntimeDensityIncrement()
+{
+	SaveRuntimeDensityIncrement(RuntimeSaveSlotName, RuntimeSaveUserIndex);
+}
+
+void ADualContourMeshActor::TestLoadRuntimeDensityIncrement()
+{
+	LoadRuntimeDensityIncrement(RuntimeSaveSlotName, RuntimeSaveUserIndex);
 }
 
 bool ADualContourMeshActor::SetGeneratedDualContour(UDualContour* InDualContour)
@@ -325,7 +421,7 @@ void ADualContourMeshActor::OnDualContourChunksRebuilt(const FDualContourDirtyRe
 	if (bRebuildingMesh || !DualContour || DirtyRegion.CellChunks.IsEmpty())
 		return;
 	if (MeshCellCount.X != DualContour->CellCount.X || MeshCellCount.Y != DualContour->CellCount.Y
-		|| MeshCellCount.Z != DualContour->CellCount.Z || MeshCellSize != DualContour->CellSize)
+	    || MeshCellCount.Z != DualContour->CellCount.Z || MeshCellSize != DualContour->CellSize)
 	{
 		RecreateMeshComponents();
 		return;

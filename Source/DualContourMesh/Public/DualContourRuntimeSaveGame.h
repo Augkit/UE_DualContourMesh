@@ -1,0 +1,26 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "DualContourTypes.h"
+#include "GameFramework/SaveGame.h"
+#include "DualContourRuntimeSaveGame.generated.h"
+
+/** Modified density chunks that are overlaid on an InitialDualContour. */
+UCLASS()
+class DUALCONTOURMESH_API UDualContourRuntimeSaveGame : public USaveGame
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(SaveGame)
+	int32 SaveVersion = 4;
+
+	UPROPERTY(SaveGame)
+	FSoftObjectPath BaseDualContourPath;
+
+	UPROPERTY(SaveGame)
+	FIntVector BaseCellCount = FIntVector::ZeroValue;
+
+	UPROPERTY(SaveGame)
+	TMap<FIntVector, FDensityChunk> DensityChunks;
+};
