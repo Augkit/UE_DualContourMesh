@@ -99,11 +99,21 @@ void ADualContourMeshActor::PostRegisterAllComponents()
 	RefreshCollisionSettings();
 
 #if WITH_EDITOR
-	if (bRebuildInitialDualContourAfterLoad && InitialDualContour && GetWorld()
-	    && GetWorld()->WorldType == EWorldType::Editor && !IsTemplate())
+	if (bRestoreMeshAfterLoad && GetWorld() && GetWorld()->WorldType == EWorldType::Editor && !IsTemplate())
 	{
-		bRebuildInitialDualContourAfterLoad = false;
-		RebuildMesh();
+		bRestoreMeshAfterLoad = false;
+		if (DualContour && DualContour->HasCurrentGeneratedData())
+		{
+			// DualContour is an instanced default subobject, so its serialized density grid is
+			// already restored at this point. Recreate only the transient render components;
+			// rebuilding from InitialDualContour here would discard saved editor strokes.
+			RecreateMeshComponents();
+		}
+		else if (InitialDualContour)
+		{
+			// Older or newly placed actors may not contain a valid saved contour yet.
+			RebuildMesh();
+		}
 	}
 
 	if (DualContour && DualContour->HasCurrentGeneratedData())
@@ -115,9 +125,11 @@ void ADualContourMeshActor::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// InitialDualContour is fully loaded and all actor components are registered at this point.
-	// Avoid doing this from construction/registration callbacks, which can run repeatedly in the editor.
-	if (InitialDualContour)
+	// A placed actor can contain an editor-saved density grid. Preserve it when entering play;
+	// InitialDualContour is only the fallback for actors without valid serialized contour data.
+	if (DualContour && DualContour->HasCurrentGeneratedData())
+		RecreateMeshComponents();
+	else if (InitialDualContour)
 		RebuildMesh();
 }
 
@@ -148,7 +160,7 @@ void ADualContourMeshActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void ADualContourMeshActor::PostLoad()
 {
 	Super::PostLoad();
-	bRebuildInitialDualContourAfterLoad = InitialDualContour != nullptr;
+	bRestoreMeshAfterLoad = true;
 }
 
 void ADualContourMeshActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)

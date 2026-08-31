@@ -173,7 +173,7 @@ private:
 	void RefreshDebugComponent();
 	void RequestDebugComponentRefresh(bool bImmediate);
 	void ProcessPendingDebugComponentRefresh();
-	bool bRebuildInitialDualContourAfterLoad = false;
+	bool bRestoreMeshAfterLoad = false;
 	bool bDebugRefreshPending = false;
 	bool bDebugRefreshImmediatelyAfterMeshUpdate = false;
 	double DebugRefreshDeadline = 0.0;
