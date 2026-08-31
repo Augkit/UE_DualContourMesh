@@ -50,13 +50,13 @@ public:
 	const FDualContourCell* GetCell(int32 CellX, int32 CellY, int32 CellZ) const;
 	bool HasActiveCellInRange(FIntVector CellMin, FIntVector CellMax) const;
 
-	bool Rebuild();
 	/**
 	 * Initializes this runtime contour from a current base contour and optionally overlays saved density chunks.
 	 * The base CellChunks are copied as-is; only chunks affected by the overlay are rebuilt.
 	 */
-	bool Initialize(const UDualContour* InitialDualContour,
-		const FDualContourDensityChunks* InModifiedDensityChunks = nullptr);
+	bool Initialize(const UDualContour* InitialDualContour, const FDualContourDensityChunks* InModifiedDensityChunks = nullptr);
+
+	bool Rebuild();
 	/** Copies persistent grid settings and generated data from another current DualContour. */
 	bool CopyFrom(const UDualContour* Source);
 	/** Moves sampler-built density chunks into this grid; density outside the sampled range becomes zero. */

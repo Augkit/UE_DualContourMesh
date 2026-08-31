@@ -195,6 +195,18 @@ bool UDualContour::HasActiveCellInRange(FIntVector CellMin, FIntVector CellMax) 
 	return false;
 }
 
+bool UDualContour::Initialize(const UDualContour* InitialDualContour,
+	const FDualContourDensityChunks* InModifiedDensityChunks)
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_Initialize);
+	if (!CopyFrom(InitialDualContour))
+		return false;
+
+	// CopyFrom transfers the already-built cell cache. Applying the sparse overlay then
+	// rebuilds only the cell chunks whose density inputs may have changed.
+	return !InModifiedDensityChunks || ApplyModifiedDensityChunks(*InModifiedDensityChunks);
+}
+
 bool UDualContour::Rebuild()
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_Rebuild);
@@ -206,18 +218,6 @@ bool UDualContour::Rebuild()
 	bRebuildRequired = false;
 	RebuildCells();
 	return true;
-}
-
-bool UDualContour::Initialize(const UDualContour* InitialDualContour,
-	const FDualContourDensityChunks* InModifiedDensityChunks)
-{
-	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_Initialize);
-	if (!CopyFrom(InitialDualContour))
-		return false;
-
-	// CopyFrom transfers the already-built cell cache. Applying the sparse overlay then
-	// rebuilds only the cell chunks whose density inputs may have changed.
-	return !InModifiedDensityChunks || ApplyModifiedDensityChunks(*InModifiedDensityChunks);
 }
 
 bool UDualContour::CopyFrom(const UDualContour* Source)
