@@ -56,11 +56,11 @@ public:
 	 */
 	bool Initialize(const UDualContour* InitialDualContour, const FDualContourDensityChunks* InModifiedDensityChunks = nullptr);
 	/** Copies persistent grid settings and generated data from another current DualContour. */
-	bool CopyFrom(const UDualContour* Source);
+	bool CopyFrom(const UDualContour* Source, bool bBroadcastCellsRebuilt = true);
 
 	bool Rebuild();
 	/** Moves sampler-built density chunks into this grid; density outside the sampled range becomes zero. */
-	bool ReplaceDensityChunks(FDualContourSampledRegion&& SampledRegion);
+	bool ReplaceDensityChunks(FDualContourSampledRegion&& SampledRegion, bool bBroadcastCellsRebuilt = true);
 	/** Combines sampler-built density chunks and rebuilds only changed cells. */
 	bool ModifyDensityChunks(const FDualContourSampledRegion& SampledRegion, bool bExcavate,
 		FIntVector& OutAffectedCellMin, FIntVector& OutAffectedCellMax);
@@ -113,7 +113,7 @@ private:
 
 	void RebuildCells();
 	FDualContourCell CreateNewCell(int32 CellX, int32 CellY, int32 CellZ) const;
-	void RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax);
+	void RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax, bool bBroadcastCellsRebuilt = true);
 	void RebuildDirtyCellChunks(const TSet<FIntVector>& DirtyDensityChunks, FDualContourDirtyRegion& OutDirtyRegion);
 
 	void RecordModifiedDensityChunks(const TSet<FIntVector>& ChunkCoords);

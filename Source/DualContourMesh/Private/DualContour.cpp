@@ -199,15 +199,19 @@ bool UDualContour::Initialize(const UDualContour* InitialDualContour,
 	const FDualContourDensityChunks* InModifiedDensityChunks)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_Initialize);
-	if (!CopyFrom(InitialDualContour))
+	if (!CopyFrom(InitialDualContour, false))
 		return false;
 
 	// CopyFrom transfers the already-built cell cache. Applying the sparse overlay then
 	// rebuilds only the cell chunks whose density inputs may have changed.
-	return !InModifiedDensityChunks || ApplyModifiedDensityChunks(*InModifiedDensityChunks);
+	if (InModifiedDensityChunks && !ApplyModifiedDensityChunks(*InModifiedDensityChunks))
+		return false;
+
+	OnCellsRebuilt.Broadcast(FIntVector::ZeroValue, CellCount);
+	return true;
 }
 
-bool UDualContour::CopyFrom(const UDualContour* Source)
+bool UDualContour::CopyFrom(const UDualContour* Source, bool bBroadcastCellsRebuilt)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_CopyFrom);
 	if (!Source || !Source->HasCurrentGeneratedData())
@@ -226,7 +230,8 @@ bool UDualContour::CopyFrom(const UDualContour* Source)
 	ModifiedDensityChunks.Reset();
 	CellChunks = Source->CellChunks;
 	LastBuiltCellCount = Source->LastBuiltCellCount;
-	OnCellsRebuilt.Broadcast(FIntVector::ZeroValue, CellCount);
+	if (bBroadcastCellsRebuilt)
+		OnCellsRebuilt.Broadcast(FIntVector::ZeroValue, CellCount);
 	return true;
 }
 
@@ -243,7 +248,7 @@ bool UDualContour::Rebuild()
 	return true;
 }
 
-bool UDualContour::ReplaceDensityChunks(FDualContourSampledRegion&& SampledRegion)
+bool UDualContour::ReplaceDensityChunks(FDualContourSampledRegion&& SampledRegion, bool bBroadcastCellsRebuilt)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_ReplaceDensityChunks);
 	bRebuildRequired = true;
@@ -271,7 +276,8 @@ bool UDualContour::ReplaceDensityChunks(FDualContourSampledRegion&& SampledRegio
 	bRebuildRequired = false;
 	if (SampleDimensions == FIntVector::ZeroValue)
 	{
-		OnCellsRebuilt.Broadcast(FIntVector::ZeroValue, CellCount);
+		if (bBroadcastCellsRebuilt)
+			OnCellsRebuilt.Broadcast(FIntVector::ZeroValue, CellCount);
 	}
 	else
 	{
@@ -279,7 +285,7 @@ bool UDualContour::ReplaceDensityChunks(FDualContourSampledRegion&& SampledRegio
 			FMath::Max(0, SampleMin.Z - 1));
 		const FIntVector CellRangeMax(FMath::Min(CellCount.X, SampleMax.X), FMath::Min(CellCount.Y, SampleMax.Y),
 			FMath::Min(CellCount.Z, SampleMax.Z));
-		RebuildCellsInRange(CellRangeMin, CellRangeMax);
+		RebuildCellsInRange(CellRangeMin, CellRangeMax, bBroadcastCellsRebuilt);
 	}
 	return true;
 }
@@ -630,7 +636,7 @@ FDualContourCell UDualContour::CreateNewCell(int32 CellX, int32 CellY, int32 Cel
 	return Cell;
 }
 
-void UDualContour::RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax)
+void UDualContour::RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax, bool bBroadcastCellsRebuilt)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_RebuildCellsInRange);
 	check(IsInGameThread());
@@ -757,7 +763,7 @@ void UDualContour::RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax)
 			if (FDualContourCell* Cell = const_cast<FDualContourCell*>(GetCell(Pair.Key.X, Pair.Key.Y, Pair.Key.Z)))
 				Cell->Center = Pair.Value;
 	}
-	if (RangeMin.X < RangeMax.X && RangeMin.Y < RangeMax.Y && RangeMin.Z < RangeMax.Z)
+	if (bBroadcastCellsRebuilt && RangeMin.X < RangeMax.X && RangeMin.Y < RangeMax.Y && RangeMin.Z < RangeMax.Z)
 		OnCellsRebuilt.Broadcast(RangeMin, RangeMax);
 }
 
