@@ -1,4 +1,5 @@
-﻿#include "VolumeSampler/TextureSDFSampler.h"
+#include "VolumeSampler/TextureSDFSampler.h"
+#include "DualContourUtils.h"
 #include "Engine/Texture2D.h"
 #include "Engine/VolumeTexture.h"
 #include "Math/Float16.h"
@@ -7,14 +8,14 @@
 namespace
 {
 bool ReadFloatTexture(const UTexture& Texture, const FTexturePlatformData* PlatformData,
-	FVectorInt& OutResolution, TArray<float>& OutValues, FText& OutError)
+	FIntVector& OutResolution, TArray<float>& OutValues, FText& OutError)
 {
 #if WITH_EDITORONLY_DATA
 	FTextureSource& Source = const_cast<UTexture&>(Texture).Source;
 	const ETextureSourceFormat Format = Source.GetFormat();
 	if (Format == TSF_R16F || Format == TSF_R32F)
 	{
-		OutResolution = FVectorInt(Source.GetSizeX(), Source.GetSizeY(), FMath::Max(1, Source.GetNumSlices()));
+		OutResolution = FIntVector(Source.GetSizeX(), Source.GetSizeY(), FMath::Max(1, Source.GetNumSlices()));
 		const int64 ValueCount = static_cast<int64>(OutResolution.X) * OutResolution.Y * OutResolution.Z;
 		if (ValueCount <= 0 || ValueCount > MAX_int32)
 		{
@@ -67,7 +68,7 @@ bool ReadFloatTexture(const UTexture& Texture, const FTexturePlatformData* Platf
 	}
 
 	const FTexture2DMipMap& Mip = PlatformData->Mips[0];
-	OutResolution = FVectorInt(Mip.SizeX, Mip.SizeY, FMath::Max<int32>(1, Mip.SizeZ));
+	OutResolution = FIntVector(Mip.SizeX, Mip.SizeY, FMath::Max<int32>(1, Mip.SizeZ));
 	const int64 ValueCount = static_cast<int64>(OutResolution.X) * OutResolution.Y * OutResolution.Z;
 	const int64 BytesPerValue = PixelFormat == PF_R32_FLOAT ? sizeof(float) : sizeof(FFloat16);
 	if (ValueCount <= 0 || ValueCount > MAX_int32 || Mip.BulkData.GetBulkDataSize() < ValueCount * BytesPerValue)
@@ -118,7 +119,7 @@ float UTextureSDFSampler::SampleCachedTexture(const FVector& UVW) const
 	const float FX = TexelPosition.X - X0, FY = TexelPosition.Y - Y0, FZ = TexelPosition.Z - Z0;
 	const auto Value = [this](int32 X, int32 Y, int32 Z)
 	{
-		return CachedSignedDistances[CachedResolution.LinearIndex(X, Y, Z)];
+		return CachedSignedDistances[DualContourUtils::LinearIndex(CachedResolution, X, Y, Z)];
 	};
 	const float D0 = FMath::Lerp(FMath::Lerp(Value(X0, Y0, Z0), Value(X1, Y0, Z0), FX),
 		FMath::Lerp(Value(X0, Y1, Z0), Value(X1, Y1, Z0), FX), FY);
@@ -129,7 +130,7 @@ float UTextureSDFSampler::SampleCachedTexture(const FVector& UVW) const
 
 void UTextureSDFSampler::Finish() const
 {
-	CachedResolution = FVectorInt();
+	CachedResolution = FIntVector::ZeroValue;
 	CachedSignedDistances.Reset();
 }
 
@@ -177,7 +178,7 @@ bool UTex2DSDFSampler::PrepareTexture(FText& OutError) const
 		return false;
 	}
 
-	FVectorInt AtlasResolution;
+	FIntVector AtlasResolution = FIntVector::ZeroValue;
 	TArray<float> AtlasValues;
 	if (!ReadFloatTexture(*Texture, Texture->GetPlatformData(), AtlasResolution, AtlasValues, OutError))
 		return false;
@@ -203,7 +204,7 @@ bool UTex2DSDFSampler::PrepareTexture(FText& OutError) const
 			{
 				const int32 AtlasX = (Z % TileColumns) * VolumeResolution.X + X;
 				const int32 AtlasY = (Z / TileColumns) * VolumeResolution.Y + Y;
-				CachedSignedDistances[VolumeResolution.LinearIndex(X, Y, Z)] =
+				CachedSignedDistances[DualContourUtils::LinearIndex(VolumeResolution, X, Y, Z)] =
 					AtlasValues[AtlasX + AtlasY * AtlasResolution.X];
 			}
 	return true;

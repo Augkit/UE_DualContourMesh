@@ -25,7 +25,7 @@ public:
 
 	/** Copies the non-overlapping cell partitions owned by the current mesh components. Call MarkRenderStateDirty() afterwards. */
 	void UpdateFromMeshComponents(const TMap<int32, TObjectPtr<UDualContourMeshComponent>>& MeshComponents,
-		FVectorInt CellCount, float CellSize, FVectorInt Divisions);
+		FIntVector CellCount, float CellSize, FIntVector Divisions);
 
 	struct FMeshEntry
 	{

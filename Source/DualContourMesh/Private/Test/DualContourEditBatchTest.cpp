@@ -10,7 +10,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualContourEditBatchTest,
 bool FDualContourEditBatchTest::RunTest(const FString& Parameters)
 {
 	UDualContour* DualContour = NewObject<UDualContour>(GetTransientPackage());
-	DualContour->CellCount = FVectorInt(16, 16, 16);
+	DualContour->CellCount = FIntVector(16, 16, 16);
 	DualContour->CellSize = 10.0f;
 	DualContour->VertexRelaxation = 0.0f;
 	TestTrue(TEXT("Empty density field builds"), DualContour->Rebuild());

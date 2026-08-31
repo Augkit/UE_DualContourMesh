@@ -5,7 +5,7 @@
 #include "DualContourTypes.h"
 #include "DualContour.generated.h"
 
-DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDualContourCellsRebuilt, FVectorInt, FVectorInt);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDualContourCellsRebuilt, FIntVector, FIntVector);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnDirtyDualContourChunksRebuilt, const FDualContourDirtyRegion&);
 
 /** Owns the dual-contour source data, generation settings, and contour-building algorithms. */
@@ -16,7 +16,7 @@ class DUALCONTOURMESH_API UDualContour : public UObject
 
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour")
-	FVectorInt CellCount = FVectorInt(64, 64, 64);
+	FIntVector CellCount = FIntVector(64, 64, 64);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour")
 	float CellSize = 10.f;
@@ -47,12 +47,12 @@ public:
 	/** Replaces the complete sample grid and rebuilds contour cells. Samples are X-major. */
 	bool ReplaceDensitySamples(const TArray<uint8>& Samples);
 	/** Replaces the density grid with an X-major subrange; samples outside the range become zero. */
-	bool ReplaceDensitySamplesInRange(FVectorInt SampleMin, FVectorInt SampleDimensions, TConstArrayView<uint8> Samples);
+	bool ReplaceDensitySamplesInRange(FIntVector SampleMin, FIntVector SampleDimensions, TConstArrayView<uint8> Samples);
 	/** Combines a complete sampler grid using density union/difference and rebuilds only changed cells. */
-	bool ModifyDensitySamples(const TArray<uint8>& Samples, bool bExcavate, FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax);
+	bool ModifyDensitySamples(const TArray<uint8>& Samples, bool bExcavate, FIntVector& OutAffectedCellMin, FIntVector& OutAffectedCellMax);
 	/** Combines an X-major sampler subrange and rebuilds only changed cells. */
-	bool ModifyDensitySamplesInRange(FVectorInt SampleMin, FVectorInt SampleDimensions, TConstArrayView<uint8> Samples, bool bExcavate,
-		FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax);
+	bool ModifyDensitySamplesInRange(FIntVector SampleMin, FIntVector SampleDimensions, TConstArrayView<uint8> Samples, bool bExcavate,
+		FIntVector& OutAffectedCellMin, FIntVector& OutAffectedCellMax);
 
 	/** Starts a stroke-style edit. Density writes are accumulated and contour rebuilds are deferred to EndEditBatch. */
 	FDualContourEditBatch BeginEditBatch() const;
@@ -69,7 +69,7 @@ public:
 	float TrilinearDensity(FVector GridPos) const;
 	FVector ComputeGradient(FVector GridPos) const;
 	bool HasCurrentGeneratedData() const;
-	bool HasActiveCellInRange(FVectorInt CellMin, FVectorInt CellMax) const;
+	bool HasActiveCellInRange(FIntVector CellMin, FIntVector CellMax) const;
 
 	FVector GetSampleLocalPosition(int32 SampleX, int32 SampleY, int32 SampleZ) const
 	{
@@ -96,14 +96,14 @@ private:
 	TMap<FIntVector, FCellChunk> CellChunks;
 
 	UPROPERTY()
-	FVectorInt LastBuiltCellCount;
+	FIntVector LastBuiltCellCount = FIntVector(0, 0, 0);
 
-	FVectorInt GetSampleDims() const { return FVectorInt(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }
+	FIntVector GetSampleDims() const { return FIntVector(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }
 	void BuildCells();
 	FDualContourCell BuildNewCell(int32 CellX, int32 CellY, int32 CellZ) const;
 	void CompactAllDensityChunks();
 	void CompactDensityChunks(const TSet<FIntVector>& ChunkCoords);
-	void RebuildCellsInRange(FVectorInt RangeMin, FVectorInt RangeMax);
+	void RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax);
 	void WriteDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Density, TSet<FIntVector>& DirtyChunks);
 	void RebuildDirtyDensityChunks(const TSet<FIntVector>& DirtyDensityChunks, FDualContourDirtyRegion& OutDirtyRegion);
 	void RebuildDirtyCellChunks(const TSet<FIntVector>& ChunkCoords);

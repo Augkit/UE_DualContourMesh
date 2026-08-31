@@ -151,7 +151,7 @@ void ADualContourVisualSweepPlayerController::RunDualContourVisualSweep()
 		MeshActor->SetActorEnableCollision(false);
 		MeshActor->bGenerateOverlapEvents = false;
 		MeshActor->MeshComponentsPerFrame = 64;
-		MeshActor->DualContour->CellCount = FVectorInt(Resolution, Resolution, Resolution);
+		MeshActor->DualContour->CellCount = FIntVector(Resolution, Resolution, Resolution);
 		MeshActor->DualContour->CellSize = CellSize;
 
 		UProceduralVolumeSampler* Sampler = NewObject<UProceduralVolumeSampler>(this, Definition.Class);

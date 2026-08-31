@@ -80,7 +80,7 @@ bool FSVTDualContourBuilder::Sample(const USVTDualContour& SVTDualContour, TArra
 		return false;
 	}
 
-	const FVectorInt SampleDims(SVTDualContour.CellCount.X + 1,
+	const FIntVector SampleDims(SVTDualContour.CellCount.X + 1,
 		SVTDualContour.CellCount.Y + 1, SVTDualContour.CellCount.Z + 1);
 	const int64 NumSamples64 = static_cast<int64>(SampleDims.X) * SampleDims.Y * SampleDims.Z;
 	if (SampleDims.X <= 0 || SampleDims.Y <= 0 || SampleDims.Z <= 0 || NumSamples64 > MAX_int32)

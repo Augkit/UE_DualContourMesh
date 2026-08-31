@@ -44,7 +44,7 @@ public:
 	/** Number of independently generated mesh components along each axis. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Rendering",
 		meta = (ClampMin = "1", EditCondition = "!bAutoCalculateDivisions"))
-	FVectorInt Divisions = FVectorInt(1, 1, 1);
+	FIntVector Divisions = FIntVector(1, 1, 1);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Rendering")
 	TObjectPtr<UMaterialInterface> MeshMaterial = nullptr;
@@ -122,11 +122,11 @@ private:
 	bool bMeshUpdateCompletionPending = false;
 	bool bRebuildingMesh = false;
 	bool bDensityEditInProgress = false;
-	FVectorInt MeshCellCount;
+	FIntVector MeshCellCount = FIntVector(0, 0, 0);
 	float MeshCellSize = 0.f;
 	void BindToDualContour();
 	void UnbindFromDualContour();
-	void OnDualContourCellsRebuilt(FVectorInt AffectedCellMin, FVectorInt AffectedCellMax);
+	void OnDualContourCellsRebuilt(FIntVector AffectedCellMin, FIntVector AffectedCellMax);
 	void OnDualContourChunksRebuilt(const FDualContourDirtyRegion& DirtyRegion);
 	void UpdateMeshDivisions(const TSet<int32>& AffectedDivisions);
 
@@ -144,10 +144,10 @@ private:
 	void UpdateActorTickEnabled();
 	bool HasValidDivisions() const;
 	int32 DivisionIndex(int32 DivX, int32 DivY, int32 DivZ) const;
-	FVectorInt DivisionFromCell(int32 CellX, int32 CellY, int32 CellZ) const;
-	FVectorInt DivisionCellMin(int32 DivX, int32 DivY, int32 DivZ) const;
-	FVectorInt DivisionCellMax(int32 DivX, int32 DivY, int32 DivZ) const;
-	void PartialUpdateComponents(FVectorInt AffectedCellMin, FVectorInt AffectedCellMax);
+	FIntVector DivisionFromCell(int32 CellX, int32 CellY, int32 CellZ) const;
+	FIntVector DivisionCellMin(int32 DivX, int32 DivY, int32 DivZ) const;
+	FIntVector DivisionCellMax(int32 DivX, int32 DivY, int32 DivZ) const;
+	void PartialUpdateComponents(FIntVector AffectedCellMin, FIntVector AffectedCellMax);
 
 #if WITH_EDITOR
 	void RefreshDebugComponent();

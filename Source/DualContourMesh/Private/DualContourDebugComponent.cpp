@@ -148,7 +148,7 @@ bool UDualContourDebugComponent::IsDrawEnabledOnAnyThread()
 
 void UDualContourDebugComponent::UpdateFromMeshComponents(
 	const TMap<int32, TObjectPtr<UDualContourMeshComponent>>& MeshComponents,
-	FVectorInt CellCount, float CellSize, FVectorInt Divisions)
+	FIntVector CellCount, float CellSize, FIntVector Divisions)
 {
 	MeshEntries.Reset();
 	FBox TotalBox(ForceInit);
@@ -173,11 +173,11 @@ void UDualContourDebugComponent::UpdateFromMeshComponents(
 		if (DivisionX < 0 || DivisionY < 0 || DivisionZ < 0 || DivisionZ >= Divisions.Z)
 			continue;
 
-		const FVectorInt CellMin(
+		const FIntVector CellMin(
 			static_cast<int32>(static_cast<int64>(DivisionX) * CellCount.X / Divisions.X),
 			static_cast<int32>(static_cast<int64>(DivisionY) * CellCount.Y / Divisions.Y),
 			static_cast<int32>(static_cast<int64>(DivisionZ) * CellCount.Z / Divisions.Z));
-		const FVectorInt CellMax(
+		const FIntVector CellMax(
 			static_cast<int32>((static_cast<int64>(DivisionX) + 1) * CellCount.X / Divisions.X),
 			static_cast<int32>((static_cast<int64>(DivisionY) + 1) * CellCount.Y / Divisions.Y),
 			static_cast<int32>((static_cast<int64>(DivisionZ) + 1) * CellCount.Z / Divisions.Z));

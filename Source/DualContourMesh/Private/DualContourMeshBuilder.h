@@ -9,5 +9,5 @@ class UDualContour;
 class FDualContourMeshBuilder
 {
 public:
-	static void Build(const UDualContour& DualContour, FVectorInt CellRangeMin, FVectorInt CellRangeMax, FDualContourMeshData& OutMeshData);
+	static void Build(const UDualContour& DualContour, FIntVector CellRangeMin, FIntVector CellRangeMax, FDualContourMeshData& OutMeshData);
 };

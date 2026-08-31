@@ -25,7 +25,7 @@ protected:
 	virtual bool PrepareTexture(FText& OutError) const PURE_VIRTUAL(UTextureSDFSampler::PrepareTexture, return false;);
 	virtual void Finish() const override;
 
-	mutable FVectorInt CachedResolution;
+	mutable FIntVector CachedResolution = FIntVector::ZeroValue;
 	mutable TArray<float> CachedSignedDistances;
 };
 
@@ -57,7 +57,7 @@ public:
 
 	/** Original 3D export resolution. Z cannot be recovered from padded atlas dimensions. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "1"))
-	FVectorInt VolumeResolution = FVectorInt(64, 64, 64);
+	FIntVector VolumeResolution = FIntVector(64, 64, 64);
 
 protected:
 	virtual bool Prepare(FText& OutError) const override;

@@ -1,6 +1,7 @@
 #include "DualContourMeshBuilder.h"
 
 #include "DualContour.h"
+#include "DualContourUtils.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 
 namespace
@@ -13,11 +14,11 @@ public:
 
 	void GenerateQuadsForCell(int32 CellX, int32 CellY, int32 CellZ)
 	{
-		const FVectorInt& CellCounts = DualContour.CellCount;
+		const FIntVector& CellCounts = DualContour.CellCount;
 		const auto GetCell = [this, &CellCounts](int32 QueryCellX, int32 QueryCellY, int32 QueryCellZ)
 			-> const FDualContourCell*
 		{
-			if (!CellCounts.IsValid(QueryCellX, QueryCellY, QueryCellZ))
+			if (!DualContourUtils::IsValidCoordinate(CellCounts, QueryCellX, QueryCellY, QueryCellZ))
 				return nullptr;
 			return DualContour.GetCell(QueryCellX, QueryCellY, QueryCellZ);
 		};
@@ -99,7 +100,7 @@ private:
 };
 }
 
-void FDualContourMeshBuilder::Build(const UDualContour& DualContour, FVectorInt CellRangeMin, FVectorInt CellRangeMax,
+void FDualContourMeshBuilder::Build(const UDualContour& DualContour, FIntVector CellRangeMin, FIntVector CellRangeMax,
 	FDualContourMeshData& OutMeshData)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMeshBuilder_Build);

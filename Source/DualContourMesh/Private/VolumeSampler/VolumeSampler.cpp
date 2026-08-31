@@ -1,4 +1,4 @@
-﻿#include "VolumeSampler/VolumeSampler.h"
+#include "VolumeSampler/VolumeSampler.h"
 #include "DualContour.h"
 #include "Async/ParallelFor.h"
 #include "Misc/ScopeExit.h"
@@ -31,13 +31,13 @@ void UVolumeSampler::PostEditUndo()
 #endif
 
 bool UVolumeSampler::BuildDensitySamples(UDualContour* Target, const FTransform& SampleTransform,
-	FVectorInt& OutSampleMin, FVectorInt& OutSampleDimensions,
+	FIntVector& OutSampleMin, FIntVector& OutSampleDimensions,
 	TArray<uint8>& OutSamples, FText& OutError) const
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_BuildDensitySamples);
 	check(IsInGameThread());
-	OutSampleMin = FVectorInt();
-	OutSampleDimensions = FVectorInt();
+	OutSampleMin = FIntVector::ZeroValue;
+	OutSampleDimensions = FIntVector::ZeroValue;
 	OutSamples.Reset();
 	if (!Target || Target->CellCount.X <= 0 || Target->CellCount.Y <= 0 || Target->CellCount.Z <= 0
 	    || Target->CellCount.X >= MAX_int32 || Target->CellCount.Y >= MAX_int32 || Target->CellCount.Z >= MAX_int32
@@ -92,15 +92,15 @@ bool UVolumeSampler::BuildDensitySamples(UDualContour* Target, const FTransform&
 	// Floor/ceil intentionally include at most one lattice point beyond the mathematical AABB.
 	// This keeps the range conservative in the presence of transform floating-point error; UVW
 	// validation below still writes zero for points outside the actual transformed volume.
-	OutSampleMin = FVectorInt(
+	OutSampleMin = FIntVector(
 		FMath::Clamp(FMath::FloorToInt(ClippedMin.X / Target->CellSize), 0, Target->CellCount.X),
 		FMath::Clamp(FMath::FloorToInt(ClippedMin.Y / Target->CellSize), 0, Target->CellCount.Y),
 		FMath::Clamp(FMath::FloorToInt(ClippedMin.Z / Target->CellSize), 0, Target->CellCount.Z));
-	const FVectorInt SampleMax(
+	const FIntVector SampleMax(
 		FMath::Clamp(FMath::CeilToInt(ClippedMax.X / Target->CellSize) + 1, 0, Target->CellCount.X + 1),
 		FMath::Clamp(FMath::CeilToInt(ClippedMax.Y / Target->CellSize) + 1, 0, Target->CellCount.Y + 1),
 		FMath::Clamp(FMath::CeilToInt(ClippedMax.Z / Target->CellSize) + 1, 0, Target->CellCount.Z + 1));
-	OutSampleDimensions = FVectorInt(SampleMax.X - OutSampleMin.X, SampleMax.Y - OutSampleMin.Y,
+	OutSampleDimensions = FIntVector(SampleMax.X - OutSampleMin.X, SampleMax.Y - OutSampleMin.Y,
 		SampleMax.Z - OutSampleMin.Z);
 	if (OutSampleDimensions.X > MAX_int32 / OutSampleDimensions.Y)
 	{
@@ -167,21 +167,21 @@ bool UVolumeSampler::BuildDensitySamples(UDualContour* Target, const FTransform&
 bool UVolumeSampler::ReplaceDualContour(UDualContour* Target, const FTransform& SampleTransform, FText& OutError)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_ReplaceDualContour);
-	FVectorInt SampleMin;
-	FVectorInt SampleDimensions;
+	FIntVector SampleMin = FIntVector::ZeroValue;
+	FIntVector SampleDimensions = FIntVector::ZeroValue;
 	TArray<uint8> Samples;
 	return BuildDensitySamples(Target, SampleTransform, SampleMin, SampleDimensions, Samples, OutError)
 	       && Target->ReplaceDensitySamplesInRange(SampleMin, SampleDimensions, Samples);
 }
 
 bool UVolumeSampler::ModifyDualContour(UDualContour* Target, const FTransform& SampleTransform, bool bExcavate,
-	FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax, FText& OutError)
+	FIntVector& OutAffectedCellMin, FIntVector& OutAffectedCellMax, FText& OutError)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_ModifyDualContour);
-	OutAffectedCellMin = FVectorInt();
-	OutAffectedCellMax = FVectorInt();
-	FVectorInt SampleMin;
-	FVectorInt SampleDimensions;
+	OutAffectedCellMin = FIntVector::ZeroValue;
+	OutAffectedCellMax = FIntVector::ZeroValue;
+	FIntVector SampleMin = FIntVector::ZeroValue;
+	FIntVector SampleDimensions = FIntVector::ZeroValue;
 	TArray<uint8> Samples;
 	return BuildDensitySamples(Target, SampleTransform, SampleMin, SampleDimensions, Samples, OutError)
 	       && Target->ModifyDensitySamplesInRange(SampleMin, SampleDimensions, Samples, bExcavate,

@@ -35,7 +35,7 @@ public:
 
 	/** Combines this sampler with existing target density and returns the rebuilt half-open cell range. */
 	bool ModifyDualContour(UDualContour* Target, const FTransform& SampleTransform, bool bExcavate,
-		FVectorInt& OutAffectedCellMin, FVectorInt& OutAffectedCellMax, FText& OutError);
+		FIntVector& OutAffectedCellMin, FIntVector& OutAffectedCellMax, FText& OutError);
 
 #if WITH_EDITOR
 	FOnVolumeSamplerPropertyChanged OnPropertyChanged;
@@ -53,6 +53,6 @@ protected:
 private:
 	/** Samples only the transformed volume's conservative grid-aligned subrange. */
 	bool BuildDensitySamples(UDualContour* Target, const FTransform& SampleTransform,
-		FVectorInt& OutSampleMin, FVectorInt& OutSampleDimensions,
+		FIntVector& OutSampleMin, FIntVector& OutSampleDimensions,
 		TArray<uint8>& OutSamples, FText& OutError) const;
 };
