@@ -31,7 +31,10 @@ public:
 	UPROPERTY(Config)
 	EDualContourEditTool ActiveTool = EDualContourEditTool::Sculpt;
 
-	UPROPERTY(EditAnywhere, Config, Category = "Tool Settings", meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0"))
+	/** Blend strength for sculpting tools. Volume stamps always use an exact boolean operation. */
+	UPROPERTY(EditAnywhere, Config, Category = "Tool Settings",
+		meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0",
+			EditCondition = "ActiveTool != EDualContourEditTool::Brush", EditConditionHides))
 	float ToolStrength = 0.3f;
 
 	UPROPERTY(EditAnywhere, Config, Category = "Brush Settings", meta = (ClampMin = "1.0", UIMin = "1.0", UIMax = "8192.0", Delta = "1.0"))
@@ -52,19 +55,23 @@ public:
 		meta = (EditCondition = "ActiveTool == EDualContourEditTool::Sculpt || ActiveTool == EDualContourEditTool::Erase", EditConditionHides))
 	bool bUseClayBrush = false;
 
-	UPROPERTY(EditAnywhere, Config, Category = "Tool Settings", meta = (EditCondition = "ActiveTool != EDualContourEditTool::Brush", EditConditionHides))
+	UPROPERTY(EditAnywhere, Config, Category = "Tool Settings",
+		meta = (EditCondition = "ActiveTool != EDualContourEditTool::Brush", EditConditionHides))
 	bool bApplyWithoutMoving = true;
 
 	/** Seconds between synchronous preview rebuilds while dragging. The final result always flushes immediately. */
 	UPROPERTY(EditAnywhere, Config, Category = "Performance", meta = (ClampMin = "0.033", ClampMax = "0.5", UIMin = "0.033", UIMax = "0.2"))
 	float PreviewUpdateInterval = 0.08f;
 
-	UPROPERTY(EditAnywhere, Config, Category = "Brush Stamp", meta = (EditCondition = "ActiveTool == EDualContourEditTool::Brush", EditConditionHides))
+	UPROPERTY(EditAnywhere, Config, Category = "Brush Stamp",
+		meta = (EditCondition = "ActiveTool == EDualContourEditTool::Brush", EditConditionHides))
 	TSoftObjectPtr<UVolumeSampledDualContour> VolumeBrush;
 
-	UPROPERTY(EditAnywhere, Config, Category = "Brush Stamp", meta = (EditCondition = "ActiveTool == EDualContourEditTool::Brush", EditConditionHides))
+	UPROPERTY(EditAnywhere, Config, Category = "Brush Stamp",
+		meta = (EditCondition = "ActiveTool == EDualContourEditTool::Brush", EditConditionHides))
 	bool bAlignVolumeBrushToSurface = true;
 
-	UPROPERTY(EditAnywhere, Config, Category = "Brush Stamp", meta = (ClampMin = "0.001", EditCondition = "ActiveTool == EDualContourEditTool::Brush", EditConditionHides))
+	UPROPERTY(EditAnywhere, Config, Category = "Brush Stamp",
+		meta = (ClampMin = "0.001", EditCondition = "ActiveTool == EDualContourEditTool::Brush", EditConditionHides))
 	float VolumeBrushScale = 1.0f;
 };

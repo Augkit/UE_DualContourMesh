@@ -322,8 +322,10 @@ bool UDualContourBrushTool::ApplyBrushStamp(FDualContourEditBatch& Batch, const 
 		FMath::Clamp(FMath::CeilToInt(BoundsMax.X / DualContour->CellSize), 0, SampleDims.X - 1),
 		FMath::Clamp(FMath::CeilToInt(BoundsMax.Y / DualContour->CellSize), 0, SampleDims.Y - 1),
 		FMath::Clamp(FMath::CeilToInt(BoundsMax.Z / DualContour->CellSize), 0, SampleDims.Z - 1));
-	const float BaseStrength = FMath::Clamp(Stamp.Strength * Stamp.TimeScale, 0.0f, 1.0f);
-	if (BaseStrength <= 0.0f)
+	const float OperationWeight = bVolumeStamp
+		                              ? 1.0f
+		                              : FMath::Clamp(Stamp.Strength * Stamp.TimeScale, 0.0f, 1.0f);
+	if (OperationWeight <= 0.0f)
 		return false;
 
 	TArray<float> SmoothedValues;
@@ -436,7 +438,7 @@ bool UDualContourBrushTool::ApplyBrushStamp(FDualContourEditBatch& Batch, const 
 				{
 					CombinedDensity = FMath::Max(OldDensity, TargetDensity);
 				}
-				const float NewDensity = FMath::Lerp(OldDensity, CombinedDensity, BaseStrength * Weight);
+				const float NewDensity = FMath::Lerp(OldDensity, CombinedDensity, OperationWeight * Weight);
 				if (FMath::IsNearlyEqual(NewDensity, OldDensity, KINDA_SMALL_NUMBER))
 					continue;
 				SetWorkingDensity(X, Y, Z, NewDensity);
