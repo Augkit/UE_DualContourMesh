@@ -91,7 +91,7 @@ private:
 	FIntVector LastBuiltCellCount = FIntVector(0, 0, 0);
 
 	void BuildCells();
-	FDualContourCell BuildNewCell(int32 CellX, int32 CellY, int32 CellZ) const;
+	FDualContourCell CreateNewCell(int32 CellX, int32 CellY, int32 CellZ) const;
 	void CompactAllDensityChunks();
 	void CompactDensityChunks(const TSet<FIntVector>& ChunkCoords);
 	void RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax);

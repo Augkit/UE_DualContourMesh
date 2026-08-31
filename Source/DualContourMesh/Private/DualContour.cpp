@@ -411,7 +411,7 @@ void UDualContour::RebuildDirtyCellChunks(const TSet<FIntVector>& DirtyDensityCh
 				for (int32 CellY = BuildMin.Y; CellY < BuildMax.Y; ++CellY)
 					for (int32 CellX = BuildMin.X; CellX < BuildMax.X; ++CellX)
 					{
-						FDualContourCell Cell = BuildNewCell(CellX, CellY, CellZ);
+						FDualContourCell Cell = CreateNewCell(CellX, CellY, CellZ);
 						if (Cell.bActive)
 							BuiltChunk.ActiveCells.Add(DualContourUtils::ChunkLocalIndex(CellX, CellY, CellZ), MoveTemp(Cell));
 					}
@@ -546,7 +546,7 @@ void UDualContour::BuildCells()
 	RebuildCellsInRange(FIntVector(0, 0, 0), CellCount);
 }
 
-FDualContourCell UDualContour::BuildNewCell(int32 CellX, int32 CellY, int32 CellZ) const
+FDualContourCell UDualContour::CreateNewCell(int32 CellX, int32 CellY, int32 CellZ) const
 {
 	FDualContourCell Cell;
 	const FVector CellMin = FVector(CellX, CellY, CellZ) * CellSize;
@@ -688,7 +688,7 @@ void UDualContour::RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax)
 				for (int32 CellY = BuildMin.Y; CellY < BuildMax.Y; ++CellY)
 					for (int32 CellX = BuildMin.X; CellX < BuildMax.X; ++CellX)
 					{
-						FDualContourCell Cell = BuildNewCell(CellX, CellY, CellZ);
+						FDualContourCell Cell = CreateNewCell(CellX, CellY, CellZ);
 						if (!Cell.bActive)
 							continue;
 						const uint16 LocalKey = DualContourUtils::ChunkLocalIndex(CellX, CellY, CellZ);
