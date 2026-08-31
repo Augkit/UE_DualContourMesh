@@ -5,6 +5,7 @@
 #include "SVTDualContour.h"
 #include "SparseVolumeTexture/SparseVolumeTexture.h"
 #include "SparseVolumeTexture/ISparseVolumeTextureStreamingManager.h"
+#include "Async/ParallelFor.h"
 #include "GlobalShader.h"
 #include "GlobalRenderResources.h"
 #include "RenderGraphBuilder.h"
@@ -12,6 +13,7 @@
 #include "RHIGPUReadback.h"
 #include "RHIStaticStates.h"
 #include "ShaderParameterStruct.h"
+#include "ProfilingDebugging/CpuProfilerTrace.h"
 
 class FSampleSparseVolumeTextureCS : public FGlobalShader
 {
@@ -66,9 +68,11 @@ void ComputeUVTransform(ESVTDualContourFit Fit, const FVector3f& TargetSize, con
 }
 }
 
-bool FSVTDualContourBuilder::Sample(const USVTDualContour& SVTDualContour, TArray<uint8>& OutSamples, FText& OutError)
+bool FSVTDualContourBuilder::Sample(const USVTDualContour& SVTDualContour,
+	FDualContourSampledRegion& OutRegion, FText& OutError)
 {
 	check(IsInGameThread());
+	OutRegion.Reset();
 	if (!FApp::CanEverRender())
 	{
 		OutError = NSLOCTEXT("SVTDualContour", "RenderingUnavailable", "Rendering is unavailable in this process.");
@@ -80,14 +84,26 @@ bool FSVTDualContourBuilder::Sample(const USVTDualContour& SVTDualContour, TArra
 		return false;
 	}
 
-	const FIntVector SampleDims(SVTDualContour.CellCount.X + 1,
-		SVTDualContour.CellCount.Y + 1, SVTDualContour.CellCount.Z + 1);
-	const int64 NumSamples64 = static_cast<int64>(SampleDims.X) * SampleDims.Y * SampleDims.Z;
-	if (SampleDims.X <= 0 || SampleDims.Y <= 0 || SampleDims.Z <= 0 || NumSamples64 > MAX_int32)
+	if (SVTDualContour.CellCount.X <= 0 || SVTDualContour.CellCount.Y <= 0 || SVTDualContour.CellCount.Z <= 0
+	    || SVTDualContour.CellCount.X >= MAX_int32 || SVTDualContour.CellCount.Y >= MAX_int32
+	    || SVTDualContour.CellCount.Z >= MAX_int32)
 	{
 		OutError = NSLOCTEXT("SVTDualContour", "InvalidResolution", "The density sample resolution is invalid or too large.");
 		return false;
 	}
+	const FIntVector SampleDims = SVTDualContour.CellCount + FIntVector(1);
+	if (SampleDims.X > MAX_int32 / SampleDims.Y)
+	{
+		OutError = NSLOCTEXT("SVTDualContour", "InvalidResolution", "The density sample resolution is invalid or too large.");
+		return false;
+	}
+	const int64 SampleArea = static_cast<int64>(SampleDims.X) * SampleDims.Y;
+	if (SampleArea > MAX_int32 / SampleDims.Z)
+	{
+		OutError = NSLOCTEXT("SVTDualContour", "InvalidResolution", "The density sample resolution is invalid or too large.");
+		return false;
+	}
+	const int64 NumSamples64 = SampleArea * SampleDims.Z;
 
 	UStaticSparseVolumeTexture* Source = SVTDualContour.SourceSparseVolumeTexture;
 	USparseVolumeTextureFrame* Frame = USparseVolumeTextureFrame::GetFrameAndIssueStreamingRequest(
@@ -187,9 +203,62 @@ bool FSVTDualContourBuilder::Sample(const USVTDualContour& SVTDualContour, TArra
 		});
 	FlushRenderingCommands();
 
-	OutSamples.SetNumUninitialized(NumSamples);
-	for (uint32 Index = 0; Index < NumSamples; ++Index)
-		OutSamples[Index] = static_cast<uint8>(FMath::Min((*ReadbackValues)[Index], 255u));
+	TRACE_CPUPROFILER_EVENT_SCOPE(SVTDualContour_PackDensityChunks);
+	OutRegion.SampleMin = FIntVector::ZeroValue;
+	OutRegion.SampleDimensions = SampleDims;
+	const FIntVector ChunkDimensions(
+		FMath::DivideAndRoundUp(SampleDims.X, GDualContourChunkSize),
+		FMath::DivideAndRoundUp(SampleDims.Y, GDualContourChunkSize),
+		FMath::DivideAndRoundUp(SampleDims.Z, GDualContourChunkSize));
+	const int32 ChunkArea = ChunkDimensions.X * ChunkDimensions.Y;
+	const int32 ChunkCount = ChunkArea * ChunkDimensions.Z;
+	OutRegion.Chunks.SetNum(ChunkCount);
+	ParallelFor(TEXT("SVTDualContour.PackDensityChunks"), ChunkCount, 1,
+		[&OutRegion, ReadbackValues, SampleDims, ChunkDimensions, ChunkArea](int32 Index)
+		{
+			const int32 ChunkZ = Index / ChunkArea;
+			const int32 Remainder = Index - ChunkZ * ChunkArea;
+			const int32 ChunkY = Remainder / ChunkDimensions.X;
+			const int32 ChunkX = Remainder - ChunkY * ChunkDimensions.X;
+			FDualContourSampledChunk& SampledChunk = OutRegion.Chunks[Index];
+			SampledChunk.ChunkCoord = FIntVector(ChunkX, ChunkY, ChunkZ);
+
+			const FIntVector ChunkOrigin = SampledChunk.ChunkCoord * GDualContourChunkSize;
+			const FIntVector BuildMax(
+				FMath::Min(SampleDims.X, ChunkOrigin.X + GDualContourChunkSize),
+				FMath::Min(SampleDims.Y, ChunkOrigin.Y + GDualContourChunkSize),
+				FMath::Min(SampleDims.Z, ChunkOrigin.Z + GDualContourChunkSize));
+			bool bExpanded = false;
+			for (int32 SampleZ = ChunkOrigin.Z; SampleZ < BuildMax.Z; ++SampleZ)
+				for (int32 SampleY = ChunkOrigin.Y; SampleY < BuildMax.Y; ++SampleY)
+					for (int32 SampleX = ChunkOrigin.X; SampleX < BuildMax.X; ++SampleX)
+					{
+						const int32 SourceIndex = SampleX
+							+ SampleY * SampleDims.X
+							+ SampleZ * SampleDims.X * SampleDims.Y;
+						const uint8 Density = static_cast<uint8>(FMath::Min((*ReadbackValues)[SourceIndex], 255u));
+						if (Density == 0)
+							continue;
+						if (!bExpanded)
+						{
+							SampledChunk.Density.Expand();
+							bExpanded = true;
+						}
+						const int32 LocalX = SampleX - ChunkOrigin.X;
+						const int32 LocalY = SampleY - ChunkOrigin.Y;
+						const int32 LocalZ = SampleZ - ChunkOrigin.Z;
+						SampledChunk.Density.DensitySamples[LocalX
+							+ LocalY * GDualContourChunkSize
+							+ LocalZ * GDualContourChunkSize * GDualContourChunkSize] = Density;
+					}
+			if (bExpanded)
+				SampledChunk.Density.TryCollapse();
+		}, EParallelForFlags::Unbalanced);
+
+	OutRegion.Chunks.RemoveAllSwap([](const FDualContourSampledChunk& Chunk)
+	{
+		return Chunk.Density.IsUniform() && Chunk.Density.UniformValue == 0;
+	}, EAllowShrinking::No);
 	return true;
 }
 

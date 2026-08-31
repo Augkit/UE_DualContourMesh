@@ -44,14 +44,10 @@ public:
 	bool Rebuild();
 	/** Copies persistent grid settings and generated data from another current DualContour. */
 	bool CopyFrom(const UDualContour* Source);
-	/** Replaces the complete sample grid and rebuilds contour cells. Samples are X-major. */
-	bool ReplaceDensitySamples(const TArray<uint8>& Samples);
-	/** Replaces the density grid with an X-major subrange; samples outside the range become zero. */
-	bool ReplaceDensitySamplesInRange(FIntVector SampleMin, FIntVector SampleDimensions, TConstArrayView<uint8> Samples);
-	/** Combines a complete sampler grid using density union/difference and rebuilds only changed cells. */
-	bool ModifyDensitySamples(const TArray<uint8>& Samples, bool bExcavate, FIntVector& OutAffectedCellMin, FIntVector& OutAffectedCellMax);
-	/** Combines an X-major sampler subrange and rebuilds only changed cells. */
-	bool ModifyDensitySamplesInRange(FIntVector SampleMin, FIntVector SampleDimensions, TConstArrayView<uint8> Samples, bool bExcavate,
+	/** Moves sampler-built density chunks into this grid; density outside the sampled range becomes zero. */
+	bool ReplaceDensityChunks(FDualContourSampledRegion&& SampledRegion);
+	/** Combines sampler-built density chunks and rebuilds only changed cells. */
+	bool ModifyDensityChunks(const FDualContourSampledRegion& SampledRegion, bool bExcavate,
 		FIntVector& OutAffectedCellMin, FIntVector& OutAffectedCellMax);
 
 	/** Starts a stroke-style edit. Density writes are accumulated and contour rebuilds are deferred to EndEditBatch. */

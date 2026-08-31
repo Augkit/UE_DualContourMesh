@@ -51,8 +51,6 @@ protected:
 	virtual float SampleNormalized(const FVector& UVW) const PURE_VIRTUAL(UVolumeSampler::SampleNormalized, return 0.0f;);
 
 private:
-	/** Samples only the transformed volume's conservative grid-aligned subrange. */
-	bool BuildDensitySamples(UDualContour* Target, const FTransform& SampleTransform,
-		FIntVector& OutSampleMin, FIntVector& OutSampleDimensions,
-		TArray<uint8>& OutSamples, FText& OutError) const;
+	/** Samples the transformed volume directly into independently owned density chunks. */
+	bool BuildDensityChunks(UDualContour* Target, const FTransform& SampleTransform, FDualContourSampledRegion& OutRegion, FText& OutError) const;
 };

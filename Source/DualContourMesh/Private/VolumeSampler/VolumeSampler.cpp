@@ -30,15 +30,12 @@ void UVolumeSampler::PostEditUndo()
 }
 #endif
 
-bool UVolumeSampler::BuildDensitySamples(UDualContour* Target, const FTransform& SampleTransform,
-	FIntVector& OutSampleMin, FIntVector& OutSampleDimensions,
-	TArray<uint8>& OutSamples, FText& OutError) const
+bool UVolumeSampler::BuildDensityChunks(UDualContour* Target, const FTransform& SampleTransform,
+	FDualContourSampledRegion& OutRegion, FText& OutError) const
 {
-	TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_BuildDensitySamples);
+	TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_BuildDensityChunks);
 	check(IsInGameThread());
-	OutSampleMin = FIntVector::ZeroValue;
-	OutSampleDimensions = FIntVector::ZeroValue;
-	OutSamples.Reset();
+	OutRegion.Reset();
 	if (!Target || Target->CellCount.X <= 0 || Target->CellCount.Y <= 0 || Target->CellCount.Z <= 0
 	    || Target->CellCount.X >= MAX_int32 || Target->CellCount.Y >= MAX_int32 || Target->CellCount.Z >= MAX_int32
 	    || Target->CellSize <= 0.0f)
@@ -89,10 +86,9 @@ bool UVolumeSampler::BuildDensitySamples(UDualContour* Target, const FTransform&
 		FMath::Clamp(TransformedBounds.Max.Y, 0.0, TargetMax.Y),
 		FMath::Clamp(TransformedBounds.Max.Z, 0.0, TargetMax.Z));
 
-	// Floor/ceil intentionally include at most one lattice point beyond the mathematical AABB.
-	// This keeps the range conservative in the presence of transform floating-point error; UVW
-	// validation below still writes zero for points outside the actual transformed volume.
-	OutSampleMin = FIntVector(
+	// Include at most one lattice point beyond the mathematical AABB. UVW validation
+	// still leaves samples outside the actual transformed volume at zero.
+	OutRegion.SampleMin = FIntVector(
 		FMath::Clamp(FMath::FloorToInt(ClippedMin.X / Target->CellSize), 0, Target->CellCount.X),
 		FMath::Clamp(FMath::FloorToInt(ClippedMin.Y / Target->CellSize), 0, Target->CellCount.Y),
 		FMath::Clamp(FMath::FloorToInt(ClippedMin.Z / Target->CellSize), 0, Target->CellCount.Z));
@@ -100,78 +96,113 @@ bool UVolumeSampler::BuildDensitySamples(UDualContour* Target, const FTransform&
 		FMath::Clamp(FMath::CeilToInt(ClippedMax.X / Target->CellSize) + 1, 0, Target->CellCount.X + 1),
 		FMath::Clamp(FMath::CeilToInt(ClippedMax.Y / Target->CellSize) + 1, 0, Target->CellCount.Y + 1),
 		FMath::Clamp(FMath::CeilToInt(ClippedMax.Z / Target->CellSize) + 1, 0, Target->CellCount.Z + 1));
-	OutSampleDimensions = FIntVector(SampleMax.X - OutSampleMin.X, SampleMax.Y - OutSampleMin.Y,
-		SampleMax.Z - OutSampleMin.Z);
-	if (OutSampleDimensions.X > MAX_int32 / OutSampleDimensions.Y)
+	OutRegion.SampleDimensions = SampleMax - OutRegion.SampleMin;
+
+	const FIntVector ChunkMin(OutRegion.SampleMin.X / GDualContourChunkSize,
+		OutRegion.SampleMin.Y / GDualContourChunkSize, OutRegion.SampleMin.Z / GDualContourChunkSize);
+	const FIntVector ChunkMaxExclusive(FMath::DivideAndRoundUp(SampleMax.X, GDualContourChunkSize),
+		FMath::DivideAndRoundUp(SampleMax.Y, GDualContourChunkSize),
+		FMath::DivideAndRoundUp(SampleMax.Z, GDualContourChunkSize));
+	const FIntVector ChunkDimensions = ChunkMaxExclusive - ChunkMin;
+	if (ChunkDimensions.X > MAX_int32 / ChunkDimensions.Y)
 	{
-		OutError = NSLOCTEXT("VolumeSampler", "SampleRangeTooLarge",
-			"The transformed volume's affected sample range exceeds TArray capacity.");
+		OutError = NSLOCTEXT("VolumeSampler", "SampleRangeTooLarge", "The transformed volume's affected chunk range exceeds TArray capacity.");
 		return false;
 	}
-	const int64 SampleArea = static_cast<int64>(OutSampleDimensions.X) * OutSampleDimensions.Y;
-	if (SampleArea > MAX_int32 / OutSampleDimensions.Z)
+	const int64 ChunkArea = static_cast<int64>(ChunkDimensions.X) * ChunkDimensions.Y;
+	if (ChunkArea > MAX_int32 / ChunkDimensions.Z)
 	{
-		OutError = NSLOCTEXT("VolumeSampler", "SampleRangeTooLarge",
-			"The transformed volume's affected sample range exceeds TArray capacity.");
+		OutError = NSLOCTEXT("VolumeSampler", "SampleRangeTooLarge", "The transformed volume's affected chunk range exceeds TArray capacity.");
 		return false;
 	}
-	const int32 SampleCount = static_cast<int32>(SampleArea * OutSampleDimensions.Z);
+	const int32 ChunkCount = static_cast<int32>(ChunkArea * ChunkDimensions.Z);
+	OutRegion.Chunks.SetNum(ChunkCount);
 
 	const FVector Translation = SampleTransform.GetTranslation();
-	OutSamples.SetNumUninitialized(SampleCount);
+	const float TargetCellSize = Target->CellSize;
+	const auto SampleChunk = [this, &OutRegion, ChunkMin, ChunkDimensions, ChunkArea, TargetCellSize,
+			PivotPosition, SampleTransform, Translation](int32 Index)
 	{
-		const int32 SampleRowSize = OutSampleDimensions.X;
-		const int32 SampleRowCount = OutSampleDimensions.Y * OutSampleDimensions.Z;
-		const float TargetCellSize = Target->CellSize;
-		const auto SampleRow = [this, &OutSamples, OutSampleMin, OutSampleDimensions, SampleRowSize,
-			TargetCellSize, PivotPosition, SampleTransform, Translation](int32 Index)
-		{
-			const int32 Z = Index / OutSampleDimensions.Y;
-			const int32 Y = Index - Z * OutSampleDimensions.Y;
-			const int32 OutputRowStart = Index * SampleRowSize;
-			for (int32 X = 0; X < SampleRowSize; ++X)
-			{
-				const FVector TargetPosition(
-					static_cast<double>(OutSampleMin.X + X) * TargetCellSize,
-					static_cast<double>(OutSampleMin.Y + Y) * TargetCellSize,
-					static_cast<double>(OutSampleMin.Z + Z) * TargetCellSize);
-				const FVector Untransformed =
-					PivotPosition + SampleTransform.InverseTransformVector(TargetPosition - PivotPosition - Translation);
-				const FVector UVW = Untransformed / VolumeSize;
-				float Density = 0.0f;
-				if (UVW.X >= 0.0 && UVW.X <= 1.0 && UVW.Y >= 0.0 && UVW.Y <= 1.0 && UVW.Z >= 0.0 && UVW.Z <= 1.0)
-					Density = SampleNormalized(UVW);
-				OutSamples[OutputRowStart + X] = static_cast<uint8>(
-					FMath::RoundToInt(FMath::Clamp(Density, 0.0f, 255.0f)));
-			}
-		};
+		const int32 ChunkZ = static_cast<int32>(Index / ChunkArea);
+		const int32 Remainder = static_cast<int32>(Index - static_cast<int64>(ChunkZ) * ChunkArea);
+		const int32 ChunkY = Remainder / ChunkDimensions.X;
+		const int32 ChunkX = Remainder - ChunkY * ChunkDimensions.X;
+		FDualContourSampledChunk& SampledChunk = OutRegion.Chunks[Index];
+		SampledChunk.ChunkCoord = ChunkMin + FIntVector(ChunkX, ChunkY, ChunkZ);
 
-		if (SupportsParallelSampling())
-		{
-			TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_ParallelSampleDensity);
-			// As in UDualContour::RebuildCellsInRange, the calling thread stays blocked;
-			// workers only read prepared sampler state and write disjoint output elements.
-			ParallelFor(TEXT("VolumeSampler.SampleDensity"), SampleRowCount, 8, SampleRow, EParallelForFlags::Unbalanced);
-		}
-		else
-		{
-			TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_SerialSampleDensity);
-			for (int32 Index = 0; Index < SampleRowCount; ++Index)
-				SampleRow(Index);
-		}
+		const FIntVector ChunkOrigin = SampledChunk.ChunkCoord * GDualContourChunkSize;
+		const FIntVector SampleMax = OutRegion.SampleMin + OutRegion.SampleDimensions;
+		const FIntVector BuildMin(
+			FMath::Max(OutRegion.SampleMin.X, ChunkOrigin.X),
+			FMath::Max(OutRegion.SampleMin.Y, ChunkOrigin.Y),
+			FMath::Max(OutRegion.SampleMin.Z, ChunkOrigin.Z));
+		const FIntVector BuildMax(
+			FMath::Min(SampleMax.X, ChunkOrigin.X + GDualContourChunkSize),
+			FMath::Min(SampleMax.Y, ChunkOrigin.Y + GDualContourChunkSize),
+			FMath::Min(SampleMax.Z, ChunkOrigin.Z + GDualContourChunkSize));
+
+		bool bExpanded = false;
+		for (int32 SampleZ = BuildMin.Z; SampleZ < BuildMax.Z; ++SampleZ)
+			for (int32 SampleY = BuildMin.Y; SampleY < BuildMax.Y; ++SampleY)
+				for (int32 SampleX = BuildMin.X; SampleX < BuildMax.X; ++SampleX)
+				{
+					const FVector TargetPosition(
+						static_cast<double>(SampleX) * TargetCellSize,
+						static_cast<double>(SampleY) * TargetCellSize,
+						static_cast<double>(SampleZ) * TargetCellSize);
+					const FVector Untransformed = PivotPosition
+					                              + SampleTransform.InverseTransformVector(TargetPosition - PivotPosition - Translation);
+					const FVector UVW = Untransformed / VolumeSize;
+					float Density = 0.0f;
+					if (UVW.X >= 0.0 && UVW.X <= 1.0 && UVW.Y >= 0.0 && UVW.Y <= 1.0 && UVW.Z >= 0.0 && UVW.Z <= 1.0)
+						Density = SampleNormalized(UVW);
+					const uint8 QuantizedDensity = static_cast<uint8>(
+						FMath::RoundToInt(FMath::Clamp(Density, 0.0f, 255.0f)));
+					if (QuantizedDensity == 0)
+						continue;
+
+					if (!bExpanded)
+					{
+						SampledChunk.Density.Expand();
+						bExpanded = true;
+					}
+					const int32 LocalX = SampleX - ChunkOrigin.X;
+					const int32 LocalY = SampleY - ChunkOrigin.Y;
+					const int32 LocalZ = SampleZ - ChunkOrigin.Z;
+					SampledChunk.Density.DensitySamples[LocalX
+					                                    + LocalY * GDualContourChunkSize
+					                                    + LocalZ * GDualContourChunkSize * GDualContourChunkSize] = QuantizedDensity;
+				}
+		if (bExpanded)
+			SampledChunk.Density.TryCollapse();
+	};
+
+	if (SupportsParallelSampling())
+	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_ParallelSampleDensityChunks);
+		// Workers only read prepared sampler state and write their own preallocated chunk.
+		ParallelFor(TEXT("VolumeSampler.SampleDensityChunks"), ChunkCount, 1, SampleChunk, EParallelForFlags::Unbalanced);
+	}
+	else
+	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_SerialSampleDensityChunks);
+		for (int32 Index = 0; Index < ChunkCount; ++Index)
+			SampleChunk(Index);
 	}
 
+	// Zero chunks are neutral for both union and difference and need not survive the handoff.
+	OutRegion.Chunks.RemoveAllSwap([](const FDualContourSampledChunk& Chunk)
+	{
+		return Chunk.Density.IsUniform() && Chunk.Density.UniformValue == 0;
+	}, EAllowShrinking::No);
 	return true;
 }
 
 bool UVolumeSampler::ReplaceDualContour(UDualContour* Target, const FTransform& SampleTransform, FText& OutError)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_ReplaceDualContour);
-	FIntVector SampleMin = FIntVector::ZeroValue;
-	FIntVector SampleDimensions = FIntVector::ZeroValue;
-	TArray<uint8> Samples;
-	return BuildDensitySamples(Target, SampleTransform, SampleMin, SampleDimensions, Samples, OutError)
-	       && Target->ReplaceDensitySamplesInRange(SampleMin, SampleDimensions, Samples);
+	FDualContourSampledRegion SampledRegion;
+	return BuildDensityChunks(Target, SampleTransform, SampledRegion, OutError) && Target->ReplaceDensityChunks(MoveTemp(SampledRegion));
 }
 
 bool UVolumeSampler::ModifyDualContour(UDualContour* Target, const FTransform& SampleTransform, bool bExcavate,
@@ -180,10 +211,7 @@ bool UVolumeSampler::ModifyDualContour(UDualContour* Target, const FTransform& S
 	TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_ModifyDualContour);
 	OutAffectedCellMin = FIntVector::ZeroValue;
 	OutAffectedCellMax = FIntVector::ZeroValue;
-	FIntVector SampleMin = FIntVector::ZeroValue;
-	FIntVector SampleDimensions = FIntVector::ZeroValue;
-	TArray<uint8> Samples;
-	return BuildDensitySamples(Target, SampleTransform, SampleMin, SampleDimensions, Samples, OutError)
-	       && Target->ModifyDensitySamplesInRange(SampleMin, SampleDimensions, Samples, bExcavate,
-		       OutAffectedCellMin, OutAffectedCellMax);
+	FDualContourSampledRegion SampledRegion;
+	return BuildDensityChunks(Target, SampleTransform, SampledRegion, OutError)
+	       && Target->ModifyDensityChunks(SampledRegion, bExcavate, OutAffectedCellMin, OutAffectedCellMax);
 }

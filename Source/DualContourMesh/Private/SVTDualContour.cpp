@@ -10,16 +10,16 @@ bool USVTDualContour::SampleSparseVolumeTexture()
 	if (!SourceSparseVolumeTexture)
 		return false;
 
-	TArray<uint8> Samples;
+	FDualContourSampledRegion SampledRegion;
 	FText Error;
-	if (!FSVTDualContourBuilder::Sample(*this, Samples, Error))
+	if (!FSVTDualContourBuilder::Sample(*this, SampledRegion, Error))
 	{
 		UE_LOG(LogTemp, Error, TEXT("SVT dual-contour sampling failed for %s: %s"), *GetPathName(), *Error.ToString());
 		return false;
 	}
 
 	Modify();
-	if (!ReplaceDensitySamples(Samples))
+	if (!ReplaceDensityChunks(MoveTemp(SampledRegion)))
 		return false;
 
 	++GenerationRevision;
