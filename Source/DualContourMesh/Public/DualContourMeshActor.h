@@ -152,6 +152,7 @@ private:
 
 	void ApplyCollisionSettings(UDualContourMeshComponent* MeshComponent) const;
 	void RefreshCollisionSettings();
+	void RefreshMeshMaterial();
 	void UpdateAutoDivisions();
 	void RecreateMeshComponents();
 	UDualContourMeshComponent* CreateMeshComponent();

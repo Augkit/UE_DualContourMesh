@@ -92,6 +92,13 @@ void ADualContourMeshActor::RefreshCollisionSettings()
 		ApplyCollisionSettings(Pair.Value);
 }
 
+void ADualContourMeshActor::RefreshMeshMaterial()
+{
+	for (TPair<int32, TObjectPtr<UDualContourMeshComponent>>& Pair : MeshComponents)
+		if (Pair.Value)
+			Pair.Value->SetMaterial(0, MeshMaterial);
+}
+
 void ADualContourMeshActor::PostRegisterAllComponents()
 {
 	Super::PostRegisterAllComponents();
@@ -182,6 +189,10 @@ void ADualContourMeshActor::PostEditChangeProperty(FPropertyChangedEvent& Proper
 	         || MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, MaxCellsPerDivision))
 	{
 		RecreateMeshComponents();
+	}
+	else if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, MeshMaterial))
+	{
+		RefreshMeshMaterial();
 	}
 	RefreshCollisionSettings();
 }
