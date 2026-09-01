@@ -12,7 +12,10 @@
 #include "Async/ParallelFor.h"
 #include "InteractiveToolManager.h"
 #include "Engine/World.h"
+#include "DynamicMeshBuilder.h"
+#include "Materials/MaterialInterface.h"
 #include "PrimitiveDrawingUtils.h"
+#include "SceneView.h"
 #include "ToolContextInterfaces.h"
 
 #define LOCTEXT_NAMESPACE "DualContourBrushTool"
@@ -77,6 +80,10 @@ void UDualContourBrushTool::SetTargetActor(ADualContourMeshActor* InTargetActor)
 void UDualContourBrushTool::Setup()
 {
 	Super::Setup();
+	BrushFalloffMaterial = LoadObject<UMaterialInterface>(
+		nullptr,
+		TEXT("/DualContourMesh/Editor/Materials/M_DualContourBrushFalloff.M_DualContourBrushFalloff"));
+
 	UClickDragInputBehavior* DragBehavior = NewObject<UClickDragInputBehavior>(this);
 	DragBehavior->Modifiers.RegisterModifier(ShiftModifierId, FInputDeviceState::IsShiftKeyDown);
 	DragBehavior->Initialize(this);
@@ -630,25 +637,194 @@ void UDualContourBrushTool::FinishStroke(bool bCancel)
 	StrokeDeltas.Reset();
 }
 
+bool UDualContourBrushTool::ProjectBrushPointToSurface(const FVector& PlanePoint, float ProjectionHalfDepth, FVector& OutSurfacePoint) const
+{
+	if (!TargetWorld || !TargetActor)
+		return false;
+
+	const FVector TraceOffset = HitNormal * ProjectionHalfDepth;
+	TArray<FHitResult> Hits;
+	FCollisionObjectQueryParams ObjectQuery(FCollisionObjectQueryParams::AllObjects);
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(DualContourBrushProjection), true);
+	TargetWorld->LineTraceMultiByObjectType(Hits, PlanePoint + TraceOffset, PlanePoint - TraceOffset, ObjectQuery, QueryParams);
+
+	const FHitResult* ClosestHit = nullptr;
+	float ClosestDistanceToPlane = TNumericLimits<float>::Max();
+	for (const FHitResult& Hit : Hits)
+	{
+		if (Hit.GetActor() != TargetActor || !Hit.GetComponent() || !Hit.GetComponent()->IsA<UDualContourMeshComponent>())
+			continue;
+
+		const float DistanceToPlane = FMath::Abs(FVector::DotProduct(Hit.ImpactPoint - PlanePoint, HitNormal));
+		if (DistanceToPlane < ClosestDistanceToPlane)
+		{
+			ClosestDistanceToPlane = DistanceToPlane;
+			ClosestHit = &Hit;
+		}
+	}
+
+	if (!ClosestHit)
+		return false;
+
+	// Lift the line slightly off the mesh to avoid depth fighting while keeping it
+	// depth-tested like the Landscape editor brush.
+	OutSurfacePoint = ClosestHit->ImpactPoint
+	                  + ClosestHit->ImpactNormal.GetSafeNormal(UE_SMALL_NUMBER, HitNormal) * 0.75f;
+	return true;
+}
+
+void UDualContourBrushTool::DrawSurfaceProjectedFalloff(IToolsContextRenderAPI* RenderAPI, float Radius) const
+{
+	if (!RenderAPI || !BrushFalloffMaterial || Radius <= UE_SMALL_NUMBER)
+		return;
+
+	FPrimitiveDrawInterface* PDI = RenderAPI->GetPrimitiveDrawInterface();
+	const FSceneView* SceneView = RenderAPI->GetSceneView();
+	if (!PDI || !SceneView)
+		return;
+
+	FVector AxisX;
+	FVector AxisY;
+	HitNormal.FindBestAxisVectors(AxisX, AxisY);
+	const FVector3f TangentX(AxisX);
+	const FVector3f TangentY(AxisY);
+	const FVector3f TangentZ(HitNormal);
+
+	constexpr int32 RadialBandCount = 12;
+	constexpr int32 AngularSegmentCount = 64;
+	const float ProjectionHalfDepth = FMath::Max(50.0f, Settings->BrushSize * 0.75f);
+	constexpr float MaximumOpacity = 0.16f;
+
+	FDynamicMeshBuilder MeshBuilder(SceneView->GetFeatureLevel());
+	MeshBuilder.ReserveVertices(1 + RadialBandCount * AngularSegmentCount);
+	MeshBuilder.ReserveTriangles(AngularSegmentCount * (2 * RadialBandCount - 1));
+
+	FVector SurfaceCenter;
+	if (!ProjectBrushPointToSurface(HitPosition, ProjectionHalfDepth, SurfaceCenter))
+		return;
+
+	const FColor CenterColor = FLinearColor(1.0f, 1.0f, 1.0f, MaximumOpacity).ToFColor(false);
+	const int32 CenterVertexIndex = MeshBuilder.AddVertex(
+		FVector3f(SurfaceCenter), FVector2f(0.5f, 0.5f), TangentX, TangentY, TangentZ, CenterColor);
+
+	TArray<int32> RingVertexIndices;
+	RingVertexIndices.Init(INDEX_NONE, RadialBandCount * AngularSegmentCount);
+	for (int32 RadialIndex = 1; RadialIndex <= RadialBandCount; ++RadialIndex)
+	{
+		const float NormalizedRadius = static_cast<float>(RadialIndex) / static_cast<float>(RadialBandCount);
+		const float FalloffWeight = EvaluateFalloff(NormalizedRadius, Settings->BrushFalloff, Settings->BrushFalloffType);
+		const FColor VertexColor = FLinearColor(1.0f, 1.0f, 1.0f, MaximumOpacity * FalloffWeight).ToFColor(false);
+
+		for (int32 AngularIndex = 0; AngularIndex < AngularSegmentCount; ++AngularIndex)
+		{
+			const float Angle = 2.0f * UE_PI * static_cast<float>(AngularIndex) / static_cast<float>(AngularSegmentCount);
+			const FVector RadialDirection = AxisX * FMath::Cos(Angle) + AxisY * FMath::Sin(Angle);
+			const FVector PlanePoint = HitPosition + Radius * NormalizedRadius * RadialDirection;
+			FVector SurfacePoint;
+			if (!ProjectBrushPointToSurface(PlanePoint, ProjectionHalfDepth, SurfacePoint))
+				continue;
+
+			const FVector2f UV(
+				0.5f + 0.5f * NormalizedRadius * FMath::Cos(Angle),
+				0.5f + 0.5f * NormalizedRadius * FMath::Sin(Angle));
+			const int32 VertexIndex = MeshBuilder.AddVertex(
+				FVector3f(SurfacePoint), UV, TangentX, TangentY, TangentZ, VertexColor);
+			RingVertexIndices[(RadialIndex - 1) * AngularSegmentCount + AngularIndex] = VertexIndex;
+		}
+	}
+
+	auto GetRingVertex = [&RingVertexIndices](int32 RadialIndex, int32 AngularIndex)
+	{
+		return RingVertexIndices[(RadialIndex - 1) * AngularSegmentCount + AngularIndex % AngularSegmentCount];
+	};
+
+	for (int32 AngularIndex = 0; AngularIndex < AngularSegmentCount; ++AngularIndex)
+	{
+		const int32 Outer0 = GetRingVertex(1, AngularIndex);
+		const int32 Outer1 = GetRingVertex(1, AngularIndex + 1);
+		if (Outer0 != INDEX_NONE && Outer1 != INDEX_NONE)
+			MeshBuilder.AddTriangle(CenterVertexIndex, Outer1, Outer0);
+	}
+
+	for (int32 RadialIndex = 2; RadialIndex <= RadialBandCount; ++RadialIndex)
+	{
+		for (int32 AngularIndex = 0; AngularIndex < AngularSegmentCount; ++AngularIndex)
+		{
+			const int32 Inner0 = GetRingVertex(RadialIndex - 1, AngularIndex);
+			const int32 Inner1 = GetRingVertex(RadialIndex - 1, AngularIndex + 1);
+			const int32 Outer0 = GetRingVertex(RadialIndex, AngularIndex);
+			const int32 Outer1 = GetRingVertex(RadialIndex, AngularIndex + 1);
+			if (Inner0 == INDEX_NONE || Inner1 == INDEX_NONE || Outer0 == INDEX_NONE || Outer1 == INDEX_NONE)
+				continue;
+
+			MeshBuilder.AddTriangle(Inner0, Outer1, Outer0);
+			MeshBuilder.AddTriangle(Inner0, Inner1, Outer1);
+		}
+	}
+
+	MeshBuilder.Draw(
+		PDI,
+		FMatrix::Identity,
+		BrushFalloffMaterial->GetRenderProxy(),
+		SDPG_World,
+		true,
+		false);
+}
+
+void UDualContourBrushTool::DrawSurfaceProjectedRing(
+	FPrimitiveDrawInterface* PDI,
+	float Radius,
+	const FLinearColor& Color,
+	float Thickness) const
+{
+	if (!PDI || Radius <= UE_SMALL_NUMBER)
+		return;
+
+	FVector AxisX;
+	FVector AxisY;
+	HitNormal.FindBestAxisVectors(AxisX, AxisY);
+
+	constexpr int32 SegmentCount = 64;
+	const float ProjectionHalfDepth = FMath::Max(50.0f, Settings->BrushSize * 0.75f);
+	FVector PreviousPoint = FVector::ZeroVector;
+	bool bPreviousPointValid = false;
+
+	for (int32 SegmentIndex = 0; SegmentIndex <= SegmentCount; ++SegmentIndex)
+	{
+		const float Angle = 2.0f * UE_PI * static_cast<float>(SegmentIndex % SegmentCount) / static_cast<float>(SegmentCount);
+		const FVector PlanePoint = HitPosition + Radius * (AxisX * FMath::Cos(Angle) + AxisY * FMath::Sin(Angle));
+		FVector SurfacePoint;
+		const bool bSurfacePointValid = ProjectBrushPointToSurface(PlanePoint, ProjectionHalfDepth, SurfacePoint);
+
+		if (bSurfacePointValid && bPreviousPointValid)
+		{
+			PDI->DrawLine(PreviousPoint, SurfacePoint, Color, SDPG_World, Thickness, 0.0f, true);
+		}
+
+		PreviousPoint = SurfacePoint;
+		bPreviousPointValid = bSurfacePointValid;
+	}
+}
+
 void UDualContourBrushTool::Render(IToolsContextRenderAPI* RenderAPI)
 {
 	if (!bHasHit || !Settings)
 		return;
-	FLinearColor Color = FLinearColor::Green;
-	if (Settings->ActiveTool == EDualContourEditTool::Erase)
-		Color = FLinearColor::Red;
-	else if (Settings->ActiveTool == EDualContourEditTool::Smooth)
-		Color = FLinearColor(0.1f, 0.4f, 1.0f);
-	else if (Settings->ActiveTool == EDualContourEditTool::Brush)
-		Color = FLinearColor::Yellow;
-	FVector AxisX;
-	FVector AxisY;
-	HitNormal.FindBestAxisVectors(AxisX, AxisY);
+
 	FPrimitiveDrawInterface* PDI = RenderAPI->GetPrimitiveDrawInterface();
 	const float Radius = Settings->BrushSize * 0.5f;
-	DrawCircle(PDI, HitPosition, AxisX, AxisY, Color, Radius, 64, SDPG_Foreground, 1.5f, 0.0f, true);
-	DrawCircle(PDI, HitPosition, AxisX, AxisY, Color * 0.65f, Radius * (1.0f - Settings->BrushFalloff), 64, SDPG_Foreground, 1.0f, 0.0f, true);
-	PDI->DrawLine(HitPosition, HitPosition + HitNormal * FMath::Max(20.0f, Radius * 0.25f), Color, SDPG_Foreground, 1.5f);
+	const float FalloffRadius = Radius * (1.0f - Settings->BrushFalloff);
+	const FLinearColor BrushRingColor(1.0f, 1.0f, 1.0f, 0.65f);
+
+	DrawSurfaceProjectedFalloff(RenderAPI, Radius);
+
+	// Landscape-style radius and falloff boundaries remain crisp above the
+	// vertex-alpha gradient.
+	DrawSurfaceProjectedRing(PDI, Radius, BrushRingColor, 1.0f);
+	if (FalloffRadius > UE_SMALL_NUMBER)
+	{
+		DrawSurfaceProjectedRing(PDI, FalloffRadius, BrushRingColor, 1.0f);
+	}
 }
 
 #undef LOCTEXT_NAMESPACE

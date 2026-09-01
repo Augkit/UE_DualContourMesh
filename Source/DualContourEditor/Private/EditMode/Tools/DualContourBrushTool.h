@@ -7,7 +7,9 @@
 #include "DualContourBrushTool.generated.h"
 
 class ADualContourMeshActor;
+class FPrimitiveDrawInterface;
 class UDualContourEditModeSettings;
+class UMaterialInterface;
 
 UCLASS(Transient)
 class UDualContourBrushToolBuilder final : public UInteractiveToolBuilder
@@ -54,6 +56,9 @@ public:
 
 private:
 	bool UpdateHit(const FRay& WorldRay, float* OutDistance = nullptr);
+	bool ProjectBrushPointToSurface(const FVector& PlanePoint, float ProjectionHalfDepth, FVector& OutSurfacePoint) const;
+	void DrawSurfaceProjectedFalloff(IToolsContextRenderAPI* RenderAPI, float Radius) const;
+	void DrawSurfaceProjectedRing(FPrimitiveDrawInterface* PDI, float Radius, const FLinearColor& Color, float Thickness) const;
 	bool BeginEditBatch();
 	bool ApplyStampAt(const FVector& WorldPosition, const FVector& WorldNormal, float TimeScale);
 	bool ApplyBrushStamp(FDualContourEditBatch& Batch, const FDualContourBrushStamp& Stamp) const;
@@ -70,6 +75,9 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UWorld> TargetWorld;
+
+	UPROPERTY()
+	TObjectPtr<UMaterialInterface> BrushFalloffMaterial;
 
 	FDualContourEditBatch ActiveBatch;
 	TMap<FIntVector, FDualContourSampleDelta> StrokeDeltas;
