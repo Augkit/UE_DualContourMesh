@@ -40,7 +40,8 @@ public:
 
 	bool HasCurrentGeneratedData() const;
 
-	uint8 GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
+	uint16 GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
+	float GetLinearDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
 	/** Returns the chunk overlay accumulated by runtime density mutation paths. */
 	const FDualContourDensityChunks& GetModifiedDensityChunks() const { return ModifiedDensityChunks; }
 
@@ -104,9 +105,11 @@ private:
 
 	bool ValidateGenerationSettings() const;
 
-	void WriteDirtyDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Density, TSet<FIntVector>& DirtyChunks);
+	void WriteDirtyDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint16 Density, TSet<FIntVector>& DirtyChunks);
 	void CompactAllDensityChunks();
 	void CompactDensityChunks(const TSet<FIntVector>& ChunkCoords);
+
+	FVector CalculateCentralDifferenceNormal(const FVector& GridPosition) const;
 
 	void RebuildCells();
 	FDualContourCell CreateNewCell(int32 CellX, int32 CellY, int32 CellZ) const;

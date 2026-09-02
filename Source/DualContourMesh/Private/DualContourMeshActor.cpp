@@ -331,7 +331,7 @@ bool ADualContourMeshActor::LoadRuntimeDensityIncrement(const FString& SlotName,
 
 	TStrongObjectPtr<USaveGame> LoadedObject(UGameplayStatics::LoadGameFromSlot(SlotName, UserIndex));
 	const UDualContourRuntimeSaveGame* SaveGame = Cast<UDualContourRuntimeSaveGame>(LoadedObject.Get());
-	if (!SaveGame || SaveGame->SaveVersion != 4)
+	if (!SaveGame || SaveGame->SaveVersion != 7)
 	{
 		UE_LOG(LogDualContourMesh, Warning, TEXT("Runtime density load failed for %s: slot '%s' is missing or incompatible."),
 			*GetName(), *SlotName);

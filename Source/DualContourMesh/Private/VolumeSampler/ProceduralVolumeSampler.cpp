@@ -24,7 +24,7 @@ bool UProceduralVolumeSampler::Prepare(FText& OutError) const
 	if (!FMath::IsFinite(DensityScale) || DensityScale <= UE_SMALL_NUMBER || !FMath::IsFinite(DensityBias))
 	{
 		OutError = NSLOCTEXT("ProceduralVolumeSampler", "InvalidDensityConversion",
-			"DensityScale must be positive and DensityScale/DensityBias must be finite.");
+			"LinearDensityScale must be positive and LinearDensityScale/LinearDensityBias must be finite.");
 		return false;
 	}
 	return true;
@@ -50,7 +50,7 @@ float UProceduralVolumeSampler::SampleNormalized(const FVector& UVW) const
 		                             : GetSignedDistance_Implementation(LocalPosition);
 	if (!FMath::IsFinite(SignedDistance))
 		return 0.0f;
-	return static_cast<float>(GDualContourIsoValue) + DensityBias - SignedDistance * DensityScale;
+	return (DensityBias - SignedDistance * DensityScale) * GDualContourLinearDensityFixedPointScale;
 }
 
 

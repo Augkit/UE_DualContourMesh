@@ -2,7 +2,12 @@
 #include "CoreMinimal.h"
 #include "DualContourTypes.generated.h"
 
-inline constexpr uint8 GDualContourIsoValue = 127;
+inline constexpr float GDualContourMinLinearDensity = -32768.0f;
+inline constexpr float GDualContourLinearIsoValue = 0.0f;
+inline constexpr float GDualContourMaxLinearDensity = 32767.0f;
+inline constexpr uint16 GDualContourIsoValue = 32768;
+/** Sub-units generated per authored density unit before offset-binary quantization. */
+inline constexpr float GDualContourLinearDensityFixedPointScale = 64.0f;
 inline constexpr int32 GDualContourChunkSize = 16;
 
 UENUM(BlueprintType)
@@ -60,11 +65,44 @@ struct DUALCONTOURMESH_API FDensityChunk
 {
 	GENERATED_BODY()
 
+	/** Offset-binary signed density used when the chunk is uniform. Zero is saturated outside. */
 	UPROPERTY(SaveGame)
-	uint8 UniformValue = 0;
+	uint16 UniformValue = 0;
 
+	/** Offset-binary signed densities; size = ChunkSize^3 when expanded. */
 	UPROPERTY(SaveGame)
-	TArray<uint8> DensitySamples; // size = ChunkSize^3 when expanded
+	TArray<uint16> DensitySamples;
+
+	static uint16 EncodeDensity(float LinearDensity)
+	{
+		// Density is already expressed in centered fixed-point sub-units. Encoding is
+		// therefore only clamp, round and bias; decoding stays branchless in hot paths.
+		const float FiniteLinearDensity = FMath::IsFinite(LinearDensity) ? LinearDensity : GDualContourMinLinearDensity;
+		const int32 QuantizedLinearDensity = FMath::RoundToInt(FMath::Clamp(FiniteLinearDensity, GDualContourMinLinearDensity, GDualContourMaxLinearDensity));
+		return static_cast<uint16>(QuantizedLinearDensity + GDualContourIsoValue);
+	}
+
+	static float DecodeLinearDensity(uint16 Density)
+	{
+		return static_cast<float>(static_cast<int32>(Density) - GDualContourIsoValue);
+	}
+
+	float GetLinearDensitySample(int32 Index) const
+	{
+		return DecodeLinearDensity(IsUniform() ? UniformValue : DensitySamples[Index]);
+	}
+
+	void SetLinearDensitySample(int32 Index, float LinearDensity)
+	{
+		Expand();
+		DensitySamples[Index] = EncodeDensity(LinearDensity);
+	}
+
+	void SetDensitySample(int32 Index, uint16 Density)
+	{
+		Expand();
+		DensitySamples[Index] = Density;
+	}
 
 	bool IsUniform() const { return DensitySamples.IsEmpty(); }
 
@@ -73,9 +111,8 @@ struct DUALCONTOURMESH_API FDensityChunk
 	{
 		if (IsUniform())
 			return true;
-
-		const uint8 Candidate = DensitySamples[0];
-		for (const uint8 Value : DensitySamples)
+		const uint16 Candidate = DensitySamples[0];
+		for (const uint16 Value : DensitySamples)
 		{
 			if (Value != Candidate)
 				return false;
@@ -91,8 +128,7 @@ struct DUALCONTOURMESH_API FDensityChunk
 		if (!IsUniform())
 			return;
 		const int32 N = GDualContourChunkSize * GDualContourChunkSize * GDualContourChunkSize;
-		DensitySamples.SetNumUninitialized(N);
-		FMemory::Memset(DensitySamples.GetData(), UniformValue, N);
+		DensitySamples.Init(UniformValue, N);
 	}
 };
 
@@ -155,8 +191,8 @@ struct DUALCONTOURMESH_API FDualContourMeshData
 struct DUALCONTOURMESH_API FDualContourSampleDelta
 {
 	FIntVector SampleCoord = FIntVector::ZeroValue;
-	uint8 Before = 0;
-	uint8 After = 0;
+	uint16 Before = 0;
+	uint16 After = 0;
 };
 
 struct DUALCONTOURMESH_API FDualContourEditResult
@@ -191,7 +227,7 @@ struct DUALCONTOURMESH_API FDualContourBrushStamp
 
 struct FDualContourPendingSample
 {
-	uint8 Before = 0;
+	uint16 Before = 0;
 	float WorkingValue = 0.0f;
 };
 

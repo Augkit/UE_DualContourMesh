@@ -166,7 +166,7 @@ bool UDualContour::HasCurrentGeneratedData() const
 	return !bRebuildRequired && LastBuiltCellCount.X == CellCount.X && LastBuiltCellCount.Y == CellCount.Y && LastBuiltCellCount.Z == CellCount.Z;
 }
 
-uint8 UDualContour::GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const
+uint16 UDualContour::GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const
 {
 	const FIntVector SampleDimensions = GetSampleDimensions();
 	if (!DualContourUtils::IsValidCoordinate(SampleDimensions, SampleX, SampleY, SampleZ))
@@ -180,6 +180,11 @@ uint8 UDualContour::GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) cons
 		return Chunk->UniformValue;
 
 	return Chunk->DensitySamples[DualContourUtils::ChunkLocalIndex(SampleX, SampleY, SampleZ)];
+}
+
+float UDualContour::GetLinearDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const
+{
+	return FDensityChunk::DecodeLinearDensity(GetDensity(SampleX, SampleY, SampleZ));
 }
 
 const FDualContourCell* UDualContour::GetCell(int32 CellX, int32 CellY, int32 CellZ) const
@@ -332,7 +337,8 @@ bool UDualContour::ModifyDensityChunks(const FDualContourSampledRegion& SampledR
 	for (const FDualContourSampledChunk& SampledChunk : SampledRegion.Chunks)
 	{
 		if (SampledChunk.Density.IsUniform()
-		    && (SampledChunk.Density.UniformValue == 0 || (bExcavate && SampledChunk.Density.UniformValue < GDualContourIsoValue)))
+		    && (SampledChunk.Density.UniformValue == 0
+		        || (bExcavate && SampledChunk.Density.UniformValue < GDualContourIsoValue)))
 		{
 			continue;
 		}
@@ -352,29 +358,31 @@ bool UDualContour::ModifyDensityChunks(const FDualContourSampledRegion& SampledR
 				for (int32 SampleX = BuildMin.X; SampleX < BuildMax.X; ++SampleX)
 				{
 					const uint16 LocalIndex = DualContourUtils::ChunkLocalIndex(SampleX, SampleY, SampleZ);
-					const int32 SamplerDensity = SampledChunk.Density.IsUniform()
-						                             ? SampledChunk.Density.UniformValue
-						                             : SampledChunk.Density.DensitySamples[LocalIndex];
+					const uint16 SamplerDensity = SampledChunk.Density.IsUniform()
+						                              ? SampledChunk.Density.UniformValue
+						                              : SampledChunk.Density.DensitySamples[LocalIndex];
 					if (SamplerDensity == 0 || (bExcavate && SamplerDensity < GDualContourIsoValue))
 						continue;
 
-					const int32 OldDensity = !TargetChunk
-						                         ? 0
-						                         : (TargetChunk->IsUniform() ? TargetChunk->UniformValue : TargetChunk->DensitySamples[LocalIndex]);
-					int32 NewDensity = FMath::Max(OldDensity, SamplerDensity);
+					const uint16 OldDensity =
+						TargetChunk
+							? (TargetChunk->IsUniform()
+								   ? TargetChunk->UniformValue
+								   : TargetChunk->DensitySamples[LocalIndex])
+							: 0;
+					uint16 NewDensity = FMath::Max(OldDensity, SamplerDensity);
 					if (bExcavate)
 					{
-						const int32 DifferenceDensity = 2 * static_cast<int32>(GDualContourIsoValue) - SamplerDensity;
+						const uint16 DifferenceDensity =
+							static_cast<uint16>(2u * static_cast<uint32>(GDualContourIsoValue) - SamplerDensity);
 						NewDensity = FMath::Min(OldDensity, DifferenceDensity);
 					}
-					const uint8 ClampedDensity = static_cast<uint8>(FMath::Clamp(NewDensity, 0, 255));
-					if (ClampedDensity == OldDensity)
+					if (NewDensity == OldDensity)
 						continue;
 
 					if (!TargetChunk)
 						TargetChunk = &DensityChunks.FindOrAdd(SampledChunk.ChunkCoord);
-					TargetChunk->Expand();
-					TargetChunk->DensitySamples[LocalIndex] = ClampedDensity;
+					TargetChunk->SetDensitySample(LocalIndex, NewDensity);
 					ModifiedChunks.Add(SampledChunk.ChunkCoord);
 					ModifiedSampleMin.X = FMath::Min(ModifiedSampleMin.X, SampleX);
 					ModifiedSampleMin.Y = FMath::Min(ModifiedSampleMin.Y, SampleY);
@@ -413,7 +421,8 @@ bool UDualContour::ApplyEditBatch(FDualContourEditBatch& Batch, FDualContourEdit
 		const FIntVector ChunkOrigin = DualContourUtils::ChunkOrigin(ChunkPair.Key);
 		for (const TPair<uint16, FDualContourPendingSample>& SamplePair : ChunkPair.Value)
 		{
-			const uint8 After = static_cast<uint8>(FMath::Clamp(FMath::RoundToInt(SamplePair.Value.WorkingValue), 0, 255));
+			const uint16 After =
+				FDensityChunk::EncodeDensity(FMath::Clamp(SamplePair.Value.WorkingValue, GDualContourMinLinearDensity, GDualContourMaxLinearDensity));
 			if (After == SamplePair.Value.Before)
 				continue;
 			const FIntVector SampleCoord = ChunkOrigin + DualContourUtils::ChunkLocalCoord(SamplePair.Key);
@@ -454,15 +463,14 @@ bool UDualContour::ApplyEditDeltas(TConstArrayView<FDualContourSampleDelta> Delt
 	return true;
 }
 
-void UDualContour::WriteDirtyDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 Density, TSet<FIntVector>& DirtyChunks)
+void UDualContour::WriteDirtyDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint16 Density, TSet<FIntVector>& DirtyChunks)
 {
 	const FIntVector SampleDims = GetSampleDimensions();
 	if (!DualContourUtils::IsValidCoordinate(SampleDims, SampleX, SampleY, SampleZ) || GetDensity(SampleX, SampleY, SampleZ) == Density)
 		return;
 	const FIntVector ChunkCoord = DualContourUtils::ChunkCoord(SampleX, SampleY, SampleZ);
 	FDensityChunk& Chunk = DensityChunks.FindOrAdd(ChunkCoord);
-	Chunk.Expand();
-	Chunk.DensitySamples[DualContourUtils::ChunkLocalIndex(SampleX, SampleY, SampleZ)] = Density;
+	Chunk.SetDensitySample(DualContourUtils::ChunkLocalIndex(SampleX, SampleY, SampleZ), Density);
 	DirtyChunks.Add(ChunkCoord);
 }
 
@@ -502,14 +510,25 @@ float UDualContour::TrilinearDensity(const FVector& GridPos) const
 	const float BlendX = GridX - LowerX, BlendY = GridY - LowerY, BlendZ = GridZ - LowerZ;
 
 	return FMath::Lerp(
-		FMath::Lerp(FMath::Lerp(static_cast<float>(GetDensity(LowerX, LowerY, LowerZ)), static_cast<float>(GetDensity(UpperX, LowerY, LowerZ)),
-				BlendX),
-			FMath::Lerp(static_cast<float>(GetDensity(LowerX, UpperY, LowerZ)), static_cast<float>(GetDensity(UpperX, UpperY, LowerZ)), BlendX),
+		FMath::Lerp(
+			FMath::Lerp(GetLinearDensity(LowerX, LowerY, LowerZ), GetLinearDensity(UpperX, LowerY, LowerZ), BlendX),
+			FMath::Lerp(GetLinearDensity(LowerX, UpperY, LowerZ), GetLinearDensity(UpperX, UpperY, LowerZ), BlendX),
 			BlendY),
-		FMath::Lerp(FMath::Lerp(static_cast<float>(GetDensity(LowerX, LowerY, UpperZ)), static_cast<float>(GetDensity(UpperX, LowerY, UpperZ)),
-				BlendX),
-			FMath::Lerp(static_cast<float>(GetDensity(LowerX, UpperY, UpperZ)), static_cast<float>(GetDensity(UpperX, UpperY, UpperZ)), BlendX),
-			BlendY), BlendZ);
+		FMath::Lerp(
+			FMath::Lerp(GetLinearDensity(LowerX, LowerY, UpperZ), GetLinearDensity(UpperX, LowerY, UpperZ), BlendX),
+			FMath::Lerp(GetLinearDensity(LowerX, UpperY, UpperZ), GetLinearDensity(UpperX, UpperY, UpperZ), BlendX),
+			BlendY),
+		BlendZ);
+}
+
+FVector UDualContour::CalculateCentralDifferenceNormal(const FVector& GridPosition) const
+{
+	constexpr float Step = 0.125f;
+	return (-FVector(
+			TrilinearDensity(GridPosition + FVector(Step, 0, 0)) - TrilinearDensity(GridPosition - FVector(Step, 0, 0)),
+			TrilinearDensity(GridPosition + FVector(0, Step, 0)) - TrilinearDensity(GridPosition - FVector(0, Step, 0)),
+			TrilinearDensity(GridPosition + FVector(0, 0, Step)) - TrilinearDensity(GridPosition - FVector(0, 0, Step))))
+		.GetSafeNormal();
 }
 
 bool UDualContour::ApplyModifiedDensityChunks(const FDualContourDensityChunks& InModifiedDensityChunks)
@@ -567,7 +586,9 @@ FDualContourCell UDualContour::CreateNewCell(int32 CellX, int32 CellY, int32 Cel
 	for (int32 Z = 0; Z <= 1; ++Z)
 		for (int32 Y = 0; Y <= 1; ++Y)
 			for (int32 X = 0; X <= 1; ++X)
-				(GetDensity(CellX + X, CellY + Y, CellZ + Z) >= GDualContourIsoValue ? bHasInside : bHasOutside) = true;
+				(GetDensity(CellX + X, CellY + Y, CellZ + Z) >= GDualContourIsoValue
+					 ? bHasInside
+					 : bHasOutside) = true;
 	Cell.bActive = bHasInside && bHasOutside;
 	if (!Cell.bActive)
 		return Cell;
@@ -576,8 +597,8 @@ FDualContourCell UDualContour::CreateNewCell(int32 CellX, int32 CellY, int32 Cel
 	constexpr double Lambda = 0.1;
 	double Matrix[3][3] = {};
 	double Vector[3] = {};
-	FVector AccumNormal = FVector::ZeroVector;
 	FVector IntersectionSum = FVector::ZeroVector;
+	double IntersectionWeightSum = 0.0;
 	int32 NumIntersections = 0;
 	for (int32 EdgeIndex = 0; EdgeIndex < 12; ++EdgeIndex)
 	{
@@ -585,22 +606,20 @@ FDualContourCell UDualContour::CreateNewCell(int32 CellX, int32 CellY, int32 Cel
 		const int32* B = EdgeCorners[EdgeIndex][1];
 		const int32 AX = CellX + A[0], AY = CellY + A[1], AZ = CellZ + A[2];
 		const int32 BX = CellX + B[0], BY = CellY + B[1], BZ = CellZ + B[2];
-		const int32 DensityA = GetDensity(AX, AY, AZ);
-		const int32 DensityB = GetDensity(BX, BY, BZ);
+		const uint16 DensityA = GetDensity(AX, AY, AZ);
+		const uint16 DensityB = GetDensity(BX, BY, BZ);
 		if ((DensityA < GDualContourIsoValue) == (DensityB < GDualContourIsoValue))
 			continue;
+		const float LinearDensityA = FDensityChunk::DecodeLinearDensity(DensityA);
+		const float LinearDensityB = FDensityChunk::DecodeLinearDensity(DensityB);
 
-		const float Alpha = (static_cast<float>(GDualContourIsoValue) - DensityA) / (DensityB - DensityA);
+		const float Alpha = (GDualContourLinearIsoValue - LinearDensityA) / (LinearDensityB - LinearDensityA);
 		const FVector GridPosition = FVector(AX, AY, AZ) + Alpha * (FVector(BX, BY, BZ) - FVector(AX, AY, AZ));
 		const FVector WorldPosition = GridPosition * CellSize;
-		constexpr float Step = 0.5f;
-		const FVector Normal = (-FVector(
-				TrilinearDensity(GridPosition + FVector(Step, 0, 0)) - TrilinearDensity(GridPosition - FVector(Step, 0, 0)),
-				TrilinearDensity(GridPosition + FVector(0, Step, 0)) - TrilinearDensity(GridPosition - FVector(0, Step, 0)),
-				TrilinearDensity(GridPosition + FVector(0, 0, Step)) - TrilinearDensity(GridPosition - FVector(0, 0, Step))))
-			.GetSafeNormal();
+		const FVector Normal = CalculateCentralDifferenceNormal(GridPosition);
 		if (Normal.IsNearlyZero())
 			continue;
+		const double IntersectionWeight = FMath::Pow(FMath::Max(FMath::Abs(LinearDensityB - LinearDensityA), UE_SMALL_NUMBER), 4.0f);
 
 		if (bUseQEF)
 		{
@@ -621,9 +640,9 @@ FDualContourCell UDualContour::CreateNewCell(int32 CellX, int32 CellY, int32 Cel
 		}
 		else
 		{
-			IntersectionSum += WorldPosition;
+			IntersectionSum += WorldPosition * IntersectionWeight;
+			IntersectionWeightSum += IntersectionWeight;
 		}
-		AccumNormal += Normal;
 		++NumIntersections;
 	}
 
@@ -647,9 +666,11 @@ FDualContourCell UDualContour::CreateNewCell(int32 CellX, int32 CellY, int32 Cel
 		}
 		else
 		{
-			Cell.Center = IntersectionSum / NumIntersections;
+			Cell.Center = IntersectionWeightSum > UE_SMALL_NUMBER
+				              ? IntersectionSum / IntersectionWeightSum
+				              : CellCenter;
 		}
-		Cell.Normal = AccumNormal.GetSafeNormal();
+		Cell.Normal = CalculateCentralDifferenceNormal(Cell.Center / CellSize);
 		if (Cell.Normal.IsNearlyZero())
 			Cell.Normal = FVector::UpVector;
 	}

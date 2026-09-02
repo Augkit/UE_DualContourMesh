@@ -13,7 +13,7 @@ class DUALCONTOURMESH_API UDualContourRuntimeSaveGame : public USaveGame
 
 public:
 	UPROPERTY(SaveGame)
-	int32 SaveVersion = 4;
+	int32 SaveVersion = 7;
 
 	UPROPERTY(SaveGame)
 	FSoftObjectPath BaseDualContourPath;

@@ -99,7 +99,7 @@ bool ReadFloatTexture(const UTexture& Texture, const FTexturePlatformData* Platf
 
 float UTextureSDFSampler::SignedDistanceToDensity(float SignedDistance) const
 {
-	return static_cast<float>(GDualContourIsoValue) + DensityBias - SignedDistance * DensityScale;
+	return (DensityBias - SignedDistance * DensityScale) * GDualContourLinearDensityFixedPointScale;
 }
 
 float UTextureSDFSampler::SampleCachedTexture(const FVector& UVW) const

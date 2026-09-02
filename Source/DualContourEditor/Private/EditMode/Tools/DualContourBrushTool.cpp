@@ -283,7 +283,7 @@ bool UDualContourBrushTool::ApplyBrushStamp(FDualContourEditBatch& Batch, const 
 		if (const TMap<uint16, FDualContourPendingSample>* Chunk = Batch.ChunkSamples.Find(ChunkCoord))
 			if (const FDualContourPendingSample* Pending = Chunk->Find(DualContourUtils::ChunkLocalIndex(X, Y, Z)))
 				return Pending->WorkingValue;
-		return static_cast<float>(DualContour->GetDensity(X, Y, Z));
+		return DualContour->GetLinearDensity(X, Y, Z);
 	};
 	auto SetWorkingDensity = [DualContour, &Batch, &GetWorkingDensity](int32 X, int32 Y, int32 Z, float Value)
 	{
@@ -298,7 +298,7 @@ bool UDualContourBrushTool::ApplyBrushStamp(FDualContourEditBatch& Batch, const 
 			Pending.WorkingValue = GetWorkingDensity(X, Y, Z);
 			Existing = &Chunk.Add(LocalIndex, Pending);
 		}
-		Existing->WorkingValue = FMath::Clamp(Value, 0.0f, 255.0f);
+		Existing->WorkingValue = FMath::Clamp(Value, GDualContourMinLinearDensity, GDualContourMaxLinearDensity);
 	};
 
 	FVector BoundsMin = Stamp.LocalCenter - FVector(Stamp.Radius);
@@ -414,7 +414,7 @@ bool UDualContourBrushTool::ApplyBrushStamp(FDualContourEditBatch& Batch, const 
 			if (const TMap<uint16, FDualContourPendingSample>* Chunk = ReadOnlyChunkSamples.Find(ChunkCoord))
 				if (const FDualContourPendingSample* Pending = Chunk->Find(DualContourUtils::ChunkLocalIndex(X, Y, Z)))
 					return Pending->WorkingValue;
-			return static_cast<float>(DualContour->GetDensity(X, Y, Z));
+			return DualContour->GetLinearDensity(X, Y, Z);
 		};
 
 		ParallelFor(TEXT("DualContourBrush.VolumeStampSamples"), VolumeSampleCount, 256,
@@ -446,10 +446,8 @@ bool UDualContourBrushTool::ApplyBrushStamp(FDualContourEditBatch& Batch, const 
 				float CombinedDensity = TargetDensity;
 				if (Stamp.Operation == EDualContourDensityEditOperation::StampDifference)
 				{
-					const float DifferenceDensity = TargetDensity >= GDualContourIsoValue
-						                                ? 2.0f * GDualContourIsoValue - TargetDensity
-						                                : 255.0f;
-					CombinedDensity = FMath::Min(OldDensity, DifferenceDensity);
+					const float DifferenceLinearDensity = TargetDensity >= GDualContourLinearIsoValue ? -TargetDensity : GDualContourMaxLinearDensity;
+					CombinedDensity = FMath::Min(OldDensity, DifferenceLinearDensity);
 				}
 				else
 				{
@@ -500,17 +498,17 @@ bool UDualContourBrushTool::ApplyBrushStamp(FDualContourEditBatch& Batch, const 
 				}
 				else if (Stamp.Operation == EDualContourDensityEditOperation::Erase)
 				{
-					TargetDensity = RestoreSource->GetDensity(X, Y, Z);
+					TargetDensity = RestoreSource->GetLinearDensity(X, Y, Z);
 				}
 				else if (Stamp.bUseClayBrush)
 				{
 					const float SignedDistance = FVector::DotProduct(LocalPosition - Stamp.ClayPlaneOrigin,
 						Stamp.LocalNormal.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector));
-					TargetDensity = GDualContourIsoValue - SignedDistance * (128.0f / FMath::Max(DualContour->CellSize, UE_SMALL_NUMBER));
+					TargetDensity = -SignedDistance * (GDualContourMaxLinearDensity / FMath::Max(DualContour->CellSize, UE_SMALL_NUMBER));
 				}
 				else
 				{
-					TargetDensity = GDualContourIsoValue + (255.0f - GDualContourIsoValue) * (1.0f - Distance / Stamp.Radius);
+					TargetDensity = GDualContourMaxLinearDensity * (1.0f - Distance / Stamp.Radius);
 				}
 
 				const float OldDensity = GetWorkingDensity(X, Y, Z);
@@ -518,9 +516,7 @@ bool UDualContourBrushTool::ApplyBrushStamp(FDualContourEditBatch& Batch, const 
 				if (Stamp.Operation == EDualContourDensityEditOperation::SculptSubtract
 				    || Stamp.Operation == EDualContourDensityEditOperation::StampDifference)
 				{
-					const float DifferenceDensity = TargetDensity >= GDualContourIsoValue
-						                                ? 2.0f * GDualContourIsoValue - TargetDensity
-						                                : 255.0f;
+					const float DifferenceDensity = TargetDensity >= GDualContourLinearIsoValue ? -TargetDensity : GDualContourMaxLinearDensity;
 					CombinedDensity = FMath::Min(OldDensity, DifferenceDensity);
 				}
 				else if (Stamp.Operation == EDualContourDensityEditOperation::Sculpt

@@ -154,20 +154,19 @@ bool UVolumeSampler::BuildDensityChunks(UDualContour* Target, const FTransform& 
 					const FVector Untransformed = PivotPosition
 					                              + SampleTransform.InverseTransformVector(TargetPosition - PivotPosition - Translation);
 					const FVector UVW = Untransformed / VolumeSize;
-					float Density = 0.0f;
+					float LinearDensity = GDualContourMinLinearDensity;
 					if (UVW.X >= 0.0 && UVW.X <= 1.0 && UVW.Y >= 0.0 && UVW.Y <= 1.0 && UVW.Z >= 0.0 && UVW.Z <= 1.0)
-						Density = SampleNormalized(UVW);
-					const uint8 QuantizedDensity = static_cast<uint8>(
-						FMath::RoundToInt(FMath::Clamp(Density, 0.0f, 255.0f)));
-					if (QuantizedDensity == 0)
+						LinearDensity = SampleNormalized(UVW);
+					const int32 LocalIndex = DualContourUtils::ChunkLocalIndex(SampleX, SampleY, SampleZ);
+					const uint16 Density = FDensityChunk::EncodeDensity(LinearDensity);
+					if (Density == 0)
 						continue;
-
 					if (!bExpanded)
 					{
 						SampledChunk.Density.Expand();
 						bExpanded = true;
 					}
-					SampledChunk.Density.DensitySamples[DualContourUtils::ChunkLocalIndex(SampleX, SampleY, SampleZ)] = QuantizedDensity;
+					SampledChunk.Density.DensitySamples[LocalIndex] = Density;
 				}
 		if (bExpanded)
 			SampledChunk.Density.TryCollapse();

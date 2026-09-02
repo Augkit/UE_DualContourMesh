@@ -174,9 +174,13 @@ bool FSVTDualContourBuilder::Sample(const USVTDualContour& SVTDualContour,
 			Parameters->OutputDensities = GraphBuilder.CreateUAV(OutputBuffer);
 
 			TShaderMapRef<FSampleSparseVolumeTextureCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
-			FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("Sample SVT Dual Contour"), ComputeShader, Parameters,
-				FIntVector(FMath::DivideAndRoundUp(SampleDims.X, 4), FMath::DivideAndRoundUp(SampleDims.Y, 4),
-					FMath::DivideAndRoundUp(SampleDims.Z, 4)));
+			FComputeShaderUtils::AddPass(
+				GraphBuilder, RDG_EVENT_NAME("Sample SVT Dual Contour"), ComputeShader, Parameters,
+				FIntVector(
+					FMath::DivideAndRoundUp(SampleDims.X, 4),
+					FMath::DivideAndRoundUp(SampleDims.Y, 4),
+					FMath::DivideAndRoundUp(SampleDims.Z, 4))
+				);
 			AddEnqueueCopyPass(GraphBuilder, &Readback.Get(), OutputBuffer, NumBytes);
 			GraphBuilder.Execute();
 		});
@@ -235,7 +239,7 @@ bool FSVTDualContourBuilder::Sample(const USVTDualContour& SVTDualContour,
 					for (int32 SampleX = ChunkOrigin.X; SampleX < BuildMax.X; ++SampleX)
 					{
 						const int32 SourceIndex = DualContourUtils::LinearIndex(SampleDims, SampleX, SampleY, SampleZ);
-						const uint8 Density = static_cast<uint8>(FMath::Min((*ReadbackValues)[SourceIndex], 255u));
+						const uint16 Density = static_cast<uint16>(FMath::Min((*ReadbackValues)[SourceIndex], 65535u));
 						if (Density == 0)
 							continue;
 						if (!bExpanded)

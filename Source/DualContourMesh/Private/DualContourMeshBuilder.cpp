@@ -42,8 +42,8 @@ public:
 		// X-axis edge: the four adjacent cells lie in the Y-Z plane.
 		if (CellY + 1 < CellCounts.Y && CellZ + 1 < CellCounts.Z)
 		{
-			const uint8 DensityA = DualContour.GetDensity(CellX, CellY + 1, CellZ + 1);
-			const uint8 DensityB = DualContour.GetDensity(CellX + 1, CellY + 1, CellZ + 1);
+			const uint16 DensityA = DualContour.GetDensity(CellX, CellY + 1, CellZ + 1);
+			const uint16 DensityB = DualContour.GetDensity(CellX + 1, CellY + 1, CellZ + 1);
 			if ((DensityA < GDualContourIsoValue) != (DensityB < GDualContourIsoValue))
 			{
 				const FDualContourCell* C00 = GetCell(CellX, CellY, CellZ);
@@ -60,8 +60,8 @@ public:
 		// Y-axis edge: the four adjacent cells lie in the X-Z plane.
 		if (CellX + 1 < CellCounts.X && CellZ + 1 < CellCounts.Z)
 		{
-			const uint8 DensityA = DualContour.GetDensity(CellX + 1, CellY, CellZ + 1);
-			const uint8 DensityB = DualContour.GetDensity(CellX + 1, CellY + 1, CellZ + 1);
+			const uint16 DensityA = DualContour.GetDensity(CellX + 1, CellY, CellZ + 1);
+			const uint16 DensityB = DualContour.GetDensity(CellX + 1, CellY + 1, CellZ + 1);
 			if ((DensityA < GDualContourIsoValue) != (DensityB < GDualContourIsoValue))
 			{
 				const FDualContourCell* C00 = GetCell(CellX, CellY, CellZ);
@@ -78,8 +78,8 @@ public:
 		// Z-axis edge: the four adjacent cells lie in the X-Y plane.
 		if (CellX + 1 < CellCounts.X && CellY + 1 < CellCounts.Y)
 		{
-			const uint8 DensityA = DualContour.GetDensity(CellX + 1, CellY + 1, CellZ);
-			const uint8 DensityB = DualContour.GetDensity(CellX + 1, CellY + 1, CellZ + 1);
+			const uint16 DensityA = DualContour.GetDensity(CellX + 1, CellY + 1, CellZ);
+			const uint16 DensityB = DualContour.GetDensity(CellX + 1, CellY + 1, CellZ + 1);
 			if ((DensityA < GDualContourIsoValue) != (DensityB < GDualContourIsoValue))
 			{
 				const FDualContourCell* C00 = GetCell(CellX, CellY, CellZ);
@@ -116,6 +116,41 @@ void FDualContourMeshBuilder::Build(const UDualContour& DualContour, FIntVector 
 		for (int32 CellY = CellRangeMin.Y; CellY < CellRangeMax.Y; ++CellY)
 			for (int32 CellX = CellRangeMin.X; CellX < CellRangeMax.X; ++CellX)
 				Context.GenerateQuadsForCell(CellX, CellY, CellZ);
+
+	// Weld duplicated quad corners by position and accumulate unnormalized triangle
+	// normals so each face contributes in proportion to area. Blending a small amount
+	// of this geometric normal into the field normal removes triangulation-aligned
+	// shading without hiding the sampled surface shape.
+	TMap<FVector, FVector> PositionNormalSums;
+	for (int32 TriangleIndex = 0; TriangleIndex + 2 < OutMeshData.Indices.Num(); TriangleIndex += 3)
+	{
+		const uint32 Index0 = OutMeshData.Indices[TriangleIndex];
+		const uint32 Index1 = OutMeshData.Indices[TriangleIndex + 1];
+		const uint32 Index2 = OutMeshData.Indices[TriangleIndex + 2];
+		FVector FaceNormal = FVector::CrossProduct(
+			OutMeshData.Positions[Index1] - OutMeshData.Positions[Index0],
+			OutMeshData.Positions[Index2] - OutMeshData.Positions[Index0]);
+		if (FaceNormal.IsNearlyZero())
+			continue;
+		const FVector ReferenceNormal = (OutMeshData.Normals[Index0] + OutMeshData.Normals[Index1]
+		                                 + OutMeshData.Normals[Index2]).GetSafeNormal();
+		if (!ReferenceNormal.IsNearlyZero() && FVector::DotProduct(FaceNormal, ReferenceNormal) < 0.0)
+			FaceNormal *= -1.0;
+		PositionNormalSums.FindOrAdd(OutMeshData.Positions[Index0]) += FaceNormal;
+		PositionNormalSums.FindOrAdd(OutMeshData.Positions[Index1]) += FaceNormal;
+		PositionNormalSums.FindOrAdd(OutMeshData.Positions[Index2]) += FaceNormal;
+	}
+
+	constexpr float GeometricNormalBlend = 0.25f;
+	for (int32 VertexIndex = 0; VertexIndex < OutMeshData.Positions.Num(); ++VertexIndex)
+	{
+		const FVector GeometricNormal = PositionNormalSums.FindRef(OutMeshData.Positions[VertexIndex]).GetSafeNormal();
+		if (!GeometricNormal.IsNearlyZero())
+		{
+			OutMeshData.Normals[VertexIndex] =
+				FMath::Lerp(OutMeshData.Normals[VertexIndex].GetSafeNormal(), GeometricNormal, GeometricNormalBlend).GetSafeNormal();
+		}
+	}
 
 	// Bounds include every emitted vertex, including centers read from the positive-axis neighbor ring.
 	for (const FVector& Position : OutMeshData.Positions)

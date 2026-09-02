@@ -1,13 +1,13 @@
 #pragma once
 #include "CoreMinimal.h"
-#include "GameFramework/PlayerController.h"
+#include "Test/DualContourVisualSweepPlayerController.h"
 #include "DualContourTestPlayerController.generated.h"
 
 class UProceduralVolumeSampler;
 class ADualContourMeshActor;
 
 UCLASS()
-class DUALCONTOURMESH_API ADualContourTestPlayerController : public APlayerController
+class DUALCONTOURMESH_API ADualContourTestPlayerController : public ADualContourVisualSweepPlayerController
 {
 	GENERATED_BODY()
 

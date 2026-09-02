@@ -14,7 +14,7 @@ class DUALCONTOURMESH_API ADualContourVisualSweepPlayerController : public APlay
 	GENERATED_BODY()
 
 public:
-	/** Builds the procedural sampler regression set and captures deterministic axis/isometric views. */
+	/** Builds the procedural sampler regression set and captures deterministic axis/isometric views, subset-selectable via dc.VisualTest.Views. */
 	UFUNCTION(Exec)
 	void RunDualContourVisualSweep();
 
@@ -26,6 +26,7 @@ private:
 	};
 
 	void CaptureNextVisualSweepView();
+	void CapturePreparedVisualSweepView();
 	void HandleVisualSweepScreenshotProcessed();
 	void WriteVisualSweepMetrics() const;
 	void FinishVisualSweep(bool bSucceeded);
@@ -45,14 +46,14 @@ private:
 
 	TArray<FString> VisualSweepSubjectNames;
 	TArray<FVisualSweepView> VisualSweepViews;
-	/** Existing level actors made invisible so screenshots have an uncluttered black background. */
-	TArray<TWeakObjectPtr<AActor>> VisualSweepActorsHiddenByTest;
 	TWeakObjectPtr<AActor> PreviousViewTarget;
+	TWeakObjectPtr<AActor> HiddenVisualSweepPawn;
 	FDelegateHandle ScreenshotProcessedHandle;
 	FTimerHandle VisualSweepTimerHandle;
 	FString VisualSweepOutputDirectory;
 	FVector VisualSweepCenter = FVector::ZeroVector;
 	int32 VisualSweepSubjectIndex = 0;
 	int32 VisualSweepViewIndex = 0;
+	bool bVisualSweepPawnWasHidden = false;
 	bool bVisualSweepRunning = false;
 };
