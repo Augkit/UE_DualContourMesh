@@ -762,7 +762,7 @@ void UDualContourBrushTool::DrawSurfaceProjectedFalloff(IToolsContextRenderAPI* 
 		PDI,
 		FMatrix::Identity,
 		BrushFalloffMaterial->GetRenderProxy(),
-		SDPG_World,
+		SDPG_Foreground,
 		true,
 		false);
 }
@@ -794,7 +794,7 @@ void UDualContourBrushTool::DrawSurfaceProjectedRing(
 
 		if (bSurfacePointValid && bPreviousPointValid)
 		{
-			PDI->DrawLine(PreviousPoint, SurfacePoint, Color, SDPG_World, Thickness, 0.0f, true);
+			PDI->DrawLine(PreviousPoint, SurfacePoint, Color, SDPG_Foreground, Thickness, 0.0f, true);
 		}
 
 		PreviousPoint = SurfacePoint;
