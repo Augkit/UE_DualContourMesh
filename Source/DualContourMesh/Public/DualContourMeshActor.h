@@ -11,7 +11,7 @@
 
 class UVolumeSampler;
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDualContourMeshComponentsUpdated);
+DECLARE_MULTICAST_DELEGATE(FOnDualContourMeshComponentsUpdated);
 
 UCLASS()
 class DUALCONTOURMESH_API ADualContourMeshActor : public AActor
@@ -61,7 +61,6 @@ public:
 	bool bGenerateOverlapEvents = true;
 
 	/** Broadcast after all queued mesh component creations, updates, and removals have completed. */
-	UPROPERTY(BlueprintAssignable, Category = "DualContour|Rendering")
 	FOnDualContourMeshComponentsUpdated OnMeshComponentsUpdated;
 
 	/** Slot used by the test save/load buttons below. */

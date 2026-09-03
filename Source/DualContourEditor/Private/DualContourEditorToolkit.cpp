@@ -10,10 +10,13 @@
 #include "Modules/ModuleManager.h"
 #include "ScopedTransaction.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
+#include "Framework/Application/SlateApplication.h"
+#include "Containers/Ticker.h"
 #include "Styling/AppStyle.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SCheckBox.h"
+#include "Widgets/Notifications/SProgressBar.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SWidgetSwitcher.h"
 #include "Widgets/SBoxPanel.h"
@@ -28,6 +31,10 @@ void FDualContourEditorToolkit::InitEditor(EToolkitMode::Type Mode,
 	const TSharedPtr<IToolkitHost>& InToolkitHost, UDualContour* InAsset)
 {
 	Asset = InAsset;
+	if (Asset)
+	{
+		Asset->OnCellsRebuilt.AddSP(this, &FDualContourEditorToolkit::HandleCellsRebuilt);
+	}
 	PreviewType = Cast<USVTDualContour>(Asset)
 		              ? EDualContourEditorPreviewType::SparseVolumeTexture
 		              : EDualContourEditorPreviewType::DualContour;
@@ -76,9 +83,13 @@ void FDualContourEditorToolkit::UnregisterTabSpawners(const TSharedRef<FTabManag
 
 TSharedRef<SDockTab> FDualContourEditorToolkit::SpawnViewportTab(const FSpawnTabArgs& Args)
 {
+	TSharedRef<SDualContourEditorViewport> NewViewport =
+		SNew(SDualContourEditorViewport).EditorToolkit(SharedThis(this));
+	Viewport = NewViewport;
+	Viewport->OnMeshComponentsUpdated.AddSP(this, &FDualContourEditorToolkit::HandlePreviewMeshComponentsUpdated);
 	return SNew(SDockTab)
 		[
-			SAssignNew(Viewport, SDualContourEditorViewport).EditorToolkit(SharedThis(this))
+			NewViewport
 		];
 }
 
@@ -141,6 +152,18 @@ TSharedRef<SDockTab> FDualContourEditorToolkit::SpawnDetailsTab(const FSpawnTabA
 						.OnCheckStateChanged(this, &FDualContourEditorToolkit::HandleAutoGenerateCheckStateChanged)
 					]
 				]
+			]
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(8.0f)
+			[
+				SNew(SBox)
+					.Visibility(this, &FDualContourEditorToolkit::GetGenerationProgressVisibility)
+					[
+						SNew(SProgressBar)
+							.Percent(this, &FDualContourEditorToolkit::GetGenerationProgress)
+							.ToolTipText(LOCTEXT("GenerationProgressTooltip", "Generating the dual contour..."))
+					]
 			]
 			+ SVerticalBox::Slot()
 			.AutoHeight()
@@ -215,23 +238,135 @@ void FDualContourEditorToolkit::GenerateDualContour()
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourEditor_GenerateDualContour);
 
-	if (!Asset || !Asset->SampleSource())
+	if (bGenerationInProgress || !Asset || !CanGenerateDualContour())
 		return;
+
+	bGenerationInProgress = true;
+	bGenerationCompletionRequested = false;
+	bContourCellsReadyForGeneration = false;
+	GenerationProgress = 0.0f;
+	GenerationProgressTarget = 0.0f;
+	GenerationTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateSP(this, &FDualContourEditorToolkit::StartGeneration), 0.0f);
+	FSlateApplication::Get().InvalidateAllWidgets(false);
+	// Return immediately so the current frame can render the disabled button and the 0%
+	// progress bar before the synchronous sampling work begins on the next ticker frame.
+	return;
+}
+
+bool FDualContourEditorToolkit::StartGeneration(float)
+{
+	if (!bGenerationInProgress)
+		return false;
+
+	if (!Asset->SampleSource())
+	{
+		bGenerationInProgress = false;
+		bGenerationCompletionRequested = false;
+		bContourCellsReadyForGeneration = false;
+		GenerationProgress = 0.0f;
+		GenerationProgressTarget = 0.0f;
+		FTSTicker::GetCoreTicker().RemoveTicker(GenerationTickerHandle);
+		GenerationTickerHandle.Reset();
+		FSlateApplication::Get().InvalidateAllWidgets(false);
+		return false;
+	}
+
+	GenerationTickerHandle.Reset();
+	GenerationTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateSP(this, &FDualContourEditorToolkit::TickGenerationProgress), 0.1f);
+
+	// Sampling is synchronous, while the contour cell build is dispatched to the worker
+	// pool. Keep the progress indicator visible for that asynchronous part of generation.
+	if (bGenerationInProgress && !bGenerationCompletionRequested)
+		GenerationProgressTarget = 0.1f;
 
 	PreviewType = EDualContourEditorPreviewType::DualContour;
 	if (DetailsView)
 		DetailsView->ForceRefresh();
-	if (Viewport)
-		Viewport->RefreshPreview();
+	// Wait for UDualContour::OnCellsRebuilt before refreshing the preview actor. Otherwise
+	// the actor can inspect CellChunks while the background contour build is still running,
+	// queue an empty component update, and report completion prematurely.
+	return false;
 }
 
 bool FDualContourEditorToolkit::CanGenerateDualContour() const
 {
+	if (bGenerationInProgress)
+		return false;
 	if (const USVTDualContour* SVTDualContour = GetSVTDualContour())
 		return SVTDualContour->SourceSparseVolumeTexture != nullptr;
 	if (const UVolumeSampledDualContour* VolumeSampledDualContour = GetVolumeSampledDualContour())
 		return VolumeSampledDualContour->VolumeSampler != nullptr;
 	return false;
+}
+
+void FDualContourEditorToolkit::HandleCellsRebuilt(FIntVector, FIntVector)
+{
+	if (!bGenerationInProgress)
+		return;
+
+	bContourCellsReadyForGeneration = true;
+	GenerationProgressTarget = FMath::Max(GenerationProgressTarget, 0.6f);
+	if (Viewport)
+		Viewport->RefreshPreview();
+}
+
+void FDualContourEditorToolkit::HandlePreviewMeshComponentsUpdated()
+{
+	if (!bGenerationInProgress || !bContourCellsReadyForGeneration)
+		return;
+
+	// The actor has consumed all queued component updates. Let the ticker animate the
+	// remaining distance to 100% before hiding the progress bar.
+	bGenerationCompletionRequested = true;
+	GenerationProgressTarget = 1.0f;
+}
+
+bool FDualContourEditorToolkit::TickGenerationProgress(float DeltaTime)
+{
+	if (!bGenerationInProgress)
+		return false;
+
+	// The first ticker callback can contain accumulated time from the synchronous sampling
+	// phase. Limit it so the visible progress cannot jump straight to a phase cap.
+	const float AnimationDeltaTime = FMath::Clamp(DeltaTime, 0.0f, 0.1f);
+	if (!bGenerationCompletionRequested)
+	{
+		const float PhaseProgressCap = bContourCellsReadyForGeneration ? 0.95f : 0.6f;
+		// Fake progress uses diminishing returns: it moves quickly at first and slows down
+		// as it approaches the end of the current phase.
+		GenerationProgressTarget = FMath::Min(
+			GenerationProgressTarget + (PhaseProgressCap - GenerationProgressTarget)
+				* FMath::Min(AnimationDeltaTime * 0.8f, 1.0f), PhaseProgressCap);
+	}
+
+	// Smooth the visible value independently from the target so the bar never jumps between
+	// CellChunks, MeshComponents, and the final completion signal.
+	GenerationProgress = FMath::Lerp(
+		GenerationProgress, GenerationProgressTarget, FMath::Clamp(AnimationDeltaTime * 2.0f, 0.0f, 1.0f));
+	if (bGenerationCompletionRequested && GenerationProgress >= 0.999f)
+	{
+		GenerationProgress = 1.0f;
+		bGenerationInProgress = false;
+		bGenerationCompletionRequested = false;
+		bContourCellsReadyForGeneration = false;
+		FTSTicker::GetCoreTicker().RemoveTicker(GenerationTickerHandle);
+		GenerationTickerHandle.Reset();
+	}
+
+	FSlateApplication::Get().InvalidateAllWidgets(false);
+	return bGenerationInProgress;
+}
+
+EVisibility FDualContourEditorToolkit::GetGenerationProgressVisibility() const
+{
+	return bGenerationInProgress ? EVisibility::Visible : EVisibility::Collapsed;
+}
+
+TOptional<float> FDualContourEditorToolkit::GetGenerationProgress() const
+{
+	return GenerationProgress;
 }
 
 void FDualContourEditorToolkit::HandleFinishedChangingProperties(const FPropertyChangedEvent&)

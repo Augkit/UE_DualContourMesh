@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Toolkits/AssetEditorToolkit.h"
+#include "Containers/Ticker.h"
 
 class IDetailsView;
 class SDualContourEditorViewport;
@@ -46,6 +47,12 @@ private:
 	FReply OnGenerateDualContourClicked();
 	void GenerateDualContour();
 	bool CanGenerateDualContour() const;
+	void HandleCellsRebuilt(FIntVector CellMin, FIntVector CellMax);
+	void HandlePreviewMeshComponentsUpdated();
+	bool StartGeneration(float DeltaTime);
+	bool TickGenerationProgress(float DeltaTime);
+	EVisibility GetGenerationProgressVisibility() const;
+	TOptional<float> GetGenerationProgress() const;
 	void HandleFinishedChangingProperties(const FPropertyChangedEvent& PropertyChangedEvent);
 	ECheckBoxState GetAutoGenerateCheckState() const;
 	void HandleAutoGenerateCheckStateChanged(ECheckBoxState NewState);
@@ -60,6 +67,12 @@ private:
 	TObjectPtr<UDualContour> Asset = nullptr;
 	TSharedPtr<IDetailsView> DetailsView;
 	TSharedPtr<SDualContourEditorViewport> Viewport;
+	bool bGenerationInProgress = false;
+	bool bGenerationCompletionRequested = false;
+	bool bContourCellsReadyForGeneration = false;
+	float GenerationProgress = 0.0f;
+	float GenerationProgressTarget = 0.0f;
+	FTSTicker::FDelegateHandle GenerationTickerHandle;
 	EDualContourEditorPreviewType PreviewType = EDualContourEditorPreviewType::SparseVolumeTexture;
 	bool bShowDualContourBounds = true;
 };

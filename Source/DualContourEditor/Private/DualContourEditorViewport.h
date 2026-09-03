@@ -8,6 +8,8 @@ class FAdvancedPreviewScene;
 class FDualContourEditorToolkit;
 class FDualContourEditorViewportClient;
 
+DECLARE_MULTICAST_DELEGATE(FOnPreviewMeshComponentsUpdated);
+
 class SDualContourEditorViewport : public SEditorViewport, public FGCObject
 {
 public:
@@ -18,6 +20,7 @@ public:
 	void Construct(const FArguments& InArgs);
 	void RefreshPreview();
 	void InvalidatePreview();
+	FOnPreviewMeshComponentsUpdated OnMeshComponentsUpdated;
 	virtual void Tick(const FGeometry& AllottedGeometry, double InCurrentTime, float InDeltaTime) override;
 	virtual void AddReferencedObjects(FReferenceCollector& Collector) override;
 	virtual FString GetReferencerName() const override { return TEXT("SDualContourEditorViewport"); }

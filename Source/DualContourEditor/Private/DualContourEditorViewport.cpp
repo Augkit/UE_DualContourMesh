@@ -92,6 +92,15 @@ void SDualContourEditorViewport::Construct(const FArguments& InArgs)
 	PreviewScene->SetFloorVisibility(true);
 
 	DensityActor = PreviewScene->GetWorld()->SpawnActor<ADualContourMeshActor>();
+	if (DensityActor)
+	{
+		const TWeakPtr<SDualContourEditorViewport> WeakThis = SharedThis(this);
+		DensityActor->OnMeshComponentsUpdated.AddLambda([WeakThis]()
+		{
+			if (const TSharedPtr<SDualContourEditorViewport> PinnedThis = WeakThis.Pin())
+				PinnedThis->OnMeshComponentsUpdated.Broadcast();
+		});
+	}
 	if (UClass* ViewerClass = FindObject<UClass>(nullptr, TEXT("/Script/Renderer.SparseVolumeTextureViewer")))
 		SVTViewerActor = PreviewScene->GetWorld()->SpawnActor<AActor>(ViewerClass);
 
