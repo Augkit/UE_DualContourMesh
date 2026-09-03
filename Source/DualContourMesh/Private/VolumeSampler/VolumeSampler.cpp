@@ -151,8 +151,8 @@ bool UVolumeSampler::BuildDensityChunks(UDualContour* Target, const FTransform& 
 						static_cast<double>(SampleX) * TargetCellSize,
 						static_cast<double>(SampleY) * TargetCellSize,
 						static_cast<double>(SampleZ) * TargetCellSize);
-					const FVector Untransformed = PivotPosition
-					                              + SampleTransform.InverseTransformVector(TargetPosition - PivotPosition - Translation);
+					const FVector Untransformed =
+						PivotPosition + SampleTransform.InverseTransformVector(TargetPosition - PivotPosition - Translation);
 					const FVector UVW = Untransformed / VolumeSize;
 					float LinearDensity = GDualContourMinLinearDensity;
 					if (UVW.X >= 0.0 && UVW.X <= 1.0 && UVW.Y >= 0.0 && UVW.Y <= 1.0 && UVW.Z >= 0.0 && UVW.Z <= 1.0)

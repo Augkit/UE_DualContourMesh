@@ -5,7 +5,7 @@
 #endif
 
 #if WITH_EDITOR
-bool USVTDualContour::SampleSparseVolumeTexture()
+bool USVTDualContour::SampleSource()
 {
 	if (!SourceSparseVolumeTexture)
 		return false;

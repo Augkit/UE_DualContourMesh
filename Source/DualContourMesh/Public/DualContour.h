@@ -84,6 +84,8 @@ public:
 	virtual void PreSave(FObjectPreSaveContext SaveContext) override;
 
 #if WITH_EDITOR
+	virtual bool SampleSource() { return false; }
+
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 	virtual void PostEditUndo() override;
 #endif

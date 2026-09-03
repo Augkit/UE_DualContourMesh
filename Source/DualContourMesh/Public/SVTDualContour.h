@@ -60,8 +60,7 @@ public:
 #endif
 
 #if WITH_EDITOR
-	UFUNCTION(CallInEditor, Category = "SVT Dual Contour")
-	bool SampleSparseVolumeTexture();
+	virtual bool SampleSource() override;
 
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif

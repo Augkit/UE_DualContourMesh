@@ -7,7 +7,7 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogVolumeSampledDualContour, Log, All);
 
-bool UVolumeSampledDualContour::SampleVolume()
+bool UVolumeSampledDualContour::SampleSource()
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampledDualContour_SampleVolume);
 	if (!VolumeSampler)
@@ -74,7 +74,7 @@ void UVolumeSampledDualContour::PreSave(FObjectPreSaveContext SaveContext)
 {
 	if (!IsTemplate() && VolumeSampler && bRebuildRequired)
 	{
-		SampleVolume();
+		SampleSource();
 	}
 
 	Super::PreSave(SaveContext);

@@ -35,8 +35,7 @@ public:
 #endif
 
 #if WITH_EDITOR
-	UFUNCTION(CallInEditor, Category = "Volume Sampled Dual Contour")
-	bool SampleVolume();
+	virtual bool SampleSource() override;
 
 	virtual void PostLoad() override;
 	virtual void PostDuplicate(EDuplicateMode::Type DuplicateMode) override;

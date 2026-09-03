@@ -214,20 +214,15 @@ FReply FDualContourEditorToolkit::OnGenerateDualContourClicked()
 void FDualContourEditorToolkit::GenerateDualContour()
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourEditor_GenerateDualContour);
-	bool bGenerated = false;
-	if (USVTDualContour* SVTDualContour = GetSVTDualContour())
-		bGenerated = SVTDualContour->SampleSparseVolumeTexture();
-	else if (UVolumeSampledDualContour* VolumeSampledDualContour = GetVolumeSampledDualContour())
-		bGenerated = VolumeSampledDualContour->SampleVolume();
 
-	if (bGenerated)
-	{
-		PreviewType = EDualContourEditorPreviewType::DualContour;
-		if (DetailsView)
-			DetailsView->ForceRefresh();
-		if (Viewport)
-			Viewport->RefreshPreview();
-	}
+	if (!Asset || !Asset->SampleSource())
+		return;
+
+	PreviewType = EDualContourEditorPreviewType::DualContour;
+	if (DetailsView)
+		DetailsView->ForceRefresh();
+	if (Viewport)
+		Viewport->RefreshPreview();
 }
 
 bool FDualContourEditorToolkit::CanGenerateDualContour() const
