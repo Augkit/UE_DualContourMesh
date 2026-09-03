@@ -1,6 +1,6 @@
 #include "DualContour.h"
 #include "DualContourUtils.h"
-#include "VolumeSampledDualContour.h"
+#include "Async/Async.h"
 #include "Async/ParallelFor.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "UObject/ObjectSaveContext.h"
@@ -89,9 +89,20 @@ bool IsValidSampledRegion(const FIntVector& FullDimensions, const FDualContourSa
 }
 }
 
+void UDualContour::EnsureRebuildComplete() const
+{
+	if (!IsInGameThread())
+		return;
+	if (PendingRebuildFuture.IsValid())
+	{
+		PendingRebuildFuture.Get();
+	}
+}
+
 void UDualContour::PostLoad()
 {
 	Super::PostLoad();
+	EnsureRebuildComplete();
 	CompactAllDensityChunks();
 	ModifiedDensityChunks.Reset();
 
@@ -99,7 +110,9 @@ void UDualContour::PostLoad()
 	// avoids serializing the large nested map while preserving the existing runtime query API.
 	CellChunks.Reset();
 	if (HasCurrentGeneratedData() && !DensityChunks.IsEmpty())
-		RebuildCells();
+	{
+		AsyncRebuildCells(false);
+	}
 }
 
 void UDualContour::PreSave(FObjectPreSaveContext SaveContext)
@@ -108,6 +121,12 @@ void UDualContour::PreSave(FObjectPreSaveContext SaveContext)
 	// safety net for legacy data and any future mutation path added without a flush.
 	CompactAllDensityChunks();
 	Super::PreSave(SaveContext);
+}
+
+void UDualContour::BeginDestroy()
+{
+	EnsureRebuildComplete();
+	Super::BeginDestroy();
 }
 
 #if WITH_EDITOR
@@ -189,6 +208,7 @@ float UDualContour::GetLinearDensity(int32 SampleX, int32 SampleY, int32 SampleZ
 
 const FDualContourCell* UDualContour::GetCell(int32 CellX, int32 CellY, int32 CellZ) const
 {
+	EnsureRebuildComplete();
 	if (!DualContourUtils::IsValidCoordinate(CellCount, CellX, CellY, CellZ))
 		return nullptr;
 
@@ -199,6 +219,7 @@ const FDualContourCell* UDualContour::GetCell(int32 CellX, int32 CellY, int32 Ce
 
 bool UDualContour::HasActiveCellInRange(FIntVector CellMin, FIntVector CellMax) const
 {
+	EnsureRebuildComplete();
 	const int32 ChunkMinX = CellMin.X / GDualContourChunkSize;
 	const int32 ChunkMinY = CellMin.Y / GDualContourChunkSize;
 	const int32 ChunkMinZ = CellMin.Z / GDualContourChunkSize;
@@ -237,6 +258,7 @@ bool UDualContour::Initialize(const UDualContour* InitialDualContour,
 	if (InModifiedDensityChunks && !ApplyModifiedDensityChunks(*InModifiedDensityChunks))
 		return false;
 
+	EnsureRebuildComplete();
 	OnCellsRebuilt.Broadcast(FIntVector::ZeroValue, CellCount);
 	return true;
 }
@@ -248,6 +270,9 @@ bool UDualContour::CopyFrom(const UDualContour* Source, bool bBroadcastCellsRebu
 		return false;
 	if (Source == this)
 		return true;
+
+	EnsureRebuildComplete();
+	Source->EnsureRebuildComplete();
 
 	Modify();
 	CellCount = Source->CellCount;
@@ -268,19 +293,22 @@ bool UDualContour::CopyFrom(const UDualContour* Source, bool bBroadcastCellsRebu
 bool UDualContour::Rebuild()
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_Rebuild);
+	EnsureRebuildComplete();
 	bRebuildRequired = true;
 	if (!ValidateGenerationSettings())
 		return false;
 
 	LastBuiltCellCount = CellCount;
 	bRebuildRequired = false;
-	RebuildCells();
+	CellChunks.Reset();
+	AsyncRebuildCells();
 	return true;
 }
 
 bool UDualContour::ReplaceDensityChunks(FDualContourSampledRegion&& SampledRegion, bool bBroadcastCellsRebuilt)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_ReplaceDensityChunks);
+	EnsureRebuildComplete();
 	bRebuildRequired = true;
 	if (!ValidateGenerationSettings() || !IsValidSampledRegion(GetSampleDimensions(), SampledRegion))
 	{
@@ -315,7 +343,7 @@ bool UDualContour::ReplaceDensityChunks(FDualContourSampledRegion&& SampledRegio
 			FMath::Max(0, SampleMin.Z - 1));
 		const FIntVector CellRangeMax(FMath::Min(CellCount.X, SampleMax.X), FMath::Min(CellCount.Y, SampleMax.Y),
 			FMath::Min(CellCount.Z, SampleMax.Z));
-		RebuildCellsInRange(CellRangeMin, CellRangeMax, bBroadcastCellsRebuilt);
+		AsyncRebuildCellsInRange(CellRangeMin, CellRangeMax, bBroadcastCellsRebuilt);
 	}
 	return true;
 }
@@ -329,6 +357,9 @@ bool UDualContour::ModifyDensityChunks(const FDualContourSampledRegion& SampledR
 	const FIntVector FullSampleDimensions = GetSampleDimensions();
 	if (!HasCurrentGeneratedData() || !IsValidSampledRegion(FullSampleDimensions, SampledRegion))
 		return false;
+
+	// Drain any previous rebuild before writing DensityChunks (the previous BG task reads them).
+	EnsureRebuildComplete();
 
 	TSet<FIntVector> ModifiedChunks;
 	FIntVector ModifiedSampleMin = FullSampleDimensions;
@@ -401,7 +432,7 @@ bool UDualContour::ModifyDensityChunks(const FDualContourSampledRegion& SampledR
 		FMath::Max(0, ModifiedSampleMin.Z - 1));
 	const FIntVector CellRangeMax(FMath::Min(CellCount.X, ModifiedSampleMax.X + 1),
 		FMath::Min(CellCount.Y, ModifiedSampleMax.Y + 1), FMath::Min(CellCount.Z, ModifiedSampleMax.Z + 1));
-	RebuildCellsInRange(CellRangeMin, CellRangeMax);
+	AsyncRebuildCellsInRange(CellRangeMin, CellRangeMax);
 	OutAffectedCellMin = CellRangeMin;
 	OutAffectedCellMax = CellRangeMax;
 	return true;
@@ -414,6 +445,8 @@ bool UDualContour::ApplyEditBatch(FDualContourEditBatch& Batch, FDualContourEdit
 		return false;
 	Batch.bOpen = false;
 	Batch.Owner = nullptr;
+
+	EnsureRebuildComplete();
 
 	TSet<FIntVector> ActuallyDirtyChunks;
 	for (const TPair<FIntVector, TMap<uint16, FDualContourPendingSample>>& ChunkPair : Batch.ChunkSamples)
@@ -439,7 +472,7 @@ bool UDualContour::ApplyEditBatch(FDualContourEditBatch& Batch, FDualContourEdit
 
 	CompactDensityChunks(ActuallyDirtyChunks);
 	RecordModifiedDensityChunks(ActuallyDirtyChunks);
-	RebuildDirtyCellChunks(ActuallyDirtyChunks);
+	AsyncRebuildDirtyCellChunks(MoveTemp(ActuallyDirtyChunks));
 	return true;
 }
 
@@ -447,6 +480,7 @@ bool UDualContour::ApplyEditDeltas(TConstArrayView<FDualContourSampleDelta> Delt
 {
 	if (!HasCurrentGeneratedData() || Deltas.IsEmpty())
 		return false;
+	EnsureRebuildComplete();
 	TSet<FIntVector> DirtyChunks;
 	for (const FDualContourSampleDelta& Delta : Deltas)
 		WriteDirtyDensitySample(Delta.SampleCoord.X, Delta.SampleCoord.Y, Delta.SampleCoord.Z, bUseAfterValues ? Delta.After : Delta.Before,
@@ -455,7 +489,7 @@ bool UDualContour::ApplyEditDeltas(TConstArrayView<FDualContourSampleDelta> Delt
 		return false;
 	CompactDensityChunks(DirtyChunks);
 	RecordModifiedDensityChunks(DirtyChunks);
-	RebuildDirtyCellChunks(DirtyChunks);
+	AsyncRebuildDirtyCellChunks(MoveTemp(DirtyChunks));
 	if (OutResult)
 	{
 		OutResult->Deltas = TArray<FDualContourSampleDelta>(Deltas);
@@ -535,6 +569,7 @@ bool UDualContour::ApplyModifiedDensityChunks(const FDualContourDensityChunks& I
 {
 	if (!HasCurrentGeneratedData())
 		return false;
+	EnsureRebuildComplete();
 
 	const FIntVector SampleDimensions = GetSampleDimensions();
 	const int32 ExpandedChunkSize = GDualContourChunkSize * GDualContourChunkSize * GDualContourChunkSize;
@@ -564,14 +599,8 @@ bool UDualContour::ApplyModifiedDensityChunks(const FDualContourDensityChunks& I
 	ModifiedDensityChunks = InModifiedDensityChunks;
 
 	if (!DirtyChunks.IsEmpty())
-		RebuildDirtyCellChunks(DirtyChunks);
+		AsyncRebuildDirtyCellChunks(MoveTemp(DirtyChunks));
 	return true;
-}
-
-void UDualContour::RebuildCells()
-{
-	CellChunks.Reset();
-	RebuildCellsInRange(FIntVector(0, 0, 0), CellCount);
 }
 
 FDualContourCell UDualContour::CreateNewCell(int32 CellX, int32 CellY, int32 CellZ) const
@@ -677,10 +706,14 @@ FDualContourCell UDualContour::CreateNewCell(int32 CellX, int32 CellY, int32 Cel
 	return Cell;
 }
 
+void UDualContour::AsyncRebuildCells(bool bBroadcastCellsRebuilt)
+{
+	AsyncRebuildCellsInRange(FIntVector::ZeroValue, CellCount, bBroadcastCellsRebuilt);
+}
+
 void UDualContour::RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax, bool bBroadcastCellsRebuilt)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_RebuildCellsInRange);
-	check(IsInGameThread());
 	RangeMin = FIntVector(FMath::Max(0, RangeMin.X), FMath::Max(0, RangeMin.Y), FMath::Max(0, RangeMin.Z));
 	RangeMax = FIntVector(FMath::Min(CellCount.X, RangeMax.X), FMath::Min(CellCount.Y, RangeMax.Y), FMath::Min(CellCount.Z, RangeMax.Z));
 	const int64 ProcessedCellCount = static_cast<int64>(FMath::Max(0, RangeMax.X - RangeMin.X))
@@ -805,13 +838,34 @@ void UDualContour::RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax,
 				Cell->Center = Pair.Value;
 	}
 	if (bBroadcastCellsRebuilt && RangeMin.X < RangeMax.X && RangeMin.Y < RangeMax.Y && RangeMin.Z < RangeMax.Z)
-		OnCellsRebuilt.Broadcast(RangeMin, RangeMax);
+	{
+		if (IsInGameThread())
+		{
+			OnCellsRebuilt.Broadcast(RangeMin, RangeMax);
+		}
+		else
+		{
+			TWeakObjectPtr<UDualContour> WeakThis(this);
+			AsyncTask(ENamedThreads::GameThread, [WeakThis, RangeMin, RangeMax]()
+			{
+				if (WeakThis.IsValid())
+					WeakThis->OnCellsRebuilt.Broadcast(RangeMin, RangeMax);
+			});
+		}
+	}
+}
+
+void UDualContour::AsyncRebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax, bool bBroadcastCellsRebuilt)
+{
+	PendingRebuildFuture = Async(EAsyncExecution::ThreadPool, [this, RangeMin, RangeMax, bBroadcastCellsRebuilt]()
+	{
+		RebuildCellsInRange(RangeMin, RangeMax, bBroadcastCellsRebuilt);
+	});
 }
 
 void UDualContour::RebuildDirtyCellChunks(const TSet<FIntVector>& DirtyDensityChunks, bool bBroadcastCellsRebuilt)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_RebuildDirtyCellChunks);
-	check(IsInGameThread());
 	TSet<FIntVector> DirtyCellChunks;
 	for (const FIntVector& DensityChunk : DirtyDensityChunks)
 	{
@@ -882,8 +936,28 @@ void UDualContour::RebuildDirtyCellChunks(const TSet<FIntVector>& DirtyDensityCh
 			AffectedCellMax.Y = FMath::Max(AffectedCellMax.Y, ChunkCellMax.Y);
 			AffectedCellMax.Z = FMath::Max(AffectedCellMax.Z, ChunkCellMax.Z);
 		}
-		OnCellsRebuilt.Broadcast(AffectedCellMin, AffectedCellMax);
+		if (IsInGameThread())
+		{
+			OnCellsRebuilt.Broadcast(AffectedCellMin, AffectedCellMax);
+		}
+		else
+		{
+			TWeakObjectPtr<UDualContour> WeakThis(this);
+			AsyncTask(ENamedThreads::GameThread, [WeakThis, AffectedCellMin, AffectedCellMax]()
+			{
+				if (WeakThis.IsValid())
+					WeakThis->OnCellsRebuilt.Broadcast(AffectedCellMin, AffectedCellMax);
+			});
+		}
 	}
+}
+
+void UDualContour::AsyncRebuildDirtyCellChunks(TSet<FIntVector>&& DirtyDensityChunks, bool bBroadcastCellsRebuilt)
+{
+	PendingRebuildFuture = Async(EAsyncExecution::ThreadPool, [this, Dirty = MoveTemp(DirtyDensityChunks), bBroadcastCellsRebuilt]()
+	{
+		RebuildDirtyCellChunks(Dirty, bBroadcastCellsRebuilt);
+	});
 }
 
 void UDualContour::RecordModifiedDensityChunks(const TSet<FIntVector>& ChunkCoords)

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
 #include "DualContourTypes.h"
+#include "Async/Future.h"
 #include "DualContour.generated.h"
 
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDualContourCellsRebuilt, FIntVector, FIntVector);
@@ -82,6 +83,7 @@ public:
 
 	virtual void PostLoad() override;
 	virtual void PreSave(FObjectPreSaveContext SaveContext) override;
+	virtual void BeginDestroy() override;
 
 #if WITH_EDITOR
 	virtual bool SampleSource() { return false; }
@@ -102,10 +104,15 @@ private:
 	UPROPERTY(Transient, NonTransactional)
 	TMap<FIntVector, FCellChunk> CellChunks;
 
+	/** Future tracking the most recently dispatched background rebuild task. */
+	mutable TFuture<void> PendingRebuildFuture;
+
 	UPROPERTY()
 	FIntVector LastBuiltCellCount = FIntVector(0, 0, 0);
 
 	bool ValidateGenerationSettings() const;
+
+	void EnsureRebuildComplete() const;
 
 	void WriteDirtyDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint16 Density, TSet<FIntVector>& DirtyChunks);
 	void CompactAllDensityChunks();
@@ -113,10 +120,12 @@ private:
 
 	FVector CalculateCentralDifferenceNormal(const FVector& GridPosition) const;
 
-	void RebuildCells();
 	FDualContourCell CreateNewCell(int32 CellX, int32 CellY, int32 CellZ) const;
+	void AsyncRebuildCells(bool bBroadcastCellsRebuilt = true);
 	void RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax, bool bBroadcastCellsRebuilt = true);
+	void AsyncRebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax, bool bBroadcastCellsRebuilt = true);
 	void RebuildDirtyCellChunks(const TSet<FIntVector>& DirtyDensityChunks, bool bBroadcastCellsRebuilt = true);
+	void AsyncRebuildDirtyCellChunks(TSet<FIntVector>&& DirtyDensityChunks, bool bBroadcastCellsRebuilt = true);
 
 	void RecordModifiedDensityChunks(const TSet<FIntVector>& ChunkCoords);
 };
