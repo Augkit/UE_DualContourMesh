@@ -27,6 +27,17 @@
 const FName FDualContourEditorToolkit::ViewportTabId(TEXT("DualContourEditor_Viewport"));
 const FName FDualContourEditorToolkit::DetailsTabId(TEXT("DualContourEditor_Details"));
 
+FDualContourEditorToolkit::~FDualContourEditorToolkit()
+{
+	if (GenerationTickerHandle.IsValid())
+		FTSTicker::GetCoreTicker().RemoveTicker(GenerationTickerHandle);
+	if (PreviewMeshTickerHandle.IsValid())
+		FTSTicker::GetCoreTicker().RemoveTicker(PreviewMeshTickerHandle);
+
+	if (Asset)
+		Asset->OnCellsRebuilt.RemoveAll(this);
+}
+
 void FDualContourEditorToolkit::InitEditor(EToolkitMode::Type Mode,
 	const TSharedPtr<IToolkitHost>& InToolkitHost, UDualContour* InAsset)
 {
@@ -60,6 +71,11 @@ void FDualContourEditorToolkit::InitEditor(EToolkitMode::Type Mode,
 				                                                                         true))));
 
 	InitAssetEditor(Mode, InToolkitHost, TEXT("DualContourEditorApp"), Layout, true, true, Asset);
+	// The preview world's Tick is suspended/throttled when this editor window loses focus.
+	// Drive mesh application from the editor's core ticker instead, while keeping all
+	// UObject/component work on the game thread.
+	PreviewMeshTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateSP(this, &FDualContourEditorToolkit::TickPreviewMeshUpdates), 0.0f);
 	ExtendToolbar();
 	RegenerateMenusAndToolbars();
 }
@@ -288,6 +304,13 @@ bool FDualContourEditorToolkit::StartGeneration(float)
 	// the actor can inspect CellChunks while the background contour build is still running,
 	// queue an empty component update, and report completion prematurely.
 	return false;
+}
+
+bool FDualContourEditorToolkit::TickPreviewMeshUpdates(float)
+{
+	if (Viewport)
+		Viewport->ProcessPendingMeshUpdates();
+	return true;
 }
 
 bool FDualContourEditorToolkit::CanGenerateDualContour() const

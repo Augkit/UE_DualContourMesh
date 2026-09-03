@@ -143,10 +143,19 @@ void ADualContourMeshActor::BeginPlay()
 void ADualContourMeshActor::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-	ApplyQueuedMeshData();
+	ProcessPendingMeshUpdates();
 #if WITH_EDITOR
 	ProcessPendingDebugComponentRefresh();
 #endif
+}
+
+void ADualContourMeshActor::ProcessPendingMeshUpdates()
+{
+	// This is intentionally a game-thread-only entry point. It is also called by the
+	// editor toolkit ticker because an inactive editor viewport may stop ticking its
+	// preview world while background generation is still running.
+	check(IsInGameThread());
+	ApplyQueuedMeshData();
 }
 
 void ADualContourMeshActor::EndPlay(const EEndPlayReason::Type EndPlayReason)

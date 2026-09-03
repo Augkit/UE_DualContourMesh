@@ -184,6 +184,12 @@ void SDualContourEditorViewport::InvalidatePreview()
 		ViewportClient->Invalidate();
 }
 
+void SDualContourEditorViewport::ProcessPendingMeshUpdates()
+{
+	if (DensityActor)
+		DensityActor->ProcessPendingMeshUpdates();
+}
+
 void SDualContourEditorViewport::Tick(const FGeometry& AllottedGeometry, double InCurrentTime, float InDeltaTime)
 {
 	SEditorViewport::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);

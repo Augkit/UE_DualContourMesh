@@ -97,6 +97,12 @@ public:
 	/** Sets generated contour data, then queues its mesh chunks for application over subsequent frames. */
 	bool SetGeneratedDualContour(UDualContour* InDualContour);
 
+	/**
+	 * Applies pending mesh data on the game thread without requiring the preview world's Tick.
+	 * Editor preview owners can call this from an editor ticker when their viewport is inactive.
+	 */
+	void ProcessPendingMeshUpdates();
+
 	/** Applies any volume sampler at a surface point, rotating its local +Z axis to the hit normal. */
 	bool ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal, UVolumeSampler* Sampler, float UniformScale,
 		bool bExcavate);

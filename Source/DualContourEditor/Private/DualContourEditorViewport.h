@@ -20,6 +20,8 @@ public:
 	void Construct(const FArguments& InArgs);
 	void RefreshPreview();
 	void InvalidatePreview();
+	/** Consumes generated mesh data even when this Slate viewport is not ticking. */
+	void ProcessPendingMeshUpdates();
 	FOnPreviewMeshComponentsUpdated OnMeshComponentsUpdated;
 	virtual void Tick(const FGeometry& AllottedGeometry, double InCurrentTime, float InDeltaTime) override;
 	virtual void AddReferencedObjects(FReferenceCollector& Collector) override;

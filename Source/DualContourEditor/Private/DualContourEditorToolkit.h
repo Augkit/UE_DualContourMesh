@@ -23,6 +23,7 @@ enum class EDualContourEditorPreviewType : uint8
 class FDualContourEditorToolkit : public FAssetEditorToolkit, public FGCObject
 {
 public:
+	virtual ~FDualContourEditorToolkit() override;
 	void InitEditor(EToolkitMode::Type Mode, const TSharedPtr<IToolkitHost>& InToolkitHost, UDualContour* InAsset);
 	UDualContour* GetAsset() const { return Asset; }
 	USVTDualContour* GetSVTDualContour() const;
@@ -51,6 +52,7 @@ private:
 	void HandlePreviewMeshComponentsUpdated();
 	bool StartGeneration(float DeltaTime);
 	bool TickGenerationProgress(float DeltaTime);
+	bool TickPreviewMeshUpdates(float DeltaTime);
 	EVisibility GetGenerationProgressVisibility() const;
 	TOptional<float> GetGenerationProgress() const;
 	void HandleFinishedChangingProperties(const FPropertyChangedEvent& PropertyChangedEvent);
@@ -73,6 +75,7 @@ private:
 	float GenerationProgress = 0.0f;
 	float GenerationProgressTarget = 0.0f;
 	FTSTicker::FDelegateHandle GenerationTickerHandle;
+	FTSTicker::FDelegateHandle PreviewMeshTickerHandle;
 	EDualContourEditorPreviewType PreviewType = EDualContourEditorPreviewType::SparseVolumeTexture;
 	bool bShowDualContourBounds = true;
 };
