@@ -801,6 +801,7 @@ void UDualContour::RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax,
 	if (Relaxation > 0.0f && RangeMin.X == 0 && RangeMin.Y == 0 && RangeMin.Z == 0
 	    && RangeMax.X == CellCount.X && RangeMax.Y == CellCount.Y && RangeMax.Z == CellCount.Z)
 	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_RelaxeCellChunks);
 		const float MinimumNormalCosine = FMath::Clamp(RelaxationNormalCosine, -1.0f, 1.0f);
 		TMap<FIntVector, FVector> RelaxedCenters;
 		for (const TPair<FIntVector, FCellChunk>& ChunkPair : CellChunks)
