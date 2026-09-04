@@ -15,6 +15,7 @@ public class DualContourEditor : ModuleRules
 			"DualContourMesh",
 			"UnrealEd",
 			"AssetDefinition",
+			"AssetRegistry",
 			"AssetTools",
 			"PropertyEditor",
 			"Slate",

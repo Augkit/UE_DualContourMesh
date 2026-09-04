@@ -39,6 +39,8 @@ void UDualContourEdMode::Exit()
 	if (Settings)
 		Settings->SaveConfig();
 	TargetActor = nullptr;
+	OverrideTargetActor = nullptr;
+	bUseOverrideTarget = false;
 	BrushToolBuilder = nullptr;
 	Super::Exit();
 }
@@ -50,6 +52,21 @@ void UDualContourEdMode::SetActiveTool(EDualContourEditTool InTool)
 	Settings->ActiveTool = InTool;
 	Settings->SaveConfig();
 	ActiveToolChanged.Broadcast();
+}
+
+void UDualContourEdMode::SetOverrideTargetActor(ADualContourMeshActor* InTargetActor)
+{
+	bUseOverrideTarget = InTargetActor != nullptr;
+	OverrideTargetActor = InTargetActor;
+	RefreshTarget();
+	if (BrushToolBuilder)
+		BrushToolBuilder->SetTargetActor(TargetActor);
+	if (UDualContourBrushTool* Tool = GetToolManager()
+		? Cast<UDualContourBrushTool>(GetToolManager()->GetActiveTool(EToolSide::Left)) : nullptr)
+	{
+		Tool->SetTargetActor(TargetActor);
+	}
+	EnsureBrushToolActive();
 }
 
 void UDualContourEdMode::ActorSelectionChangeNotify()
@@ -87,6 +104,29 @@ void UDualContourEdMode::RefreshTarget()
 	if (GEditor->PlayWorld || GEditor->bIsSimulatingInEditor)
 	{
 		TargetStatus = LOCTEXT("PIE", "Editing is disabled during PIE or SIE.");
+		return;
+	}
+	if (bUseOverrideTarget)
+	{
+		ADualContourMeshActor* Candidate = OverrideTargetActor;
+		if (!Candidate || !Candidate->DualContour)
+		{
+			TargetStatus = LOCTEXT("NoPreviewData", "The preview has no editable Dual Contour data.");
+			return;
+		}
+		if (!Candidate->DualContour->HasCurrentGeneratedData())
+		{
+			TargetStatus = LOCTEXT("PreviewRebuild", "Generate the Dual Contour before editing it in the preview.");
+			return;
+		}
+		FString DivisionStatus;
+		if (!Candidate->ValidateDivisions(DivisionStatus))
+		{
+			TargetStatus = FText::FromString(DivisionStatus);
+			return;
+		}
+		TargetActor = Candidate;
+		TargetStatus = LOCTEXT("PreviewReady", "Editing the asset directly in the preview. Hold Shift to invert the active brush.");
 		return;
 	}
 

@@ -28,6 +28,8 @@ public:
 	ADualContourMeshActor* GetTargetActor() const { return TargetActor; }
 	FText GetTargetStatus() const { return TargetStatus; }
 	bool HasValidTarget() const { return TargetActor != nullptr; }
+	bool IsEditingPreviewActor() const { return bUseOverrideTarget; }
+	void SetOverrideTargetActor(ADualContourMeshActor* InTargetActor);
 	void SetActiveTool(EDualContourEditTool InTool);
 	FSimpleMulticastDelegate& OnActiveToolChanged() { return ActiveToolChanged; }
 
@@ -43,6 +45,11 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<ADualContourMeshActor> TargetActor;
+
+	UPROPERTY()
+	TObjectPtr<ADualContourMeshActor> OverrideTargetActor;
+
+	bool bUseOverrideTarget = false;
 
 	FText TargetStatus;
 	FSimpleMulticastDelegate ActiveToolChanged;

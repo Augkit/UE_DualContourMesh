@@ -112,8 +112,18 @@ void SDualContourEditPanel::Construct(const FArguments& InArgs)
 		+ SVerticalBox::Slot().AutoHeight().Padding(8.0f, 4.0f, 8.0f, 6.0f)
 		[
 			SNew(STextBlock)
-			.Text(LOCTEXT("SaveWarning", "Rebuild Mesh replaces instance edits with InitialDualContour."))
-			.ToolTipText(LOCTEXT("SaveWarningTooltip", "Edits are stored on the selected actor instance. Rebuild Mesh copies InitialDualContour again and replaces them."))
+			.Text_Lambda([WeakMode = EditMode]()
+			{
+				return WeakMode.IsValid() && WeakMode->IsEditingPreviewActor()
+					? LOCTEXT("AssetWarning", "Generating from the source again replaces direct preview edits.")
+					: LOCTEXT("SaveWarning", "Rebuild Mesh replaces instance edits with InitialDualContour.");
+			})
+			.ToolTipText_Lambda([WeakMode = EditMode]()
+			{
+				return WeakMode.IsValid() && WeakMode->IsEditingPreviewActor()
+					? LOCTEXT("AssetWarningTooltip", "Preview edits are written directly to this asset. Re-running source generation replaces its generated density data.")
+					: LOCTEXT("SaveWarningTooltip", "Edits are stored on the selected actor instance. Rebuild Mesh copies InitialDualContour again and replaces them.");
+			})
 			.AutoWrapText(true)
 			.TextStyle(FAppStyle::Get(), TEXT("SmallText"))
 			.ColorAndOpacity(FStyleColors::Warning)

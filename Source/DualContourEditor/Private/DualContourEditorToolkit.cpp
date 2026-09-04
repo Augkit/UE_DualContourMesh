@@ -4,8 +4,15 @@
 #include "SVTDualContour.h"
 #include "VolumeSampledDualContour.h"
 #include "DualContourEditorViewport.h"
+#include "EditMode/DualContourEdMode.h"
+#include "EditMode/DualContourEditModeSettings.h"
+#include "EditMode/Widgets/SDualContourEditPanel.h"
 #include "IDetailsView.h"
 #include "PropertyEditorModule.h"
+#include "PropertyCustomizationHelpers.h"
+#include "AssetRegistry/AssetData.h"
+#include "AssetEditorModeManager.h"
+#include "EditorModeManager.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "Modules/ModuleManager.h"
 #include "ScopedTransaction.h"
@@ -13,6 +20,7 @@
 #include "Framework/Application/SlateApplication.h"
 #include "Containers/Ticker.h"
 #include "Styling/AppStyle.h"
+#include "Materials/MaterialInterface.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SCheckBox.h"
@@ -29,6 +37,7 @@ const FName FDualContourEditorToolkit::DetailsTabId(TEXT("DualContourEditor_Deta
 
 FDualContourEditorToolkit::~FDualContourEditorToolkit()
 {
+	SetInteractionMode(false);
 	if (GenerationTickerHandle.IsValid())
 		FTSTicker::GetCoreTicker().RemoveTicker(GenerationTickerHandle);
 	if (PreviewMeshTickerHandle.IsValid())
@@ -70,6 +79,10 @@ void FDualContourEditorToolkit::InitEditor(EToolkitMode::Type Mode,
 			                                                                         ->AddTab(DetailsTabId, ETabState::OpenedTab)->SetHideTabWell(
 				                                                                         true))));
 
+	// InitAssetEditor restores the saved layout (and therefore constructs the viewport tab)
+	// before its normal late mode-manager initialization. The viewport needs that manager
+	// during construction, so create the preview-scene-aware manager up front.
+	CreateEditorModeManager();
 	InitAssetEditor(Mode, InToolkitHost, TEXT("DualContourEditorApp"), Layout, true, true, Asset);
 	// The preview world's Tick is suspended/throttled when this editor window loses focus.
 	// Drive mesh application from the editor's core ticker instead, while keeping all
@@ -103,6 +116,8 @@ TSharedRef<SDockTab> FDualContourEditorToolkit::SpawnViewportTab(const FSpawnTab
 		SNew(SDualContourEditorViewport).EditorToolkit(SharedThis(this));
 	Viewport = NewViewport;
 	Viewport->OnMeshComponentsUpdated.AddSP(this, &FDualContourEditorToolkit::HandlePreviewMeshComponentsUpdated);
+	if (bEditModeEnabled && !Viewport->SetEditingEnabled(true))
+		bEditModeEnabled = false;
 	return SNew(SDockTab)
 		[
 			NewViewport
@@ -111,11 +126,21 @@ TSharedRef<SDockTab> FDualContourEditorToolkit::SpawnViewportTab(const FSpawnTab
 
 TSharedRef<SDockTab> FDualContourEditorToolkit::SpawnDetailsTab(const FSpawnTabArgs& Args)
 {
+	EditPanelContainer = SNew(SBox);
+	RefreshEditPanel();
+
 	if (!GetSVTDualContour() && !GetVolumeSampledDualContour())
 	{
 		return SNew(SDockTab)
 			[
-				DetailsView.ToSharedRef()
+				SNew(SWidgetSwitcher)
+				.WidgetIndex_Lambda([WeakThis = TWeakPtr<FDualContourEditorToolkit>(SharedThis(this))]()
+				{
+					const TSharedPtr<FDualContourEditorToolkit> Pinned = WeakThis.Pin();
+					return Pinned && Pinned->bEditModeEnabled ? 1 : 0;
+				})
+				+ SWidgetSwitcher::Slot()[DetailsView.ToSharedRef()]
+				+ SWidgetSwitcher::Slot()[EditPanelContainer.ToSharedRef()]
 			];
 	}
 
@@ -132,9 +157,7 @@ TSharedRef<SDockTab> FDualContourEditorToolkit::SpawnDetailsTab(const FSpawnTabA
 			.OnClicked(this, &FDualContourEditorToolkit::OnGenerateDualContourClicked);
 	};
 
-	return SNew(SDockTab)
-		[
-			SNew(SVerticalBox)
+	TSharedRef<SVerticalBox> AssetDetails = SNew(SVerticalBox)
 			+ SVerticalBox::Slot()
 			.FillHeight(1.0f)
 			[
@@ -203,8 +226,24 @@ TSharedRef<SDockTab> FDualContourEditorToolkit::SpawnDetailsTab(const FSpawnTabA
 						MakeGenerateButton(TEXT("PrimaryButton"), TEXT("PrimaryButtonText"))
 					]
 				]
-			]
+			];
+
+	return SNew(SDockTab)
+		[
+			SNew(SWidgetSwitcher)
+			.WidgetIndex_Lambda([WeakThis = TWeakPtr<FDualContourEditorToolkit>(SharedThis(this))]()
+			{
+				const TSharedPtr<FDualContourEditorToolkit> Pinned = WeakThis.Pin();
+				return Pinned && Pinned->bEditModeEnabled ? 1 : 0;
+			})
+			+ SWidgetSwitcher::Slot()[AssetDetails]
+			+ SWidgetSwitcher::Slot()[EditPanelContainer.ToSharedRef()]
 		];
+}
+
+void FDualContourEditorToolkit::CreateEditorModeManager()
+{
+	EditorModeManager = MakeShared<FAssetEditorModeManager>();
 }
 
 void FDualContourEditorToolkit::ExtendToolbar()
@@ -220,6 +259,76 @@ void FDualContourEditorToolkit::ExtendToolbar()
 
 void FDualContourEditorToolkit::FillToolbar(FToolBarBuilder& ToolbarBuilder)
 {
+	ToolbarBuilder.BeginSection(TEXT("InteractionMode"));
+	ToolbarBuilder.AddToolBarButton(
+		FUIAction(
+			FExecuteAction::CreateSP(this, &FDualContourEditorToolkit::SetInteractionMode, false),
+			FCanExecuteAction(),
+			FIsActionChecked::CreateSP(this, &FDualContourEditorToolkit::IsInteractionModeSelected, false)),
+		NAME_None, LOCTEXT("PreviewMode", "Preview"),
+		LOCTEXT("PreviewModeTooltip", "Preview the asset and use normal camera controls."),
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Visible")), EUserInterfaceActionType::RadioButton);
+	ToolbarBuilder.AddToolBarButton(
+		FUIAction(
+			FExecuteAction::CreateSP(this, &FDualContourEditorToolkit::SetInteractionMode, true),
+			FCanExecuteAction::CreateSP(this, &FDualContourEditorToolkit::CanEnableEditMode),
+			FIsActionChecked::CreateSP(this, &FDualContourEditorToolkit::IsInteractionModeSelected, true)),
+		NAME_None, LOCTEXT("EditMode", "Edit"),
+		LOCTEXT("EditModeTooltip", "Edit the Dual Contour directly in this preview viewport."),
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("LandscapeEditor.SculptTool")), EUserInterfaceActionType::RadioButton);
+	ToolbarBuilder.EndSection();
+
+	ToolbarBuilder.BeginSection(TEXT("EditTools"));
+	auto AddEditTool = [this, &ToolbarBuilder](EDualContourEditTool Tool, const FText& Label,
+		const FText& Tooltip, const FName IconName)
+	{
+		const uint8 ToolValue = static_cast<uint8>(Tool);
+		ToolbarBuilder.AddToolBarButton(
+			FUIAction(
+				FExecuteAction::CreateSP(this, &FDualContourEditorToolkit::SetActiveEditTool, ToolValue),
+				FCanExecuteAction::CreateSP(this, &FDualContourEditorToolkit::CanUseEditTools),
+				FIsActionChecked::CreateSP(this, &FDualContourEditorToolkit::IsEditToolSelected, ToolValue)),
+			NAME_None, Label, Tooltip, FSlateIcon(FAppStyle::GetAppStyleSetName(), IconName),
+			EUserInterfaceActionType::RadioButton);
+	};
+	AddEditTool(EDualContourEditTool::Sculpt, LOCTEXT("Sculpt", "Sculpt"),
+		LOCTEXT("SculptTooltip", "Add volume. Hold Shift to remove volume."), TEXT("LandscapeEditor.SculptTool"));
+	AddEditTool(EDualContourEditTool::Erase, LOCTEXT("Erase", "Erase"),
+		LOCTEXT("EraseTooltip", "Restore the asset state from when Edit mode was entered."), TEXT("LandscapeEditor.EraseTool"));
+	AddEditTool(EDualContourEditTool::Smooth, LOCTEXT("Smooth", "Smooth"),
+		LOCTEXT("SmoothTooltip", "Smooth the sampled density field."), TEXT("LandscapeEditor.SmoothTool"));
+	AddEditTool(EDualContourEditTool::Brush, LOCTEXT("BrushStamp", "Brush Stamp"),
+		LOCTEXT("BrushStampTooltip", "Stamp a Volume Sampled Dual Contour. Hold Shift for difference."),
+		TEXT("LandscapeEditor.BlueprintBrushTool"));
+	AddEditTool(EDualContourEditTool::PaintMaterial, LOCTEXT("PaintMaterial", "Paint Material"),
+		LOCTEXT("PaintMaterialTooltip", "Paint a material ID. Hold Shift to paint material ID 0."),
+		TEXT("LandscapeEditor.PaintTool"));
+	ToolbarBuilder.EndSection();
+
+	ToolbarBuilder.BeginSection(TEXT("PreviewMaterial"));
+	ToolbarBuilder.AddComboButton(
+		FUIAction(),
+		FOnGetContent::CreateSP(this, &FDualContourEditorToolkit::MakePreviewMaterialMenu),
+		TAttribute<FText>::CreateSP(this, &FDualContourEditorToolkit::GetPreviewMaterialModeLabel),
+		LOCTEXT("PreviewMaterialModeTooltip",
+			"Choose the temporary material used to render the preview mesh."),
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("ClassIcon.Material")));
+	ToolbarBuilder.AddWidget(
+		SNew(SBox)
+		.WidthOverride(220.0f)
+		.Visibility(this, &FDualContourEditorToolkit::GetCustomPreviewMaterialVisibility)
+		.ToolTipText(LOCTEXT("CustomPreviewMaterialTooltip",
+			"Choose a custom preview material. The selection is not saved to the asset."))
+		[
+			SNew(SObjectPropertyEntryBox)
+			.AllowedClass(UMaterialInterface::StaticClass())
+			.ObjectPath(this, &FDualContourEditorToolkit::GetPreviewMaterialPath)
+			.OnObjectChanged(this, &FDualContourEditorToolkit::HandlePreviewMaterialChanged)
+			.AllowClear(true)
+			.DisplayThumbnail(false)
+		]);
+	ToolbarBuilder.EndSection();
+
 	ToolbarBuilder.BeginSection(TEXT("DualContour"));
 	if (GetSVTDualContour())
 	{
@@ -256,6 +365,8 @@ void FDualContourEditorToolkit::GenerateDualContour()
 
 	if (bGenerationInProgress || !Asset || !CanGenerateDualContour())
 		return;
+	if (bEditModeEnabled)
+		SetInteractionMode(false);
 
 	bGenerationInProgress = true;
 	bGenerationCompletionRequested = false;
@@ -467,6 +578,8 @@ void FDualContourEditorToolkit::SetPreviewType(EDualContourEditorPreviewType InP
 	if (PreviewType == InPreviewType)
 		return;
 
+	if (InPreviewType != EDualContourEditorPreviewType::DualContour && bEditModeEnabled)
+		SetInteractionMode(false);
 	PreviewType = InPreviewType;
 	if (Viewport)
 		Viewport->RefreshPreview();
@@ -484,11 +597,181 @@ FText FDualContourEditorToolkit::GetPreviewTypeLabel() const
 		       : LOCTEXT("PreviewSVTLabel", "Preview: SVT");
 }
 
+UMaterialInterface* FDualContourEditorToolkit::GetPreviewMaterial() const
+{
+	switch (PreviewMaterialMode)
+	{
+	case EDualContourEditorPreviewMaterialMode::MaterialId:
+		return MaterialIdPreviewMaterial;
+	case EDualContourEditorPreviewMaterialMode::Custom:
+		return CustomPreviewMaterial;
+	default:
+		return nullptr;
+	}
+}
+
+TSharedRef<SWidget> FDualContourEditorToolkit::MakePreviewMaterialMenu()
+{
+	FMenuBuilder MenuBuilder(true, GetToolkitCommands());
+	const auto AddMode = [this, &MenuBuilder](EDualContourEditorPreviewMaterialMode Mode,
+		const FText& Label, const FText& Tooltip)
+	{
+		MenuBuilder.AddMenuEntry(
+			Label,
+			Tooltip,
+			FSlateIcon(),
+			FUIAction(
+				FExecuteAction::CreateSP(this, &FDualContourEditorToolkit::SetPreviewMaterialMode, Mode),
+				FCanExecuteAction(),
+				FIsActionChecked::CreateSP(this,
+					&FDualContourEditorToolkit::IsPreviewMaterialModeSelected, Mode)),
+			NAME_None,
+			EUserInterfaceActionType::RadioButton);
+	};
+
+	AddMode(EDualContourEditorPreviewMaterialMode::Default,
+		LOCTEXT("DefaultPreviewMaterial", "Default"),
+		LOCTEXT("DefaultPreviewMaterialTooltip", "Use Unreal Engine's default surface material."));
+	AddMode(EDualContourEditorPreviewMaterialMode::MaterialId,
+		LOCTEXT("MaterialIdPreviewMaterial", "Material ID"),
+		LOCTEXT("MaterialIdPreviewMaterialTooltip", "Visualize the generated Material ID values."));
+	AddMode(EDualContourEditorPreviewMaterialMode::Custom,
+		LOCTEXT("CustomPreviewMaterial", "Custom"),
+		LOCTEXT("CustomPreviewMaterialMenuTooltip", "Use a material selected in the adjacent asset picker."));
+	return MenuBuilder.MakeWidget();
+}
+
+void FDualContourEditorToolkit::SetPreviewMaterialMode(EDualContourEditorPreviewMaterialMode InMode)
+{
+	if (InMode == EDualContourEditorPreviewMaterialMode::MaterialId && !MaterialIdPreviewMaterial)
+	{
+		MaterialIdPreviewMaterial = LoadObject<UMaterialInterface>(
+			nullptr,
+			TEXT("/DualContourMesh/Editor/Materials/M_ShowMaterialID.M_ShowMaterialID"));
+	}
+
+	PreviewMaterialMode = InMode;
+	if (Viewport)
+		Viewport->RefreshPreviewMaterial();
+	FSlateApplication::Get().InvalidateAllWidgets(false);
+}
+
+bool FDualContourEditorToolkit::IsPreviewMaterialModeSelected(
+	EDualContourEditorPreviewMaterialMode InMode) const
+{
+	return PreviewMaterialMode == InMode;
+}
+
+FText FDualContourEditorToolkit::GetPreviewMaterialModeLabel() const
+{
+	switch (PreviewMaterialMode)
+	{
+	case EDualContourEditorPreviewMaterialMode::MaterialId:
+		return LOCTEXT("MaterialIdPreviewMaterialLabel", "Material ID");
+	case EDualContourEditorPreviewMaterialMode::Custom:
+		return LOCTEXT("CustomPreviewMaterialLabel", "Custom");
+	default:
+		return LOCTEXT("DefaultPreviewMaterialLabel", "Default");
+	}
+}
+
+EVisibility FDualContourEditorToolkit::GetCustomPreviewMaterialVisibility() const
+{
+	return PreviewMaterialMode == EDualContourEditorPreviewMaterialMode::Custom
+		       ? EVisibility::Visible
+		       : EVisibility::Collapsed;
+}
+
 void FDualContourEditorToolkit::ToggleDualContourBounds()
 {
 	bShowDualContourBounds = !bShowDualContourBounds;
 	if (Viewport)
 		Viewport->InvalidatePreview();
+}
+
+FString FDualContourEditorToolkit::GetPreviewMaterialPath() const
+{
+	return CustomPreviewMaterial ? CustomPreviewMaterial->GetPathName() : FString();
+}
+
+void FDualContourEditorToolkit::HandlePreviewMaterialChanged(const FAssetData& AssetData)
+{
+	CustomPreviewMaterial = Cast<UMaterialInterface>(AssetData.GetAsset());
+	if (Viewport)
+		Viewport->RefreshPreviewMaterial();
+}
+
+void FDualContourEditorToolkit::SetInteractionMode(bool bEnableEditing)
+{
+	if (bEditModeEnabled == bEnableEditing)
+		return;
+	if (bEnableEditing)
+	{
+		if (!CanEnableEditMode())
+			return;
+		PreviewType = EDualContourEditorPreviewType::DualContour;
+		if (Viewport)
+		{
+			Viewport->RefreshPreview();
+			if (!Viewport->SetEditingEnabled(true))
+				return;
+		}
+		bEditModeEnabled = true;
+		RefreshEditPanel();
+	}
+	else
+	{
+		if (Viewport)
+			Viewport->SetEditingEnabled(false);
+		bEditModeEnabled = false;
+	}
+	FSlateApplication::Get().InvalidateAllWidgets(false);
+}
+
+bool FDualContourEditorToolkit::CanEnableEditMode() const
+{
+	return Asset && Asset->HasCurrentGeneratedData() && !bGenerationInProgress;
+}
+
+bool FDualContourEditorToolkit::IsInteractionModeSelected(bool bEditing) const
+{
+	return bEditModeEnabled == bEditing;
+}
+
+UDualContourEdMode* FDualContourEditorToolkit::GetActiveEditMode() const
+{
+	return Cast<UDualContourEdMode>(
+		GetEditorModeManager().GetActiveScriptableMode(UDualContourEdMode::EM_DualContourEdModeId));
+}
+
+bool FDualContourEditorToolkit::CanUseEditTools() const
+{
+	const UDualContourEdMode* Mode = bEditModeEnabled ? GetActiveEditMode() : nullptr;
+	return Mode && Mode->HasValidTarget();
+}
+
+void FDualContourEditorToolkit::SetActiveEditTool(uint8 ToolValue)
+{
+	if (UDualContourEdMode* Mode = GetActiveEditMode())
+		Mode->SetActiveTool(static_cast<EDualContourEditTool>(ToolValue));
+}
+
+bool FDualContourEditorToolkit::IsEditToolSelected(uint8 ToolValue) const
+{
+	const UDualContourEdMode* Mode = GetActiveEditMode();
+	return Mode && Mode->GetSettings()
+		&& Mode->GetSettings()->ActiveTool == static_cast<EDualContourEditTool>(ToolValue);
+}
+
+void FDualContourEditorToolkit::RefreshEditPanel()
+{
+	if (!EditPanelContainer)
+		return;
+	if (UDualContourEdMode* Mode = GetActiveEditMode())
+		EditPanelContainer->SetContent(SNew(SDualContourEditPanel).EditMode(Mode));
+	else
+		EditPanelContainer->SetContent(SNew(STextBlock).Text(
+			LOCTEXT("EditModeUnavailable", "Switch to Edit mode to configure the preview brush.")));
 }
 
 FName FDualContourEditorToolkit::GetToolkitFName() const { return TEXT("DualContourEditor"); }
@@ -526,6 +809,8 @@ UVolumeSampledDualContour* FDualContourEditorToolkit::GetVolumeSampledDualContou
 void FDualContourEditorToolkit::AddReferencedObjects(FReferenceCollector& Collector)
 {
 	Collector.AddReferencedObject(Asset);
+	Collector.AddReferencedObject(MaterialIdPreviewMaterial);
+	Collector.AddReferencedObject(CustomPreviewMaterial);
 }
 
 #undef LOCTEXT_NAMESPACE

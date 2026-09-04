@@ -5,8 +5,10 @@
 #include "VolumeSampledDualContour.h"
 #include "DualContour.h"
 #include "DualContourMeshActor.h"
+#include "EditMode/DualContourEdMode.h"
 #include "SparseVolumeTexture/SparseVolumeTexture.h"
 #include "AdvancedPreviewScene.h"
+#include "AssetEditorModeManager.h"
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
 #include "PrimitiveDrawingUtils.h"
@@ -123,6 +125,7 @@ void SDualContourEditorViewport::RefreshPreview()
 		                         ? VolumeSampledDualContour->GenerationRevision
 		                         : INDEX_NONE;
 	const bool bPreviewDualContour = Toolkit->GetPreviewType() == EDualContourEditorPreviewType::DualContour;
+	RefreshPreviewMaterial();
 
 	const FVector FieldSize(Asset->CellCount.X * Asset->CellSize,
 		Asset->CellCount.Y * Asset->CellSize,
@@ -178,6 +181,23 @@ void SDualContourEditorViewport::RefreshPreview()
 		ViewportClient->Invalidate();
 }
 
+void SDualContourEditorViewport::RefreshPreviewMaterial()
+{
+	const TSharedPtr<FDualContourEditorToolkit> Toolkit = EditorToolkit.Pin();
+	if (!DensityActor || !Toolkit)
+		return;
+
+	UMaterialInterface* PreviewMaterial = Toolkit->GetPreviewMaterial();
+	DensityActor->MeshMaterial = PreviewMaterial;
+	for (const TPair<int32, TObjectPtr<UDualContourMeshComponent>>& Pair : DensityActor->MeshComponents)
+	{
+		if (Pair.Value)
+			Pair.Value->SetMaterial(0, PreviewMaterial);
+	}
+	if (ViewportClient)
+		ViewportClient->Invalidate();
+}
+
 void SDualContourEditorViewport::InvalidatePreview()
 {
 	if (ViewportClient)
@@ -188,6 +208,34 @@ void SDualContourEditorViewport::ProcessPendingMeshUpdates()
 {
 	if (DensityActor)
 		DensityActor->ProcessPendingMeshUpdates();
+}
+
+bool SDualContourEditorViewport::SetEditingEnabled(bool bEnabled)
+{
+	const TSharedPtr<FDualContourEditorToolkit> Toolkit = EditorToolkit.Pin();
+	if (!Toolkit || !DensityActor)
+		return false;
+
+	FEditorModeTools& ModeManager = Toolkit->GetEditorModeManager();
+	if (!bEnabled)
+	{
+		ModeManager.DeactivateMode(UDualContourEdMode::EM_DualContourEdModeId);
+		return true;
+	}
+
+	UDualContour* Asset = Toolkit->GetAsset();
+	if (!Asset || !Asset->HasCurrentGeneratedData())
+		return false;
+
+	// Erase restores the state that existed when this edit session began.
+	DensityActor->InitialDualContour = DuplicateObject<UDualContour>(Asset, DensityActor);
+	ModeManager.ActivateMode(UDualContourEdMode::EM_DualContourEdModeId);
+	UDualContourEdMode* Mode = Cast<UDualContourEdMode>(
+		ModeManager.GetActiveScriptableMode(UDualContourEdMode::EM_DualContourEdModeId));
+	if (!Mode)
+		return false;
+	Mode->SetOverrideTargetActor(DensityActor);
+	return Mode->HasValidTarget();
 }
 
 void SDualContourEditorViewport::Tick(const FGeometry& AllottedGeometry, double InCurrentTime, float InDeltaTime)
@@ -213,16 +261,20 @@ void SDualContourEditorViewport::AddReferencedObjects(FReferenceCollector& Colle
 
 TSharedRef<FEditorViewportClient> SDualContourEditorViewport::MakeEditorViewportClient()
 {
-	ViewportClient = MakeShared<FDualContourEditorViewportClient>(PreviewScene.Get(), SharedThis(this), EditorToolkit);
+	const TSharedPtr<FDualContourEditorToolkit> Toolkit = EditorToolkit.Pin();
+	FEditorModeTools* ModeTools = Toolkit ? &Toolkit->GetEditorModeManager() : nullptr;
+	ViewportClient = MakeShared<FDualContourEditorViewportClient>(PreviewScene.Get(), SharedThis(this), EditorToolkit, ModeTools);
 	return ViewportClient.ToSharedRef();
 }
 
 FDualContourEditorViewportClient::FDualContourEditorViewportClient(
 	FPreviewScene* InPreviewScene, const TWeakPtr<SEditorViewport>& InViewport,
-	const TWeakPtr<FDualContourEditorToolkit>& InEditorToolkit)
-	: FEditorViewportClient(nullptr, InPreviewScene, InViewport)
+	const TWeakPtr<FDualContourEditorToolkit>& InEditorToolkit, FEditorModeTools* InModeTools)
+	: FEditorViewportClient(InModeTools, InPreviewScene, InViewport)
 	  , EditorToolkit(InEditorToolkit)
 {
+	if (FAssetEditorModeManager* AssetModeManager = static_cast<FAssetEditorModeManager*>(InModeTools))
+		AssetModeManager->SetPreviewScene(InPreviewScene);
 	bSetListenerPosition = false;
 	SetRealtime(true);
 	SetViewMode(VMI_Lit);
