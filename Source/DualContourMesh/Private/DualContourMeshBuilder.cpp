@@ -6,6 +6,20 @@
 
 namespace
 {
+FVector2f ProjectBoxUV(const FVector& Position, const FVector& ProjectionNormal, float WorldSize)
+{
+	const float SafeWorldSize = FMath::Max(WorldSize, 1.0f);
+	const FVector AbsNormal = ProjectionNormal.GetAbs();
+
+	// Keep the projection basis stable across a quad and across neighbouring
+	// mesh divisions. The local position is intentionally not rebased per chunk.
+	if (AbsNormal.X >= AbsNormal.Y && AbsNormal.X >= AbsNormal.Z)
+		return FVector2f(static_cast<float>(Position.Y / SafeWorldSize), static_cast<float>(Position.Z / SafeWorldSize));
+	if (AbsNormal.Y >= AbsNormal.Z)
+		return FVector2f(static_cast<float>(Position.X / SafeWorldSize), static_cast<float>(Position.Z / SafeWorldSize));
+	return FVector2f(static_cast<float>(Position.X / SafeWorldSize), static_cast<float>(Position.Y / SafeWorldSize));
+}
+
 class FDualContourMeshBuildContext
 {
 public:
@@ -34,7 +48,19 @@ public:
 			const uint32 BaseVertexIndex = static_cast<uint32>(MeshData.Positions.Num());
 			MeshData.Positions.Append({Cell0->Center, Cell1->Center, Cell2->Center, Cell3->Center});
 			MeshData.Normals.Append({Cell0->Normal, Cell1->Normal, Cell2->Normal, Cell3->Normal});
-			MeshData.UVs.Append({UV0, UV1, UV2, UV3});
+			if (DualContour.UVMode == EDualContourUVMode::WorldAlignedBox)
+			{
+				const FVector QuadNormal = (Cell0->Normal + Cell1->Normal + Cell2->Normal + Cell3->Normal).GetSafeNormal();
+				const float WorldSize = FMath::Max(DualContour.UVWorldSize, 1.0f);
+				MeshData.UVs.Append({ProjectBoxUV(Cell0->Center, QuadNormal, WorldSize),
+				                     ProjectBoxUV(Cell1->Center, QuadNormal, WorldSize),
+				                     ProjectBoxUV(Cell2->Center, QuadNormal, WorldSize),
+				                     ProjectBoxUV(Cell3->Center, QuadNormal, WorldSize)});
+			}
+			else
+			{
+				MeshData.UVs.Append({UV0, UV1, UV2, UV3});
+			}
 			MeshData.Indices.Append({BaseVertexIndex, BaseVertexIndex + 2, BaseVertexIndex + 1,
 			                         BaseVertexIndex, BaseVertexIndex + 3, BaseVertexIndex + 2});
 		};

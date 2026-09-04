@@ -32,6 +32,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Relaxation", meta = (ClampMin = "-1.0", ClampMax = "1.0"))
 	float RelaxationNormalCosine = 0.5f;
 
+	/** UV projection used by generated mesh components. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|UV")
+	EDualContourUVMode UVMode = EDualContourUVMode::WorldAlignedBox;
+
+	/** World/local-space distance, in Unreal units, covered by one texture repeat. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|UV", meta = (ClampMin = "1.0"))
+	float UVWorldSize = 100.0f;
+
 	/** True when generation settings have changed since the last successful rebuild. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DualContour")
 	bool bRebuildRequired = true;

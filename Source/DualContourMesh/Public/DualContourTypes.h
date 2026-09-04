@@ -44,6 +44,16 @@ enum class EDualContourVertexSolveMode : uint8
 	QEF UMETA(DisplayName = "Regularized QEF"),
 };
 
+/** Coordinate generation used by the generated render mesh. */
+UENUM(BlueprintType)
+enum class EDualContourUVMode : uint8
+{
+	/** Projects each quad onto its dominant normal axis using local position. */
+	WorldAlignedBox UMETA(DisplayName = "World Aligned Box Projection"),
+	/** The original per-quad [0,1] coordinates. Kept for backwards comparison. */
+	QuadLocalLegacy UMETA(DisplayName = "Per-Quad Legacy"),
+};
+
 USTRUCT(BlueprintType)
 struct DUALCONTOURMESH_API FDualContourCell
 {
@@ -78,7 +88,8 @@ struct DUALCONTOURMESH_API FDensityChunk
 		// Density is already expressed in centered fixed-point sub-units. Encoding is
 		// therefore only clamp, round and bias; decoding stays branchless in hot paths.
 		const float FiniteLinearDensity = FMath::IsFinite(LinearDensity) ? LinearDensity : GDualContourMinLinearDensity;
-		const int32 QuantizedLinearDensity = FMath::RoundToInt(FMath::Clamp(FiniteLinearDensity, GDualContourMinLinearDensity, GDualContourMaxLinearDensity));
+		const int32 QuantizedLinearDensity = FMath::RoundToInt(FMath::Clamp(FiniteLinearDensity, GDualContourMinLinearDensity,
+			GDualContourMaxLinearDensity));
 		return static_cast<uint16>(QuantizedLinearDensity + GDualContourIsoValue);
 	}
 

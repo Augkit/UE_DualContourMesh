@@ -144,6 +144,15 @@ void UDualContour::PostEditChangeProperty(FPropertyChangedEvent& PropertyChanged
 		bRebuildRequired = true;
 	}
 	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	// UVs are generated from the existing cells, so changing these settings must
+	// refresh mesh components without rebuilding the density/cell cache.
+	if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, UVMode)
+	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, UVWorldSize))
+	{
+		if (HasCurrentGeneratedData())
+			OnCellsRebuilt.Broadcast(FIntVector::ZeroValue, CellCount);
+	}
 }
 
 void UDualContour::PostEditUndo()
@@ -280,6 +289,8 @@ bool UDualContour::CopyFrom(const UDualContour* Source, bool bBroadcastCellsRebu
 	VertexSolveMode = Source->VertexSolveMode;
 	VertexRelaxation = Source->VertexRelaxation;
 	RelaxationNormalCosine = Source->RelaxationNormalCosine;
+	UVMode = Source->UVMode;
+	UVWorldSize = Source->UVWorldSize;
 	bRebuildRequired = Source->bRebuildRequired;
 	DensityChunks = Source->DensityChunks;
 	ModifiedDensityChunks.Reset();
