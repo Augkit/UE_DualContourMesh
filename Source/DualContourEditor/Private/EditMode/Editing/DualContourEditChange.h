@@ -13,3 +13,12 @@ public:
 	virtual void Revert(UObject* Object) override;
 	virtual FString ToString() const override { return TEXT("Dual Contour Density Edit"); }
 };
+
+class FDualContourMaterialEditChange final : public FToolCommandChange
+{
+public:
+	TArray<FDualContourMaterialSampleDelta> Deltas;
+	virtual void Apply(UObject* Object) override;
+	virtual void Revert(UObject* Object) override;
+	virtual FString ToString() const override { return TEXT("Dual Contour Material Edit"); }
+};

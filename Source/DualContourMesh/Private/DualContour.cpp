@@ -104,7 +104,9 @@ void UDualContour::PostLoad()
 	Super::PostLoad();
 	EnsureRebuildComplete();
 	CompactAllDensityChunks();
+	CompactAllMaterialChunks();
 	ModifiedDensityChunks.Reset();
+	ModifiedMaterialChunks.Reset();
 
 	// CellChunks is derived entirely from the persistent density grid. Keeping it transient
 	// avoids serializing the large nested map while preserving the existing runtime query API.
@@ -120,6 +122,7 @@ void UDualContour::PreSave(FObjectPreSaveContext SaveContext)
 	// Public mutation paths already compact their affected chunks. This full pass is a
 	// safety net for legacy data and any future mutation path added without a flush.
 	CompactAllDensityChunks();
+	CompactAllMaterialChunks();
 	Super::PreSave(SaveContext);
 }
 
@@ -159,7 +162,10 @@ void UDualContour::PostEditUndo()
 {
 	Super::PostEditUndo();
 	if (HasCurrentGeneratedData())
+	{
 		OnCellsRebuilt.Broadcast(FIntVector::ZeroValue, CellCount);
+		OnMaterialsChanged.Broadcast(FIntVector::ZeroValue, CellCount);
+	}
 }
 #endif
 
@@ -215,6 +221,15 @@ float UDualContour::GetLinearDensity(int32 SampleX, int32 SampleY, int32 SampleZ
 	return FDensityChunk::DecodeLinearDensity(GetDensity(SampleX, SampleY, SampleZ));
 }
 
+uint8 UDualContour::GetMaterialId(int32 SampleX, int32 SampleY, int32 SampleZ) const
+{
+	if (!DualContourUtils::IsValidCoordinate(GetSampleDimensions(), SampleX, SampleY, SampleZ))
+		return 0;
+	const FIntVector ChunkCoord = DualContourUtils::ChunkCoord(SampleX, SampleY, SampleZ);
+	const FMaterialIdChunk* Chunk = MaterialChunks.Find(ChunkCoord);
+	return Chunk ? Chunk->GetMaterialId(DualContourUtils::ChunkLocalIndex(SampleX, SampleY, SampleZ)) : 0;
+}
+
 const FDualContourCell* UDualContour::GetCell(int32 CellX, int32 CellY, int32 CellZ) const
 {
 	EnsureRebuildComplete();
@@ -256,7 +271,7 @@ bool UDualContour::HasActiveCellInRange(FIntVector CellMin, FIntVector CellMax) 
 }
 
 bool UDualContour::Initialize(const UDualContour* InitialDualContour,
-	const FDualContourDensityChunks* InModifiedDensityChunks)
+	const FDualContourDensityChunks* InModifiedDensityChunks, const FDualContourMaterialChunks* InModifiedMaterialChunks)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_Initialize);
 	if (!CopyFrom(InitialDualContour, false))
@@ -265,6 +280,8 @@ bool UDualContour::Initialize(const UDualContour* InitialDualContour,
 	// CopyFrom transfers the already-built cell cache. Applying the sparse overlay then
 	// rebuilds only the cell chunks whose density inputs may have changed.
 	if (InModifiedDensityChunks && !ApplyModifiedDensityChunks(*InModifiedDensityChunks))
+		return false;
+	if (InModifiedMaterialChunks && !ApplyModifiedMaterialChunks(*InModifiedMaterialChunks))
 		return false;
 
 	EnsureRebuildComplete();
@@ -294,6 +311,8 @@ bool UDualContour::CopyFrom(const UDualContour* Source, bool bBroadcastCellsRebu
 	bRebuildRequired = Source->bRebuildRequired;
 	DensityChunks = Source->DensityChunks;
 	ModifiedDensityChunks.Reset();
+	MaterialChunks = Source->MaterialChunks;
+	ModifiedMaterialChunks.Reset();
 	CellChunks = Source->CellChunks;
 	LastBuiltCellCount = Source->LastBuiltCellCount;
 	if (bBroadcastCellsRebuilt)
@@ -333,6 +352,8 @@ bool UDualContour::ReplaceDensityChunks(FDualContourSampledRegion&& SampledRegio
 	const FIntVector SampleMax = SampleMin + SampleDimensions;
 	DensityChunks.Empty(SampledRegion.Chunks.Num());
 	ModifiedDensityChunks.Reset();
+	MaterialChunks.Reset();
+	ModifiedMaterialChunks.Reset();
 	for (FDualContourSampledChunk& SampledChunk : SampledRegion.Chunks)
 	{
 		SampledChunk.Density.TryCollapse();
@@ -542,6 +563,115 @@ void UDualContour::CompactDensityChunks(const TSet<FIntVector>& ChunkCoords)
 	}
 }
 
+bool UDualContour::ApplyMaterialEditBatch(FDualContourMaterialEditBatch& Batch, FDualContourMaterialEditResult& OutResult)
+{
+	OutResult = FDualContourMaterialEditResult();
+	if (!HasCurrentGeneratedData() || !Batch.bOpen || Batch.Owner != this)
+		return false;
+	Batch.bOpen = false;
+	Batch.Owner = nullptr;
+	EnsureRebuildComplete();
+
+	TSet<FIntVector> DirtyChunks;
+	FIntVector SampleMin = GetSampleDimensions();
+	FIntVector SampleMax(-1, -1, -1);
+	for (const TPair<FIntVector, TMap<uint16, FDualContourPendingMaterialSample>>& ChunkPair : Batch.ChunkSamples)
+	{
+		const FIntVector ChunkOrigin = DualContourUtils::ChunkOrigin(ChunkPair.Key);
+		for (const TPair<uint16, FDualContourPendingMaterialSample>& SamplePair : ChunkPair.Value)
+		{
+			if (SamplePair.Value.Before == SamplePair.Value.WorkingId)
+				continue;
+			const FIntVector SampleCoord = ChunkOrigin + DualContourUtils::ChunkLocalCoord(SamplePair.Key);
+			WriteDirtyMaterialSample(SampleCoord.X, SampleCoord.Y, SampleCoord.Z, SamplePair.Value.WorkingId, DirtyChunks);
+			FDualContourMaterialSampleDelta& Delta = OutResult.Deltas.AddDefaulted_GetRef();
+			Delta.SampleCoord = SampleCoord;
+			Delta.Before = SamplePair.Value.Before;
+			Delta.After = SamplePair.Value.WorkingId;
+			SampleMin.X = FMath::Min(SampleMin.X, SampleCoord.X);
+			SampleMin.Y = FMath::Min(SampleMin.Y, SampleCoord.Y);
+			SampleMin.Z = FMath::Min(SampleMin.Z, SampleCoord.Z);
+			SampleMax.X = FMath::Max(SampleMax.X, SampleCoord.X);
+			SampleMax.Y = FMath::Max(SampleMax.Y, SampleCoord.Y);
+			SampleMax.Z = FMath::Max(SampleMax.Z, SampleCoord.Z);
+		}
+	}
+	Batch.ChunkSamples.Reset();
+	if (OutResult.IsEmpty())
+		return false;
+	CompactMaterialChunks(DirtyChunks);
+	RecordModifiedMaterialChunks(DirtyChunks);
+	BroadcastMaterialSampleRange(SampleMin, SampleMax);
+	return true;
+}
+
+bool UDualContour::ApplyMaterialEditDeltas(TConstArrayView<FDualContourMaterialSampleDelta> Deltas, bool bUseAfterValues,
+	FDualContourMaterialEditResult* OutResult)
+{
+	if (!HasCurrentGeneratedData() || Deltas.IsEmpty())
+		return false;
+	EnsureRebuildComplete();
+	TSet<FIntVector> DirtyChunks;
+	FIntVector SampleMin = GetSampleDimensions();
+	FIntVector SampleMax(-1, -1, -1);
+	for (const FDualContourMaterialSampleDelta& Delta : Deltas)
+	{
+		WriteDirtyMaterialSample(Delta.SampleCoord.X, Delta.SampleCoord.Y, Delta.SampleCoord.Z,
+			bUseAfterValues ? Delta.After : Delta.Before, DirtyChunks);
+		SampleMin.X = FMath::Min(SampleMin.X, Delta.SampleCoord.X);
+		SampleMin.Y = FMath::Min(SampleMin.Y, Delta.SampleCoord.Y);
+		SampleMin.Z = FMath::Min(SampleMin.Z, Delta.SampleCoord.Z);
+		SampleMax.X = FMath::Max(SampleMax.X, Delta.SampleCoord.X);
+		SampleMax.Y = FMath::Max(SampleMax.Y, Delta.SampleCoord.Y);
+		SampleMax.Z = FMath::Max(SampleMax.Z, Delta.SampleCoord.Z);
+	}
+	if (DirtyChunks.IsEmpty())
+		return false;
+	CompactMaterialChunks(DirtyChunks);
+	RecordModifiedMaterialChunks(DirtyChunks);
+	BroadcastMaterialSampleRange(SampleMin, SampleMax);
+	if (OutResult)
+		OutResult->Deltas = TArray<FDualContourMaterialSampleDelta>(Deltas);
+	return true;
+}
+
+void UDualContour::WriteDirtyMaterialSample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 MaterialId,
+	TSet<FIntVector>& DirtyChunks)
+{
+	if (!DualContourUtils::IsValidCoordinate(GetSampleDimensions(), SampleX, SampleY, SampleZ)
+	    || GetMaterialId(SampleX, SampleY, SampleZ) == MaterialId)
+		return;
+	const FIntVector ChunkCoord = DualContourUtils::ChunkCoord(SampleX, SampleY, SampleZ);
+	FMaterialIdChunk& Chunk = MaterialChunks.FindOrAdd(ChunkCoord);
+	Chunk.SetMaterialId(DualContourUtils::ChunkLocalIndex(SampleX, SampleY, SampleZ), MaterialId);
+	DirtyChunks.Add(ChunkCoord);
+}
+
+void UDualContour::CompactAllMaterialChunks()
+{
+	for (auto ChunkIt = MaterialChunks.CreateIterator(); ChunkIt; ++ChunkIt)
+		if (ChunkIt.Value().TryCollapse() && ChunkIt.Value().UniformId == 0)
+			ChunkIt.RemoveCurrent();
+	MaterialChunks.Compact();
+}
+
+void UDualContour::CompactMaterialChunks(const TSet<FIntVector>& ChunkCoords)
+{
+	for (const FIntVector& ChunkCoord : ChunkCoords)
+		if (FMaterialIdChunk* Chunk = MaterialChunks.Find(ChunkCoord))
+			if (Chunk->TryCollapse() && Chunk->UniformId == 0)
+				MaterialChunks.Remove(ChunkCoord);
+}
+
+void UDualContour::BroadcastMaterialSampleRange(FIntVector SampleMin, FIntVector SampleMaxInclusive)
+{
+	const FIntVector CellMin(FMath::Max(0, SampleMin.X - 1), FMath::Max(0, SampleMin.Y - 1), FMath::Max(0, SampleMin.Z - 1));
+	const FIntVector CellMax(FMath::Min(CellCount.X, SampleMaxInclusive.X + 1),
+		FMath::Min(CellCount.Y, SampleMaxInclusive.Y + 1), FMath::Min(CellCount.Z, SampleMaxInclusive.Z + 1));
+	if (CellMin.X < CellMax.X && CellMin.Y < CellMax.Y && CellMin.Z < CellMax.Z)
+		OnMaterialsChanged.Broadcast(CellMin, CellMax);
+}
+
 float UDualContour::TrilinearDensity(const FVector& GridPos) const
 {
 	const FIntVector Dims = GetSampleDimensions();
@@ -611,6 +741,36 @@ bool UDualContour::ApplyModifiedDensityChunks(const FDualContourDensityChunks& I
 
 	if (!DirtyChunks.IsEmpty())
 		AsyncRebuildDirtyCellChunks(MoveTemp(DirtyChunks));
+	return true;
+}
+
+bool UDualContour::ApplyModifiedMaterialChunks(const FDualContourMaterialChunks& InModifiedMaterialChunks)
+{
+	if (!HasCurrentGeneratedData())
+		return false;
+	EnsureRebuildComplete();
+	const FIntVector SampleDimensions = GetSampleDimensions();
+	const int32 ExpandedChunkSize = GDualContourChunkSize * GDualContourChunkSize * GDualContourChunkSize;
+	for (const TPair<FIntVector, FMaterialIdChunk>& Pair : InModifiedMaterialChunks)
+	{
+		const FIntVector Origin = DualContourUtils::ChunkOrigin(Pair.Key);
+		if (Origin.X < 0 || Origin.Y < 0 || Origin.Z < 0 || Origin.X >= SampleDimensions.X
+		    || Origin.Y >= SampleDimensions.Y || Origin.Z >= SampleDimensions.Z
+		    || (!Pair.Value.IsUniform() && Pair.Value.MaterialIds.Num() != ExpandedChunkSize))
+			return false;
+	}
+	for (const TPair<FIntVector, FMaterialIdChunk>& Pair : InModifiedMaterialChunks)
+	{
+		FMaterialIdChunk Chunk = Pair.Value;
+		Chunk.TryCollapse();
+		if (Chunk.IsUniform() && Chunk.UniformId == 0)
+			MaterialChunks.Remove(Pair.Key);
+		else
+			MaterialChunks.Add(Pair.Key, MoveTemp(Chunk));
+	}
+	ModifiedMaterialChunks = InModifiedMaterialChunks;
+	if (!InModifiedMaterialChunks.IsEmpty())
+		OnMaterialsChanged.Broadcast(FIntVector::ZeroValue, CellCount);
 	return true;
 }
 
@@ -986,5 +1146,16 @@ void UDualContour::RecordModifiedDensityChunks(const TSet<FIntVector>& ChunkCoor
 			// zero override so loading can remove a non-zero chunk from the base contour.
 			ModifiedDensityChunks.Add(ChunkCoord, FDensityChunk());
 		}
+	}
+}
+
+void UDualContour::RecordModifiedMaterialChunks(const TSet<FIntVector>& ChunkCoords)
+{
+	for (const FIntVector& ChunkCoord : ChunkCoords)
+	{
+		if (const FMaterialIdChunk* Chunk = MaterialChunks.Find(ChunkCoord))
+			ModifiedMaterialChunks.Add(ChunkCoord, *Chunk);
+		else
+			ModifiedMaterialChunks.Add(ChunkCoord, FMaterialIdChunk());
 	}
 }

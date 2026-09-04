@@ -14,6 +14,7 @@ enum class EDualContourEditTool : uint8
 	Erase,
 	Smooth,
 	Brush,
+	PaintMaterial,
 };
 
 /** Per-user settings shared by the active edit mode and its brush tool. */
@@ -34,8 +35,20 @@ public:
 	/** Blend strength for sculpting tools. Volume stamps always use an exact boolean operation. */
 	UPROPERTY(EditAnywhere, Config, Category = "Tool Settings",
 		meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0",
-			EditCondition = "ActiveTool != EDualContourEditTool::Brush", EditConditionHides))
+			EditCondition = "ActiveTool != EDualContourEditTool::Brush && ActiveTool != EDualContourEditTool::PaintMaterial", EditConditionHides))
 	float ToolStrength = 0.3f;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Material Paint",
+		meta = (ClampMin = "0", ClampMax = "255", EditCondition = "ActiveTool == EDualContourEditTool::PaintMaterial", EditConditionHides))
+	int32 PaintMaterialId = 0;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Material Paint",
+		meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "ActiveTool == EDualContourEditTool::PaintMaterial", EditConditionHides))
+	float MaterialPaintThreshold = 0.5f;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Material Paint",
+		meta = (EditCondition = "ActiveTool == EDualContourEditTool::PaintMaterial", EditConditionHides))
+	bool bPaintSolidSamplesOnly = true;
 
 	UPROPERTY(EditAnywhere, Config, Category = "Brush Settings", meta = (ClampMin = "1.0", UIMin = "1.0", UIMax = "8192.0", Delta = "1.0"))
 	float BrushSize = 200.0f;
@@ -56,7 +69,7 @@ public:
 	bool bUseClayBrush = false;
 
 	UPROPERTY(EditAnywhere, Config, Category = "Tool Settings",
-		meta = (EditCondition = "ActiveTool != EDualContourEditTool::Brush", EditConditionHides))
+		meta = (EditCondition = "ActiveTool != EDualContourEditTool::Brush && ActiveTool != EDualContourEditTool::PaintMaterial", EditConditionHides))
 	bool bApplyWithoutMoving = true;
 
 	/** Seconds between synchronous preview rebuilds while dragging. The final result always flushes immediately. */

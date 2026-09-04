@@ -312,6 +312,7 @@ bool ADualContourMeshActor::SaveRuntimeDensityIncrement(const FString& SlotName,
 	SaveGame->BaseDualContourPath = FSoftObjectPath(InitialDualContour);
 	SaveGame->BaseCellCount = InitialDualContour->CellCount;
 	SaveGame->DensityChunks = DualContour->GetModifiedDensityChunks();
+	SaveGame->MaterialChunks = DualContour->GetModifiedMaterialChunks();
 
 	const bool bSaved = UGameplayStatics::SaveGameToSlot(SaveGame.Get(), SlotName, UserIndex);
 	if (bSaved)
@@ -340,7 +341,7 @@ bool ADualContourMeshActor::LoadRuntimeDensityIncrement(const FString& SlotName,
 
 	TStrongObjectPtr<USaveGame> LoadedObject(UGameplayStatics::LoadGameFromSlot(SlotName, UserIndex));
 	const UDualContourRuntimeSaveGame* SaveGame = Cast<UDualContourRuntimeSaveGame>(LoadedObject.Get());
-	if (!SaveGame || SaveGame->SaveVersion != 7)
+	if (!SaveGame || (SaveGame->SaveVersion != 7 && SaveGame->SaveVersion != 8))
 	{
 		UE_LOG(LogDualContourMesh, Warning, TEXT("Runtime density load failed for %s: slot '%s' is missing or incompatible."),
 			*GetName(), *SlotName);
@@ -355,7 +356,8 @@ bool ADualContourMeshActor::LoadRuntimeDensityIncrement(const FString& SlotName,
 	}
 
 	TGuardValue<bool> RebuildingMeshGuard(bRebuildingMesh, true);
-	if (!DualContour->Initialize(InitialDualContour, &SaveGame->DensityChunks))
+	const FDualContourMaterialChunks* SavedMaterials = SaveGame->SaveVersion >= 8 ? &SaveGame->MaterialChunks : nullptr;
+	if (!DualContour->Initialize(InitialDualContour, &SaveGame->DensityChunks, SavedMaterials))
 	{
 		RecreateMeshComponents();
 		UE_LOG(LogDualContourMesh, Error,
@@ -402,11 +404,12 @@ bool ADualContourMeshActor::SetGeneratedDualContour(UDualContour* InDualContour)
 
 void ADualContourMeshActor::BindToDualContour()
 {
-	if (!DualContour || DualContourCellsRebuiltHandle.IsValid())
+	if (!DualContour)
 		return;
-
-	DualContourCellsRebuiltHandle = DualContour->OnCellsRebuilt.AddUObject(
-		this, &ADualContourMeshActor::OnDualContourCellsRebuilt);
+	if (!DualContourCellsRebuiltHandle.IsValid())
+		DualContourCellsRebuiltHandle = DualContour->OnCellsRebuilt.AddUObject(this, &ADualContourMeshActor::OnDualContourCellsRebuilt);
+	if (!DualContourMaterialsChangedHandle.IsValid())
+		DualContourMaterialsChangedHandle = DualContour->OnMaterialsChanged.AddUObject(this, &ADualContourMeshActor::OnDualContourMaterialsChanged);
 }
 
 void ADualContourMeshActor::UnbindFromDualContour()
@@ -415,6 +418,11 @@ void ADualContourMeshActor::UnbindFromDualContour()
 	{
 		DualContour->OnCellsRebuilt.Remove(DualContourCellsRebuiltHandle);
 		DualContourCellsRebuiltHandle.Reset();
+	}
+	if (DualContour && DualContourMaterialsChangedHandle.IsValid())
+	{
+		DualContour->OnMaterialsChanged.Remove(DualContourMaterialsChangedHandle);
+		DualContourMaterialsChangedHandle.Reset();
 	}
 }
 
@@ -438,6 +446,13 @@ void ADualContourMeshActor::OnDualContourCellsRebuilt(FIntVector AffectedCellMin
 	bDebugRefreshImmediatelyAfterMeshUpdate |= bFullGridRebuild;
 #endif
 	PartialUpdateComponents(AffectedCellMin, AffectedCellMax);
+}
+
+void ADualContourMeshActor::OnDualContourMaterialsChanged(FIntVector AffectedCellMin, FIntVector AffectedCellMax)
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_OnDualContourMaterialsChanged);
+	if (!bRebuildingMesh)
+		PartialUpdateComponents(AffectedCellMin, AffectedCellMax, false);
 }
 
 void ADualContourMeshActor::RecreateMeshComponents()
@@ -532,7 +547,7 @@ UDualContourMeshComponent* ADualContourMeshActor::CreateMeshComponent()
 	return NewComponent;
 }
 
-void ADualContourMeshActor::QueueMeshData(int32 DivisionIndex, FDualContourMeshData&& MeshData)
+void ADualContourMeshActor::QueueMeshData(int32 DivisionIndex, FDualContourMeshData&& MeshData, bool bUpdateCollision)
 {
 	check(IsInGameThread());
 	bMeshUpdateCompletionPending = true;
@@ -546,6 +561,7 @@ void ADualContourMeshActor::QueueMeshData(int32 DivisionIndex, FDualContourMeshD
 			PendingApply.QueueRevision = MeshQueueRevision;
 			PendingApply.UpdateSerial = UpdateSerial;
 			PendingApply.MeshData = MoveTemp(MeshData);
+			PendingApply.bUpdateCollision |= bUpdateCollision;
 			UpdateActorTickEnabled();
 			return;
 		}
@@ -556,6 +572,7 @@ void ADualContourMeshActor::QueueMeshData(int32 DivisionIndex, FDualContourMeshD
 	PendingApply.QueueRevision = MeshQueueRevision;
 	PendingApply.UpdateSerial = UpdateSerial;
 	PendingApply.MeshData = MoveTemp(MeshData);
+	PendingApply.bUpdateCollision = bUpdateCollision;
 	UpdateActorTickEnabled();
 }
 
@@ -669,7 +686,8 @@ void ADualContourMeshActor::ApplyQueuedMeshData()
 		TObjectPtr<UDualContourMeshComponent>* ExistingComponent = MeshComponents.Find(PendingApply.DivisionIndex);
 		const bool bCreatedComponent = !ExistingComponent || !IsValid(ExistingComponent->Get());
 		UDualContourMeshComponent* MeshComponent = bCreatedComponent ? CreateMeshComponent() : ExistingComponent->Get();
-		MeshComponent->ApplyMeshData(MoveTemp(PendingApply.MeshData), !bDensityEditInProgress);
+		MeshComponent->ApplyMeshData(MoveTemp(PendingApply.MeshData),
+			(bCreatedComponent || PendingApply.bUpdateCollision) && !bDensityEditInProgress);
 		++AppliedCount;
 
 		const bool bIsStillCurrent = PendingApply.QueueRevision == MeshQueueRevision
@@ -768,7 +786,7 @@ FIntVector ADualContourMeshActor::DivisionCellMax(int32 DivX, int32 DivY, int32 
 		static_cast<int32>((static_cast<int64>(DivZ) + 1) * DualContour->CellCount.Z / Divisions.Z));
 }
 
-void ADualContourMeshActor::PartialUpdateComponents(FIntVector AffectedCellMin, FIntVector AffectedCellMax)
+void ADualContourMeshActor::PartialUpdateComponents(FIntVector AffectedCellMin, FIntVector AffectedCellMax, bool bUpdateCollision)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_PartialUpdateComponents);
 	if (!DualContour || !HasValidDivisions())
@@ -813,16 +831,16 @@ void ADualContourMeshActor::PartialUpdateComponents(FIntVector AffectedCellMin, 
 				for (int32 DivisionX = DivisionMin.X; DivisionX <= DivisionMax.X; ++DivisionX)
 					AffectedDivisions.Add(DivisionIndex(DivisionX, DivisionY, DivisionZ));
 	}
-	UpdateMeshDivisions(AffectedDivisions);
+	UpdateMeshDivisions(AffectedDivisions, bUpdateCollision);
 }
 
-void ADualContourMeshActor::UpdateMeshDivisions(const TSet<int32>& AffectedDivisions)
+void ADualContourMeshActor::UpdateMeshDivisions(const TSet<int32>& AffectedDivisions, bool bUpdateCollision)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_UpdateMeshDivisions);
 	if (!DualContour || !HasValidDivisions() || AffectedDivisions.IsEmpty())
 		return;
 
-	if (bDensityEditInProgress)
+	if (bDensityEditInProgress && bUpdateCollision)
 		DensityEditDirtyDivisions.Append(AffectedDivisions);
 
 	TArray<int32> DivisionsToRemove;
@@ -866,7 +884,7 @@ void ADualContourMeshActor::UpdateMeshDivisions(const TSet<int32>& AffectedDivis
 		}
 
 		for (FMeshBuildRequest& Request : Requests)
-			QueueMeshData(Request.DivisionIndex, MoveTemp(Request.MeshData));
+			QueueMeshData(Request.DivisionIndex, MoveTemp(Request.MeshData), bUpdateCollision);
 		SortQueuedMeshDataByViewDistance();
 		NotifyMeshComponentsUpdatedIfReady();
 	}

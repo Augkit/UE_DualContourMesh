@@ -143,8 +143,54 @@ struct DUALCONTOURMESH_API FDensityChunk
 	}
 };
 
+/** Sparse material-ID chunk. An empty MaterialIds array means the whole chunk uses UniformId. */
+USTRUCT(BlueprintType)
+struct DUALCONTOURMESH_API FMaterialIdChunk
+{
+	GENERATED_BODY()
+
+	UPROPERTY(SaveGame)
+	uint8 UniformId = 0;
+
+	UPROPERTY(SaveGame)
+	TArray<uint8> MaterialIds;
+
+	bool IsUniform() const { return MaterialIds.IsEmpty(); }
+
+	uint8 GetMaterialId(int32 Index) const
+	{
+		return IsUniform() ? UniformId : MaterialIds[Index];
+	}
+
+	void SetMaterialId(int32 Index, uint8 MaterialId)
+	{
+		Expand();
+		MaterialIds[Index] = MaterialId;
+	}
+
+	void Expand()
+	{
+		if (IsUniform())
+			MaterialIds.Init(UniformId, GDualContourChunkSize * GDualContourChunkSize * GDualContourChunkSize);
+	}
+
+	bool TryCollapse()
+	{
+		if (IsUniform())
+			return true;
+		const uint8 Candidate = MaterialIds[0];
+		for (const uint8 Value : MaterialIds)
+			if (Value != Candidate)
+				return false;
+		UniformId = Candidate;
+		MaterialIds.Empty();
+		return true;
+	}
+};
+
 /** Sparse density storage shared by DualContour runtime data and runtime save games. */
 #define FDualContourDensityChunks TMap<FIntVector, FDensityChunk>
+#define FDualContourMaterialChunks TMap<FIntVector, FMaterialIdChunk>
 
 /** One chunk produced by a volume sampler before it is merged into a DualContour. */
 struct DUALCONTOURMESH_API FDualContourSampledChunk
@@ -185,6 +231,10 @@ struct DUALCONTOURMESH_API FDualContourMeshData
 	TArray<FVector> Positions;
 	TArray<FVector> Normals;
 	TArray<FVector2f> UVs;
+	/** Normalized RGBA weights for the four material layers. */
+	TArray<FColor> MaterialWeights;
+	/** Raw uint8 material IDs for the canonical per-quad palette. */
+	TArray<FColor> MaterialIds;
 	TArray<uint32> Indices;
 	FBox LocalBounds = FBox(ForceInit);
 
@@ -193,9 +243,17 @@ struct DUALCONTOURMESH_API FDualContourMeshData
 		Positions.Reset();
 		Normals.Reset();
 		UVs.Reset();
+		MaterialWeights.Reset();
+		MaterialIds.Reset();
 		Indices.Reset();
 		LocalBounds = FBox(ForceInit);
 	}
+};
+
+struct DUALCONTOURMESH_API FDualContourMaterialBlend
+{
+	TStaticArray<uint8, 4> Ids{0, 0, 0, 0};
+	TStaticArray<float, 4> Weights{1.0f, 0.0f, 0.0f, 0.0f};
 };
 
 /** One changed density sample. Edit-mode undo stores only these sparse values. */
@@ -210,6 +268,19 @@ struct DUALCONTOURMESH_API FDualContourEditResult
 {
 	TArray<FDualContourSampleDelta> Deltas;
 
+	bool IsEmpty() const { return Deltas.IsEmpty(); }
+};
+
+struct DUALCONTOURMESH_API FDualContourMaterialSampleDelta
+{
+	FIntVector SampleCoord = FIntVector::ZeroValue;
+	uint8 Before = 0;
+	uint8 After = 0;
+};
+
+struct DUALCONTOURMESH_API FDualContourMaterialEditResult
+{
+	TArray<FDualContourMaterialSampleDelta> Deltas;
 	bool IsEmpty() const { return Deltas.IsEmpty(); }
 };
 
@@ -247,5 +318,18 @@ struct DUALCONTOURMESH_API FDualContourEditBatch
 {
 	UDualContour* Owner = nullptr;
 	TMap<FIntVector, TMap<uint16, FDualContourPendingSample>> ChunkSamples;
+	bool bOpen = false;
+};
+
+struct FDualContourPendingMaterialSample
+{
+	uint8 Before = 0;
+	uint8 WorkingId = 0;
+};
+
+struct DUALCONTOURMESH_API FDualContourMaterialEditBatch
+{
+	UDualContour* Owner = nullptr;
+	TMap<FIntVector, TMap<uint16, FDualContourPendingMaterialSample>> ChunkSamples;
 	bool bOpen = false;
 };

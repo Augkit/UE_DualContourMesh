@@ -5,7 +5,7 @@
 #include "GameFramework/SaveGame.h"
 #include "DualContourRuntimeSaveGame.generated.h"
 
-/** Modified density chunks that are overlaid on an InitialDualContour. */
+/** Modified density and material chunks that are overlaid on an InitialDualContour. */
 UCLASS()
 class DUALCONTOURMESH_API UDualContourRuntimeSaveGame : public USaveGame
 {
@@ -13,7 +13,7 @@ class DUALCONTOURMESH_API UDualContourRuntimeSaveGame : public USaveGame
 
 public:
 	UPROPERTY(SaveGame)
-	int32 SaveVersion = 7;
+	int32 SaveVersion = 8;
 
 	UPROPERTY(SaveGame)
 	FSoftObjectPath BaseDualContourPath;
@@ -23,4 +23,7 @@ public:
 
 	UPROPERTY(SaveGame)
 	TMap<FIntVector, FDensityChunk> DensityChunks;
+
+	UPROPERTY(SaveGame)
+	TMap<FIntVector, FMaterialIdChunk> MaterialChunks;
 };

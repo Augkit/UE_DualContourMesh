@@ -41,18 +41,29 @@ public:
 		for (int32 VertexIndex = 0; VertexIndex < VertexCount; VertexIndex++)
 		{
 			FDynamicMeshVertex& Vertex = Vertices[VertexIndex];
+			Vertex = FDynamicMeshVertex();
 			Vertex.Position = FVector3f(MeshData.Positions[VertexIndex]);
 			FVector3f Normal = FVector3f(MeshData.Normals[VertexIndex]).GetSafeNormal();
 			FVector3f TangentX, TangentY;
 			Normal.FindBestAxisVectors(TangentX, TangentY);
 			Vertex.SetTangents(TangentX, TangentY, Normal);
 			Vertex.TextureCoordinate[0] = MeshData.UVs[VertexIndex];
-			Vertex.Color = FColor::White;
+			const FColor Weights = MeshData.MaterialWeights.IsValidIndex(VertexIndex)
+				                       ? MeshData.MaterialWeights[VertexIndex]
+				                       : FColor(255, 0, 0, 0);
+			const FColor Ids = MeshData.MaterialIds.IsValidIndex(VertexIndex)
+				                   ? MeshData.MaterialIds[VertexIndex]
+				                   : FColor(0, 0, 0, 0);
+			Vertex.Color = Weights;
+			// Canonical palettes are identical at all four corners of a quad, so the
+			// interpolated LocalVF texcoords remain exact integer-valued IDs in each triangle.
+			Vertex.TextureCoordinate[1] = FVector2f(Ids.R, Ids.G);
+			Vertex.TextureCoordinate[2] = FVector2f(Ids.B, Ids.A);
 		}
 
 		VertexFactory = new FLocalVertexFactory(GetScene().GetFeatureLevel(), "FDualContourMeshSceneProxy");
 		IndexBuffer.Indices = MeshData.Indices;
-		VertexBuffers.InitFromDynamicVertex(VertexFactory, Vertices);
+		VertexBuffers.InitFromDynamicVertex(VertexFactory, Vertices, 3);
 		BeginInitResource(&VertexBuffers.PositionVertexBuffer);
 		BeginInitResource(&VertexBuffers.StaticMeshVertexBuffer);
 		BeginInitResource(&VertexBuffers.ColorVertexBuffer);

@@ -7,6 +7,7 @@
 #include "DualContour.generated.h"
 
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDualContourCellsRebuilt, FIntVector, FIntVector);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDualContourMaterialsChanged, FIntVector, FIntVector);
 
 /** Owns the dual-contour source data, generation settings, and contour-building algorithms. */
 UCLASS(BlueprintType, EditInlineNew)
@@ -46,13 +47,17 @@ public:
 
 	/** Broadcast after generated contour data changes. The range is [CellMin, CellMax). */
 	FOnDualContourCellsRebuilt OnCellsRebuilt;
+	/** Broadcast after material samples change. The affected cell range is [CellMin, CellMax). */
+	FOnDualContourMaterialsChanged OnMaterialsChanged;
 
 	bool HasCurrentGeneratedData() const;
 
 	uint16 GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
 	float GetLinearDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
+	uint8 GetMaterialId(int32 SampleX, int32 SampleY, int32 SampleZ) const;
 	/** Returns the chunk overlay accumulated by runtime density mutation paths. */
 	const FDualContourDensityChunks& GetModifiedDensityChunks() const { return ModifiedDensityChunks; }
+	const FDualContourMaterialChunks& GetModifiedMaterialChunks() const { return ModifiedMaterialChunks; }
 
 	const FDualContourCell* GetCell(int32 CellX, int32 CellY, int32 CellZ) const;
 	bool HasActiveCellInRange(FIntVector CellMin, FIntVector CellMax) const;
@@ -61,7 +66,8 @@ public:
 	 * Initializes this runtime contour from a current base contour and optionally overlays saved density chunks.
 	 * The base CellChunks are copied as-is; only chunks affected by the overlay are rebuilt.
 	 */
-	bool Initialize(const UDualContour* InitialDualContour, const FDualContourDensityChunks* InModifiedDensityChunks = nullptr);
+	bool Initialize(const UDualContour* InitialDualContour, const FDualContourDensityChunks* InModifiedDensityChunks = nullptr,
+		const FDualContourMaterialChunks* InModifiedMaterialChunks = nullptr);
 	/** Copies persistent grid settings and generated data from another current DualContour. */
 	bool CopyFrom(const UDualContour* Source, bool bBroadcastCellsRebuilt = true);
 
@@ -79,6 +85,11 @@ public:
 
 	/** Applies a validated chunk overlay to the current density grid and records it for subsequent saves. */
 	bool ApplyModifiedDensityChunks(const FDualContourDensityChunks& InModifiedDensityChunks);
+
+	bool ApplyMaterialEditBatch(FDualContourMaterialEditBatch& Batch, FDualContourMaterialEditResult& OutResult);
+	bool ApplyMaterialEditDeltas(TConstArrayView<FDualContourMaterialSampleDelta> Deltas, bool bUseAfterValues,
+		FDualContourMaterialEditResult* OutResult = nullptr);
+	bool ApplyModifiedMaterialChunks(const FDualContourMaterialChunks& InModifiedMaterialChunks);
 
 	FIntVector GetSampleDimensions() const { return FIntVector(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }
 
@@ -108,6 +119,12 @@ private:
 	UPROPERTY(Transient, NonTransactional)
 	TMap<FIntVector, FDensityChunk> ModifiedDensityChunks;
 
+	UPROPERTY(NonTransactional)
+	TMap<FIntVector, FMaterialIdChunk> MaterialChunks;
+
+	UPROPERTY(Transient, NonTransactional)
+	TMap<FIntVector, FMaterialIdChunk> ModifiedMaterialChunks;
+
 	/** Runtime cache rebuilt from DensityChunks after loading. It is intentionally excluded from assets. */
 	UPROPERTY(Transient, NonTransactional)
 	TMap<FIntVector, FCellChunk> CellChunks;
@@ -125,6 +142,10 @@ private:
 	void WriteDirtyDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint16 Density, TSet<FIntVector>& DirtyChunks);
 	void CompactAllDensityChunks();
 	void CompactDensityChunks(const TSet<FIntVector>& ChunkCoords);
+	void WriteDirtyMaterialSample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 MaterialId, TSet<FIntVector>& DirtyChunks);
+	void CompactAllMaterialChunks();
+	void CompactMaterialChunks(const TSet<FIntVector>& ChunkCoords);
+	void BroadcastMaterialSampleRange(FIntVector SampleMin, FIntVector SampleMaxInclusive);
 
 	FVector CalculateCentralDifferenceNormal(const FVector& GridPosition) const;
 
@@ -136,4 +157,5 @@ private:
 	void AsyncRebuildDirtyCellChunks(TSet<FIntVector>&& DirtyDensityChunks, bool bBroadcastCellsRebuilt = true);
 
 	void RecordModifiedDensityChunks(const TSet<FIntVector>& ChunkCoords);
+	void RecordModifiedMaterialChunks(const TSet<FIntVector>& ChunkCoords);
 };

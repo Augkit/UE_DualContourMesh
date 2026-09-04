@@ -64,6 +64,9 @@ void FDualContourEdModeToolkit::BuildToolPalette(FName Palette, FToolBarBuilder&
 	AddTool(EDualContourEditTool::Brush, LOCTEXT("BrushStamp", "Brush Stamp"),
 		LOCTEXT("BrushStampTooltip", "Stamp a Volume Sampled Dual Contour. Hold Shift for difference."),
 		TEXT("LandscapeEditor.BlueprintBrushTool"));
+	AddTool(EDualContourEditTool::PaintMaterial, LOCTEXT("PaintMaterial", "Paint Material"),
+		LOCTEXT("PaintMaterialTooltip", "Paint a discrete material ID. Hold Shift to restore material ID 0."),
+		TEXT("LandscapeEditor.PaintTool"));
 }
 
 #undef LOCTEXT_NAMESPACE

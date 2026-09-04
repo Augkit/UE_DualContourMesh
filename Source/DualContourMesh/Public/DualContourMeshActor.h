@@ -74,11 +74,11 @@ public:
 	UFUNCTION(CallInEditor, Category = "DualContour")
 	void RebuildMesh();
 
-	/** Saves the modified density-chunk overlay accumulated since InitialDualContour was copied. */
+	/** Saves the modified density and material chunk overlays accumulated since InitialDualContour was copied. */
 	UFUNCTION(BlueprintCallable, Category = "DualContour|Runtime Save")
 	bool SaveRuntimeDensityIncrement(const FString& SlotName, int32 UserIndex = 0) const;
 
-	/** Rebuilds from InitialDualContour and applies a previously saved density-chunk overlay. */
+	/** Rebuilds from InitialDualContour and applies previously saved density/material chunk overlays. */
 	UFUNCTION(BlueprintCallable, Category = "DualContour|Runtime Save")
 	bool LoadRuntimeDensityIncrement(const FString& SlotName, int32 UserIndex = 0);
 
@@ -136,9 +136,11 @@ private:
 		uint64 UpdateSerial = 0;
 		double ViewDistanceSquared = MAX_dbl;
 		FDualContourMeshData MeshData;
+		bool bUpdateCollision = true;
 	};
 
 	FDelegateHandle DualContourCellsRebuiltHandle;
+	FDelegateHandle DualContourMaterialsChangedHandle;
 	TArray<FPendingMeshApply> PendingMeshApplies;
 	TMap<int32, uint64> DivisionUpdateSerials;
 	TSet<int32> DensityEditDirtyDivisions;
@@ -153,7 +155,8 @@ private:
 	void BindToDualContour();
 	void UnbindFromDualContour();
 	void OnDualContourCellsRebuilt(FIntVector AffectedCellMin, FIntVector AffectedCellMax);
-	void UpdateMeshDivisions(const TSet<int32>& AffectedDivisions);
+	void OnDualContourMaterialsChanged(FIntVector AffectedCellMin, FIntVector AffectedCellMax);
+	void UpdateMeshDivisions(const TSet<int32>& AffectedDivisions, bool bUpdateCollision = true);
 
 	void ApplyCollisionSettings(UDualContourMeshComponent* MeshComponent) const;
 	void RefreshCollisionSettings();
@@ -161,7 +164,7 @@ private:
 	void UpdateAutoDivisions();
 	void RecreateMeshComponents();
 	UDualContourMeshComponent* CreateMeshComponent();
-	void QueueMeshData(int32 DivisionIndex, FDualContourMeshData&& MeshData);
+	void QueueMeshData(int32 DivisionIndex, FDualContourMeshData&& MeshData, bool bUpdateCollision = true);
 	void SortQueuedMeshDataByViewDistance();
 	void CancelQueuedMeshData(int32 DivisionIndex);
 	void ResetQueuedMeshData();
@@ -173,7 +176,7 @@ private:
 	FIntVector DivisionFromCell(int32 CellX, int32 CellY, int32 CellZ) const;
 	FIntVector DivisionCellMin(int32 DivX, int32 DivY, int32 DivZ) const;
 	FIntVector DivisionCellMax(int32 DivX, int32 DivY, int32 DivZ) const;
-	void PartialUpdateComponents(FIntVector AffectedCellMin, FIntVector AffectedCellMax);
+	void PartialUpdateComponents(FIntVector AffectedCellMin, FIntVector AffectedCellMax, bool bUpdateCollision = true);
 
 #if WITH_EDITOR
 	void RefreshDebugComponent();

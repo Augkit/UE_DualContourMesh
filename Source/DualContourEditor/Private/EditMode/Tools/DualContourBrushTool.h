@@ -62,6 +62,7 @@ private:
 	bool BeginEditBatch();
 	bool ApplyStampAt(const FVector& WorldPosition, const FVector& WorldNormal, float TimeScale);
 	bool ApplyBrushStamp(FDualContourEditBatch& Batch, const FDualContourBrushStamp& Stamp) const;
+	bool ApplyMaterialBrushStamp(FDualContourMaterialEditBatch& Batch, const FDualContourBrushStamp& Stamp) const;
 	void ApplyPathTo(const FVector& WorldPosition, const FVector& WorldNormal);
 	void FlushStroke(bool bFinalFlush);
 	void FinishStroke(bool bCancel);
@@ -80,7 +81,9 @@ private:
 	TObjectPtr<UMaterialInterface> BrushFalloffMaterial;
 
 	FDualContourEditBatch ActiveBatch;
+	FDualContourMaterialEditBatch ActiveMaterialBatch;
 	TMap<FIntVector, FDualContourSampleDelta> StrokeDeltas;
+	TMap<FIntVector, FDualContourMaterialSampleDelta> MaterialStrokeDeltas;
 	FVector HitPosition = FVector::ZeroVector;
 	FVector HitNormal = FVector::UpVector;
 	FVector LastStampPosition = FVector::ZeroVector;
