@@ -88,8 +88,8 @@ struct DUALCONTOURMESH_API FDensityChunk
 		// Density is already expressed in centered fixed-point sub-units. Encoding is
 		// therefore only clamp, round and bias; decoding stays branchless in hot paths.
 		const float FiniteLinearDensity = FMath::IsFinite(LinearDensity) ? LinearDensity : GDualContourMinLinearDensity;
-		const int32 QuantizedLinearDensity = FMath::RoundToInt(FMath::Clamp(FiniteLinearDensity, GDualContourMinLinearDensity,
-			GDualContourMaxLinearDensity));
+		const int32 QuantizedLinearDensity =
+			FMath::RoundToInt(FMath::Clamp(FiniteLinearDensity, GDualContourMinLinearDensity, GDualContourMaxLinearDensity));
 		return static_cast<uint16>(QuantizedLinearDensity + GDualContourIsoValue);
 	}
 
