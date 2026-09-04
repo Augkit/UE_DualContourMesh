@@ -71,8 +71,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Runtime Save", meta = (ClampMin = "0"))
 	int32 RuntimeSaveUserIndex = 0;
 
+	/** Rebuilds generated cells and mesh components from the actor-owned DualContour. */
 	UFUNCTION(CallInEditor, Category = "DualContour")
 	void RebuildMesh();
+
+	/** Replaces the actor-owned DualContour with InitialDualContour, then rebuilds its mesh components. */
+	UFUNCTION(CallInEditor, Category = "DualContour")
+	void ResetDualContour();
 
 	/** Saves the modified density and material chunk overlays accumulated since InitialDualContour was copied. */
 	UFUNCTION(BlueprintCallable, Category = "DualContour|Runtime Save")

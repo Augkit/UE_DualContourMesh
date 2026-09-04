@@ -10,6 +10,7 @@
 #include "Framework/Notifications/NotificationManager.h"
 #include "IDetailGroup.h"
 #include "IDetailPropertyRow.h"
+#include "Misc/MessageDialog.h"
 #include "PropertyHandle.h"
 #include "ScopedTransaction.h"
 #include "Styling/AppStyle.h"
@@ -54,7 +55,7 @@ void FDualContourMeshActorDetails::CustomizeDetails(IDetailLayoutBuilder& Detail
 			CustomizedActors.Add(Actor);
 
 	// Replace the default inline-object row with a read-only view. InitialDualContour is the
-	// editable source; RebuildMesh copies its current data into the actor-owned DualContour.
+	// editable source; ResetDualContour copies its current data into the actor-owned DualContour.
 	DetailBuilder.HideProperty(
 		DetailBuilder.GetProperty(GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, DualContour)));
 
@@ -89,12 +90,28 @@ void FDualContourMeshActorDetails::CustomizeDetails(IDetailLayoutBuilder& Detail
 	                   .WholeRowContent()
 	                   .HAlign(HAlign_Left)
 	[
-		SNew(SButton)
-		.Text(LOCTEXT("SaveDualContourButton", "Save Current DualContour as Asset"))
-		.ToolTipText(LOCTEXT("SaveDualContourTooltip",
-			"Overwrite InitialDualContour, or choose a location and assign a new DualContour asset."))
-		.IsEnabled(this, &FDualContourMeshActorDetails::CanSaveDualContour)
-		.OnClicked(this, &FDualContourMeshActorDetails::SaveDualContour)
+		SNew(SHorizontalBox)
+		+ SHorizontalBox::Slot()
+		.AutoWidth()
+		.Padding(0.f, 0.f, 6.f, 0.f)
+		[
+			SNew(SButton)
+			.Text(LOCTEXT("SaveDualContourButton", "Save"))
+			.ToolTipText(LOCTEXT("SaveDualContourTooltip",
+				"Overwrite InitialDualContour with the current DualContour after confirmation."))
+			.IsEnabled(this, &FDualContourMeshActorDetails::CanSaveDualContour)
+			.OnClicked(this, &FDualContourMeshActorDetails::SaveDualContour)
+		]
+		+ SHorizontalBox::Slot()
+		.AutoWidth()
+		[
+			SNew(SButton)
+			.Text(LOCTEXT("SaveDualContourAsButton", "Save As..."))
+			.ToolTipText(LOCTEXT("SaveDualContourAsTooltip",
+				"Create a new DualContour asset from the current DualContour and assign it as InitialDualContour."))
+			.IsEnabled(this, &FDualContourMeshActorDetails::CanSaveDualContourAs)
+			.OnClicked(this, &FDualContourMeshActorDetails::SaveDualContourAs)
+		]
 	];
 
 	const TSharedRef<IPropertyHandle> DivisionsHandle =
@@ -143,7 +160,8 @@ bool FDualContourMeshActorDetails::CanSaveDualContour() const
 		return false;
 
 	const ADualContourMeshActor* Actor = CustomizedActors[0].Get();
-	return Actor && Actor->DualContour && Actor->DualContour->HasCurrentGeneratedData();
+	return Actor && Actor->InitialDualContour && Actor->DualContour
+		&& Actor->DualContour->HasCurrentGeneratedData();
 }
 
 FReply FDualContourMeshActorDetails::SaveDualContour()
@@ -155,16 +173,41 @@ FReply FDualContourMeshActorDetails::SaveDualContour()
 	UDualContour* Source = Actor->DualContour;
 	UDualContour* Target = Actor->InitialDualContour;
 
-	if (Target)
+	const FText Confirmation = FText::Format(
+		LOCTEXT("ConfirmOverwriteDualContourAsset",
+			"Overwrite {0} with the current DualContour?\n\nThis will replace the asset's existing contour data."),
+		FText::FromString(Target->GetPathName()));
+	if (FMessageDialog::Open(EAppMsgType::YesNo, Confirmation,
+		LOCTEXT("ConfirmOverwriteDualContourTitle", "Save DualContour Asset")) != EAppReturnType::Yes)
 	{
-		const FScopedTransaction Transaction(LOCTEXT("SaveDualContourTransaction", "Save DualContour Asset"));
-		CopyDualContourToAsset(Source, Target);
-		ShowSaveNotification(
-			FText::Format(LOCTEXT("UpdatedDualContourAsset", "Saved current DualContour to {0}."),
-				FText::FromString(Target->GetPathName())),
-			SNotificationItem::CS_Success);
 		return FReply::Handled();
 	}
+
+	const FScopedTransaction Transaction(LOCTEXT("SaveDualContourTransaction", "Save DualContour Asset"));
+	CopyDualContourToAsset(Source, Target);
+	ShowSaveNotification(
+		FText::Format(LOCTEXT("UpdatedDualContourAsset", "Saved current DualContour to {0}."),
+			FText::FromString(Target->GetPathName())),
+		SNotificationItem::CS_Success);
+	return FReply::Handled();
+}
+
+bool FDualContourMeshActorDetails::CanSaveDualContourAs() const
+{
+	if (CustomizedActors.Num() != 1)
+		return false;
+
+	const ADualContourMeshActor* Actor = CustomizedActors[0].Get();
+	return Actor && Actor->DualContour && Actor->DualContour->HasCurrentGeneratedData();
+}
+
+FReply FDualContourMeshActorDetails::SaveDualContourAs()
+{
+	if (!CanSaveDualContourAs())
+		return FReply::Handled();
+
+	ADualContourMeshActor* Actor = CustomizedActors[0].Get();
+	UDualContour* Source = Actor->DualContour;
 
 	UDualContourFactory* Factory = NewObject<UDualContourFactory>();
 	UDualContour* NewAsset = Cast<UDualContour>(
@@ -178,7 +221,7 @@ FReply FDualContourMeshActorDetails::SaveDualContour()
 	Actor->Modify();
 	Actor->InitialDualContour = NewAsset;
 	Actor->MarkPackageDirty();
-	Actor->RebuildMesh();
+	Actor->ResetDualContour();
 	ShowSaveNotification(
 		FText::Format(LOCTEXT("CreatedDualContourAsset", "Created DualContour asset {0}."),
 			FText::FromString(NewAsset->GetPathName())),

@@ -169,7 +169,7 @@ void UDualContourEdMode::RefreshTarget()
 		return;
 	}
 	TargetActor = Candidate;
-	TargetStatus = FText::Format(LOCTEXT("Ready", "Ready: {0}  |  Rebuild Mesh replaces unsaved instance edits."),
+	TargetStatus = FText::Format(LOCTEXT("Ready", "Ready: {0}  |  Reset Dual Contour replaces unsaved instance edits."),
 		FText::FromString(Candidate->GetActorLabel()));
 }
 

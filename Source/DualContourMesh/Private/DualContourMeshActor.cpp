@@ -119,7 +119,7 @@ void ADualContourMeshActor::PostRegisterAllComponents()
 		else if (InitialDualContour)
 		{
 			// Older or newly placed actors may not contain a valid saved contour yet.
-			RebuildMesh();
+			ResetDualContour();
 		}
 	}
 
@@ -137,7 +137,7 @@ void ADualContourMeshActor::BeginPlay()
 	if (DualContour && DualContour->HasCurrentGeneratedData())
 		RecreateMeshComponents();
 	else if (InitialDualContour)
-		RebuildMesh();
+		ResetDualContour();
 }
 
 void ADualContourMeshActor::Tick(float DeltaSeconds)
@@ -191,7 +191,7 @@ void ADualContourMeshActor::PostEditChangeProperty(FPropertyChangedEvent& Proper
 	const FName MemberPropertyName = PropertyChangedEvent.MemberProperty->GetFName();
 	if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, InitialDualContour))
 	{
-		RebuildMesh();
+		ResetDualContour();
 	}
 	else if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, Divisions)
 	         || MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, bAutoCalculateDivisions)
@@ -262,28 +262,35 @@ void ADualContourMeshActor::ProcessPendingDebugComponentRefresh()
 void ADualContourMeshActor::RebuildMesh()
 {
 	TGuardValue<bool> RebuildingMeshGuard(bRebuildingMesh, true);
-	if (InitialDualContour)
+	if (!DualContour || !DualContour->Rebuild())
+		return;
+	RecreateMeshComponents();
+}
+
+void ADualContourMeshActor::ResetDualContour()
+{
+	TGuardValue<bool> RebuildingMeshGuard(bRebuildingMesh, true);
+	if (!InitialDualContour)
 	{
-		if (!DualContour)
-		{
-			UE_LOG(LogDualContourMesh, Warning,
-				TEXT("Mesh rebuild aborted for %s because its target DualContour is missing."), *GetName());
-			return;
-		}
-
-		if (!DualContour->Initialize(InitialDualContour))
-		{
-			UE_LOG(LogDualContourMesh, Error,
-				TEXT("Mesh rebuild aborted for %s because InitialDualContour is missing current generated data."), *GetName());
-			return;
-		}
-
-		RecreateMeshComponents();
+		UE_LOG(LogDualContourMesh, Warning,
+			TEXT("DualContour reset aborted for %s because InitialDualContour is missing."), *GetName());
 		return;
 	}
 
-	if (!DualContour || !DualContour->Rebuild())
+	if (!DualContour)
+	{
+		UE_LOG(LogDualContourMesh, Warning,
+			TEXT("DualContour reset aborted for %s because its target DualContour is missing."), *GetName());
 		return;
+	}
+
+	if (!DualContour->Initialize(InitialDualContour))
+	{
+		UE_LOG(LogDualContourMesh, Error,
+			TEXT("DualContour reset aborted for %s because InitialDualContour is missing current generated data."), *GetName());
+		return;
+	}
+
 	RecreateMeshComponents();
 }
 

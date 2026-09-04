@@ -16,6 +16,8 @@ public:
 private:
 	bool CanSaveDualContour() const;
 	FReply SaveDualContour();
+	bool CanSaveDualContourAs() const;
+	FReply SaveDualContourAs();
 	bool AreDivisionsValid(FString* OutStatus = nullptr) const;
 	const FSlateBrush* GetValidationIcon() const;
 	FSlateColor GetValidationIconColor() const;
