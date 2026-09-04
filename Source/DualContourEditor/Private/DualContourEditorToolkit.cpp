@@ -451,10 +451,13 @@ void FDualContourEditorToolkit::HandlePreviewMeshComponentsUpdated()
 	if (!bGenerationInProgress || !bContourCellsReadyForGeneration)
 		return;
 
-	// The actor has consumed all queued component updates. Let the ticker animate the
-	// remaining distance to 100% before hiding the progress bar.
+	// The actor has consumed all queued component updates, so generation is actually
+	// complete. Snap to 100% instead of slowly interpolating fake progress after the
+	// work has finished; the next ticker callback will hide the progress bar.
 	bGenerationCompletionRequested = true;
+	GenerationProgress = 1.0f;
 	GenerationProgressTarget = 1.0f;
+	FSlateApplication::Get().InvalidateAllWidgets(false);
 }
 
 bool FDualContourEditorToolkit::TickGenerationProgress(float DeltaTime)
