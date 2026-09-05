@@ -220,7 +220,7 @@ void UDualContourBrushTool::OnClickPress(const FInputDeviceRay& PressPos)
 {
 	if (!UpdateHit(PressPos.WorldRay) || !TargetActor || !TargetActor->DualContour)
 		return;
-	if (!BeginEditBatch())
+	if (!BeginPendingBatch())
 		return;
 	bStrokeActive = true;
 	if (Settings->ActiveTool != EDualContourEditTool::PaintMaterial)
@@ -280,10 +280,10 @@ void UDualContourBrushTool::OnClickPress(const FInputDeviceRay& PressPos)
 		FinishStroke(false);
 }
 
-bool UDualContourBrushTool::BeginEditBatch()
+bool UDualContourBrushTool::BeginPendingBatch()
 {
-	ActiveBatch = FDualContourEditBatch();
-	ActiveMaterialBatch = FDualContourMaterialEditBatch();
+	ActiveBatch = FDualContourPendingBatch();
+	ActiveMaterialBatch = FDualContourPendingMaterialBatch();
 	UDualContour* DualContour = TargetActor ? TargetActor->DualContour.Get() : nullptr;
 	if (!IsValid(DualContour) || !DualContour->HasCurrentGeneratedData())
 		return false;
@@ -479,7 +479,7 @@ bool UDualContourBrushTool::ApplyStationarySculptStamp(float WorldDistance, floa
 	return ApplyBrushStamp(ActiveBatch, Stamp);
 }
 
-bool UDualContourBrushTool::ApplyMaterialBrushStamp(FDualContourMaterialEditBatch& Batch, const FDualContourBrushStamp& Stamp) const
+bool UDualContourBrushTool::ApplyMaterialBrushStamp(FDualContourPendingMaterialBatch& Batch, const FDualContourBrushStamp& Stamp) const
 {
 	UDualContour* DualContour = TargetActor ? TargetActor->DualContour.Get() : nullptr;
 	if (!IsValid(DualContour) || !Settings || !Batch.bOpen || Batch.Owner != DualContour
@@ -538,7 +538,7 @@ int32 UDualContourBrushTool::ApplyMaterialBrushVolumes(
 		return 0;
 	}
 
-	FDualContourMaterialEditBatch Batch;
+	FDualContourPendingMaterialBatch Batch;
 	Batch.bOpen = true;
 	Batch.Owner = DualContour;
 	const FIntVector Dims = DualContour->GetSampleDimensions();
@@ -602,7 +602,7 @@ int32 UDualContourBrushTool::ApplyMaterialBrushVolumes(
 	}
 
 	FDualContourMaterialEditResult Result;
-	if (!DualContour->ApplyMaterialEditBatch(Batch, Result))
+	if (!DualContour->ApplyPendingMaterialBatch(Batch, Result))
 		return 0;
 
 	const int32 ChangedSampleCount = Result.Deltas.Num();
@@ -615,7 +615,7 @@ int32 UDualContourBrushTool::ApplyMaterialBrushVolumes(
 	return ChangedSampleCount;
 }
 
-bool UDualContourBrushTool::ApplyBrushStamp(FDualContourEditBatch& Batch, const FDualContourBrushStamp& Stamp) const
+bool UDualContourBrushTool::ApplyBrushStamp(FDualContourPendingBatch& Batch, const FDualContourBrushStamp& Stamp) const
 {
 	UDualContour* DualContour = TargetActor ? TargetActor->DualContour.Get() : nullptr;
 	if (!IsValid(DualContour) || !Batch.bOpen || Batch.Owner != DualContour || !DualContour->HasCurrentGeneratedData()
@@ -1005,7 +1005,7 @@ void UDualContourBrushTool::FlushStroke(bool bFinalFlush)
 	if (Settings && Settings->ActiveTool == EDualContourEditTool::PaintMaterial)
 	{
 		FDualContourMaterialEditResult Result;
-		if (TargetActor->DualContour->ApplyMaterialEditBatch(ActiveMaterialBatch, Result))
+		if (TargetActor->DualContour->ApplyPendingMaterialBatch(ActiveMaterialBatch, Result))
 		{
 			for (const FDualContourMaterialSampleDelta& Delta : Result.Deltas)
 			{
@@ -1017,17 +1017,17 @@ void UDualContourBrushTool::FlushStroke(bool bFinalFlush)
 	}
 	else
 	{
-		FDualContourEditResult Result;
-		if (TargetActor->DualContour->ApplyEditBatch(ActiveBatch, Result))
-			for (const FDualContourSampleDelta& Delta : Result.Deltas)
+		TargetActor->DualContour->ApplyPendingBatch(ActiveBatch,
+			[this](const FIntVector& SampleCoord, uint16 Before, uint16 After)
 			{
-				FDualContourSampleDelta* Existing = StrokeDeltas.Find(Delta.SampleCoord);
-				if (Existing) Existing->After = Delta.After;
-				else StrokeDeltas.Add(Delta.SampleCoord, Delta);
-			}
+				if (FDualContourSampleDelta* Existing = StrokeDeltas.Find(SampleCoord))
+					Existing->After = After;
+				else
+					StrokeDeltas.Add(SampleCoord, FDualContourSampleDelta{SampleCoord, Before, After});
+			});
 	}
 	if (!bFinalFlush)
-		BeginEditBatch();
+		BeginPendingBatch();
 	LastPreviewFlushTime = FPlatformTime::Seconds();
 }
 
@@ -1074,7 +1074,7 @@ void UDualContourBrushTool::FinishStroke(bool bCancel)
 		return;
 	if (bCancel)
 	{
-		TargetActor->DualContour->ApplyEditDeltas(Deltas, false);
+		DualContourEditing::ApplyDeltas(*TargetActor->DualContour, Deltas, false);
 	}
 	else
 	{

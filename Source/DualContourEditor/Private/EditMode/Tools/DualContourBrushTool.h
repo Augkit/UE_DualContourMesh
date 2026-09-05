@@ -4,6 +4,7 @@
 #include "InteractiveToolBuilder.h"
 #include "BaseBehaviors/BehaviorTargetInterfaces.h"
 #include "DualContourTypes.h"
+#include "EditMode/Editing/DualContourEditChange.h"
 #include "DualContourBrushTool.generated.h"
 
 class ADualContourMeshActor;
@@ -65,11 +66,11 @@ private:
 	bool ProjectBrushPointToSurface(const FVector& PlanePoint, float ProjectionHalfDepth, FVector& OutSurfacePoint) const;
 	void DrawSurfaceProjectedFalloff(IToolsContextRenderAPI* RenderAPI, float Radius) const;
 	void DrawSurfaceProjectedRing(FPrimitiveDrawInterface* PDI, float Radius, const FLinearColor& Color, float Thickness) const;
-	bool BeginEditBatch();
+	bool BeginPendingBatch();
 	bool ApplyStampAt(const FVector& WorldPosition, const FVector& WorldNormal, float TimeScale);
 	bool ApplyStationarySculptStamp(float WorldDistance, float TimeScale);
-	bool ApplyBrushStamp(FDualContourEditBatch& Batch, const FDualContourBrushStamp& Stamp) const;
-	bool ApplyMaterialBrushStamp(FDualContourMaterialEditBatch& Batch, const FDualContourBrushStamp& Stamp) const;
+	bool ApplyBrushStamp(FDualContourPendingBatch& Batch, const FDualContourBrushStamp& Stamp) const;
+	bool ApplyMaterialBrushStamp(FDualContourPendingMaterialBatch& Batch, const FDualContourBrushStamp& Stamp) const;
 	void ApplyPathTo(const FVector& WorldPosition, const FVector& WorldNormal);
 	void FlushStroke(bool bFinalFlush);
 	void FinishStroke(bool bCancel);
@@ -87,8 +88,8 @@ private:
 	UPROPERTY()
 	TObjectPtr<UMaterialInterface> BrushFalloffMaterial;
 
-	FDualContourEditBatch ActiveBatch;
-	FDualContourMaterialEditBatch ActiveMaterialBatch;
+	FDualContourPendingBatch ActiveBatch;
+	FDualContourPendingMaterialBatch ActiveMaterialBatch;
 	TMap<FIntVector, FDualContourSampleDelta> StrokeDeltas;
 	TMap<FIntVector, FDualContourMaterialSampleDelta> MaterialStrokeDeltas;
 	FVector HitPosition = FVector::ZeroVector;

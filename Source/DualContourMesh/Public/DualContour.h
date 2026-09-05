@@ -4,6 +4,7 @@
 #include "UObject/Object.h"
 #include "DualContourTypes.h"
 #include "Async/Future.h"
+#include "Templates/Function.h"
 #include "DualContour.generated.h"
 
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDualContourCellsRebuilt, FIntVector, FIntVector);
@@ -78,15 +79,14 @@ public:
 	bool ModifyDensityChunks(const FDualContourSampledRegion& SampledRegion, bool bExcavate,
 		FIntVector& OutAffectedCellMin, FIntVector& OutAffectedCellMax);
 
-	/** Applies an accumulated stroke batch, rebuilds only dirty contour chunks, and returns sparse undo deltas. */
-	bool ApplyEditBatch(FDualContourEditBatch& Batch, FDualContourEditResult& OutResult);
-	/** Restores either side of a sparse edit and performs the same local rebuild path. */
-	bool ApplyEditDeltas(TConstArrayView<FDualContourSampleDelta> Deltas, bool bUseAfterValues, FDualContourEditResult* OutResult = nullptr);
+	/** Consumes pending writes and rebuilds changed chunks. Callback receives actual encoded changes; it must not mutate this grid or batch. */
+	bool ApplyPendingBatch(FDualContourPendingBatch& Batch,
+		TFunctionRef<void(const FIntVector&, uint16, uint16)> OnSampleChanged = [](const FIntVector&, uint16, uint16) {});
 
 	/** Applies a validated chunk overlay to the current density grid and records it for subsequent saves. */
 	bool ApplyModifiedDensityChunks(const FDualContourDensityChunks& InModifiedDensityChunks);
 
-	bool ApplyMaterialEditBatch(FDualContourMaterialEditBatch& Batch, FDualContourMaterialEditResult& OutResult);
+	bool ApplyPendingMaterialBatch(FDualContourPendingMaterialBatch& Batch, FDualContourMaterialEditResult& OutResult);
 	bool ApplyMaterialEditDeltas(TConstArrayView<FDualContourMaterialSampleDelta> Deltas, bool bUseAfterValues,
 		FDualContourMaterialEditResult* OutResult = nullptr);
 	bool ApplyModifiedMaterialChunks(const FDualContourMaterialChunks& InModifiedMaterialChunks);

@@ -470,62 +470,39 @@ bool UDualContour::ModifyDensityChunks(const FDualContourSampledRegion& SampledR
 	return true;
 }
 
-bool UDualContour::ApplyEditBatch(FDualContourEditBatch& Batch, FDualContourEditResult& OutResult)
+bool UDualContour::ApplyPendingBatch(FDualContourPendingBatch& Batch, TFunctionRef<void(const FIntVector&, uint16, uint16)> OnSampleChanged)
 {
-	OutResult = FDualContourEditResult();
-	if (!Batch.bOpen || Batch.Owner != this)
+	if (!Batch.bOpen || Batch.Owner != this || !HasCurrentGeneratedData())
 		return false;
 	Batch.bOpen = false;
 	Batch.Owner = nullptr;
-
 	EnsureRebuildComplete();
 
 	TSet<FIntVector> ActuallyDirtyChunks;
+	const FIntVector SampleDims = GetSampleDimensions();
 	for (const TPair<FIntVector, TMap<uint16, FDualContourPendingSample>>& ChunkPair : Batch.ChunkSamples)
 	{
 		const FIntVector ChunkOrigin = DualContourUtils::ChunkOrigin(ChunkPair.Key);
 		for (const TPair<uint16, FDualContourPendingSample>& SamplePair : ChunkPair.Value)
 		{
-			const uint16 After =
-				FDensityChunk::EncodeDensity(FMath::Clamp(SamplePair.Value.WorkingValue, GDualContourMinLinearDensity, GDualContourMaxLinearDensity));
-			if (After == SamplePair.Value.Before)
-				continue;
 			const FIntVector SampleCoord = ChunkOrigin + DualContourUtils::ChunkLocalCoord(SamplePair.Key);
+			if (!DualContourUtils::IsValidCoordinate(SampleDims, SampleCoord.X, SampleCoord.Y, SampleCoord.Z))
+				continue;
+			const uint16 Before = GetDensity(SampleCoord.X, SampleCoord.Y, SampleCoord.Z);
+			const uint16 After = FDensityChunk::EncodeDensity(SamplePair.Value.WorkingValue);
+			if (Before == After)
+				continue;
 			WriteDirtyDensitySample(SampleCoord.X, SampleCoord.Y, SampleCoord.Z, After, ActuallyDirtyChunks);
-			FDualContourSampleDelta& Delta = OutResult.Deltas.AddDefaulted_GetRef();
-			Delta.SampleCoord = SampleCoord;
-			Delta.Before = SamplePair.Value.Before;
-			Delta.After = After;
+			OnSampleChanged(SampleCoord, Before, After);
 		}
 	}
 	Batch.ChunkSamples.Reset();
-	if (OutResult.Deltas.IsEmpty())
+	if (ActuallyDirtyChunks.IsEmpty())
 		return false;
 
 	CompactDensityChunks(ActuallyDirtyChunks);
 	RecordModifiedDensityChunks(ActuallyDirtyChunks);
 	AsyncRebuildDirtyCellChunks(MoveTemp(ActuallyDirtyChunks));
-	return true;
-}
-
-bool UDualContour::ApplyEditDeltas(TConstArrayView<FDualContourSampleDelta> Deltas, bool bUseAfterValues, FDualContourEditResult* OutResult)
-{
-	if (!HasCurrentGeneratedData() || Deltas.IsEmpty())
-		return false;
-	EnsureRebuildComplete();
-	TSet<FIntVector> DirtyChunks;
-	for (const FDualContourSampleDelta& Delta : Deltas)
-		WriteDirtyDensitySample(Delta.SampleCoord.X, Delta.SampleCoord.Y, Delta.SampleCoord.Z, bUseAfterValues ? Delta.After : Delta.Before,
-			DirtyChunks);
-	if (DirtyChunks.IsEmpty())
-		return false;
-	CompactDensityChunks(DirtyChunks);
-	RecordModifiedDensityChunks(DirtyChunks);
-	AsyncRebuildDirtyCellChunks(MoveTemp(DirtyChunks));
-	if (OutResult)
-	{
-		OutResult->Deltas = TArray<FDualContourSampleDelta>(Deltas);
-	}
 	return true;
 }
 
@@ -563,7 +540,7 @@ void UDualContour::CompactDensityChunks(const TSet<FIntVector>& ChunkCoords)
 	}
 }
 
-bool UDualContour::ApplyMaterialEditBatch(FDualContourMaterialEditBatch& Batch, FDualContourMaterialEditResult& OutResult)
+bool UDualContour::ApplyPendingMaterialBatch(FDualContourPendingMaterialBatch& Batch, FDualContourMaterialEditResult& OutResult)
 {
 	OutResult = FDualContourMaterialEditResult();
 	if (!HasCurrentGeneratedData() || !Batch.bOpen || Batch.Owner != this)

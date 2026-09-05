@@ -257,21 +257,6 @@ struct DUALCONTOURMESH_API FDualContourMaterialBlend
 	TStaticArray<float, 4> Weights{1.0f, 0.0f, 0.0f, 0.0f};
 };
 
-/** One changed density sample. Edit-mode undo stores only these sparse values. */
-struct DUALCONTOURMESH_API FDualContourSampleDelta
-{
-	FIntVector SampleCoord = FIntVector::ZeroValue;
-	uint16 Before = 0;
-	uint16 After = 0;
-};
-
-struct DUALCONTOURMESH_API FDualContourEditResult
-{
-	TArray<FDualContourSampleDelta> Deltas;
-
-	bool IsEmpty() const { return Deltas.IsEmpty(); }
-};
-
 struct DUALCONTOURMESH_API FDualContourMaterialSampleDelta
 {
 	FIntVector SampleCoord = FIntVector::ZeroValue;
@@ -318,8 +303,8 @@ struct FDualContourPendingSample
 	float WorkingValue = 0.0f;
 };
 
-/** Mutable state shared by all stamps in one stroke. */
-struct DUALCONTOURMESH_API FDualContourEditBatch
+/** Pending density writes accumulated until the next submission. */
+struct DUALCONTOURMESH_API FDualContourPendingBatch
 {
 	UDualContour* Owner = nullptr;
 	TMap<FIntVector, TMap<uint16, FDualContourPendingSample>> ChunkSamples;
@@ -332,7 +317,7 @@ struct FDualContourPendingMaterialSample
 	uint8 WorkingId = 0;
 };
 
-struct DUALCONTOURMESH_API FDualContourMaterialEditBatch
+struct DUALCONTOURMESH_API FDualContourPendingMaterialBatch
 {
 	UDualContour* Owner = nullptr;
 	TMap<FIntVector, TMap<uint16, FDualContourPendingMaterialSample>> ChunkSamples;
