@@ -304,6 +304,8 @@ struct DUALCONTOURMESH_API FDualContourBrushStamp
 	float Strength = 0.3f;
 	float TimeScale = 1.0f;
 	bool bUseClayBrush = false;
+	/** Makes radial falloff define the axial profile of a stationary sculpt stamp. */
+	bool bUseDirectionalFalloff = false;
 
 	/** Used only by StampUnion/StampDifference; maps source local positions into target local space. */
 	UVolumeSampledDualContour* VolumeBrush = nullptr;

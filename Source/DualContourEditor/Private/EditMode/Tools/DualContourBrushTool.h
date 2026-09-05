@@ -56,11 +56,13 @@ public:
 
 private:
 	bool UpdateHit(const FRay& WorldRay, float* OutDistance = nullptr);
+	bool UpdateSculptHitAlongNormal(const FVector& WorldPosition, const FVector& WorldNormal);
 	bool ProjectBrushPointToSurface(const FVector& PlanePoint, float ProjectionHalfDepth, FVector& OutSurfacePoint) const;
 	void DrawSurfaceProjectedFalloff(IToolsContextRenderAPI* RenderAPI, float Radius) const;
 	void DrawSurfaceProjectedRing(FPrimitiveDrawInterface* PDI, float Radius, const FLinearColor& Color, float Thickness) const;
 	bool BeginEditBatch();
 	bool ApplyStampAt(const FVector& WorldPosition, const FVector& WorldNormal, float TimeScale);
+	bool ApplyStationarySculptStamp(float WorldDistance, float TimeScale);
 	bool ApplyBrushStamp(FDualContourEditBatch& Batch, const FDualContourBrushStamp& Stamp) const;
 	bool ApplyMaterialBrushStamp(FDualContourMaterialEditBatch& Batch, const FDualContourBrushStamp& Stamp) const;
 	void ApplyPathTo(const FVector& WorldPosition, const FVector& WorldNormal);
@@ -87,17 +89,29 @@ private:
 	FVector HitPosition = FVector::ZeroVector;
 	FVector HitNormal = FVector::UpVector;
 	FVector LastStampPosition = FVector::ZeroVector;
+	FVector LastStampNormal = FVector::UpVector;
 	FVector ClayPlaneOrigin = FVector::ZeroVector;
 	FVector ClayPlaneNormal = FVector::UpVector;
 	FVector FlattenPlaneOrigin = FVector::ZeroVector;
 	FVector FlattenPlaneNormal = FVector::UpVector;
+	FVector ActiveRayOrigin = FVector::ZeroVector;
+	FVector ActiveRayDirection = FVector::ForwardVector;
+	FVector StrokeOrigin = FVector::ZeroVector;
+	FVector StrokeNormal = FVector::UpVector;
+	FVector StrokeGrowthDirection = FVector::UpVector;
 	float FlattenWorldHeight = 0.0f;
+	float StationarySculptDistance = 0.0f;
+	float StationarySculptEmbedDepth = 0.0f;
 	double LastPreviewFlushTime = 0.0;
 	float StationaryAccumulator = 0.0f;
 	bool bHasHit = false;
 	bool bStrokeActive = false;
 	bool bShiftDown = false;
 	bool bFlattenHeightLocked = false;
+	bool bHasActiveRay = false;
+	bool bStationarySculptStroke = false;
+	bool bStationarySculptSubtract = false;
+	bool bStrokeMoved = false;
 
 	static constexpr int32 ShiftModifierId = 1;
 };

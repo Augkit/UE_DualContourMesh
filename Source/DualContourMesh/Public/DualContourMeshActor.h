@@ -111,8 +111,11 @@ public:
 	/** Applies any volume sampler at a surface point, rotating its local +Z axis to the hit normal. */
 	bool ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal, UVolumeSampler* Sampler, float UniformScale,
 		bool bExcavate);
-	/** Defers expensive collision cooking while an interactive density stroke is producing preview meshes. */
-	void SetDensityEditInProgress(bool bInProgress);
+	/**
+	 * Marks an interactive density stroke as active. Collision cooking is deferred by default, but tools whose
+	 * hit position must follow the changing preview surface can request collision updates during the stroke.
+	 */
+	void SetDensityEditInProgress(bool bInProgress, bool bUpdateCollisionDuringEdit = false);
 
 	/** Returns whether every Divisions value is valid for its corresponding CellCount value and describes the result. */
 	bool ValidateDivisions(FString& OutStatus) const;
@@ -155,6 +158,7 @@ private:
 	bool bMeshUpdateCompletionPending = false;
 	bool bRebuildingMesh = false;
 	bool bDensityEditInProgress = false;
+	bool bUpdateCollisionDuringDensityEdit = false;
 	FIntVector MeshCellCount = FIntVector(0, 0, 0);
 	float MeshCellSize = 0.f;
 	void BindToDualContour();

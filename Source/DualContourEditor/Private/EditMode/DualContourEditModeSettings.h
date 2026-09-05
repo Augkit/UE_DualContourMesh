@@ -73,6 +73,12 @@ public:
 		meta = (EditCondition = "ActiveTool != EDualContourEditTool::Brush && ActiveTool != EDualContourEditTool::PaintMaterial", EditConditionHides))
 	bool bApplyWithoutMoving = true;
 
+	/** World-space units per second traveled by a stationary Sculpt stroke. */
+	UPROPERTY(EditAnywhere, Config, Category = "Tool Settings",
+		meta = (ClampMin = "0.0", UIMin = "0.0", UIMax = "2000.0",
+			EditCondition = "ActiveTool == EDualContourEditTool::Sculpt && bApplyWithoutMoving && !bUseClayBrush", EditConditionHides))
+	float SculptGrowthSpeed = 200.0f;
+
 	/** Seconds between synchronous preview rebuilds while dragging. The final result always flushes immediately. */
 	UPROPERTY(EditAnywhere, Config, Category = "Performance", meta = (ClampMin = "0.033", ClampMax = "0.5", UIMin = "0.033", UIMax = "0.2"))
 	float PreviewUpdateInterval = 0.08f;

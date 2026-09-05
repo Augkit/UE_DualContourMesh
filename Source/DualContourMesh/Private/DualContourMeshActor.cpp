@@ -694,7 +694,8 @@ void ADualContourMeshActor::ApplyQueuedMeshData()
 		const bool bCreatedComponent = !ExistingComponent || !IsValid(ExistingComponent->Get());
 		UDualContourMeshComponent* MeshComponent = bCreatedComponent ? CreateMeshComponent() : ExistingComponent->Get();
 		MeshComponent->ApplyMeshData(MoveTemp(PendingApply.MeshData),
-			(bCreatedComponent || PendingApply.bUpdateCollision) && !bDensityEditInProgress);
+			(bCreatedComponent || PendingApply.bUpdateCollision)
+			&& (!bDensityEditInProgress || bUpdateCollisionDuringDensityEdit));
 		++AppliedCount;
 
 		const bool bIsStillCurrent = PendingApply.QueueRevision == MeshQueueRevision
@@ -847,7 +848,7 @@ void ADualContourMeshActor::UpdateMeshDivisions(const TSet<int32>& AffectedDivis
 	if (!DualContour || !HasValidDivisions() || AffectedDivisions.IsEmpty())
 		return;
 
-	if (bDensityEditInProgress && bUpdateCollision)
+	if (bDensityEditInProgress && !bUpdateCollisionDuringDensityEdit && bUpdateCollision)
 		DensityEditDirtyDivisions.Append(AffectedDivisions);
 
 	TArray<int32> DivisionsToRemove;
@@ -936,13 +937,28 @@ bool ADualContourMeshActor::ModifyDensityWithSampler(const FVector& WorldHitPos,
 	return true;
 }
 
-void ADualContourMeshActor::SetDensityEditInProgress(bool bInProgress)
+void ADualContourMeshActor::SetDensityEditInProgress(bool bInProgress, bool bUpdateCollisionDuringEdit)
 {
 	if (bDensityEditInProgress == bInProgress)
+	{
+		if (!bInProgress || bUpdateCollisionDuringDensityEdit == bUpdateCollisionDuringEdit)
+			return;
+
+		bUpdateCollisionDuringDensityEdit = bUpdateCollisionDuringEdit;
+		if (bUpdateCollisionDuringDensityEdit)
+		{
+			for (const int32 DivisionIndex : DensityEditDirtyDivisions)
+				if (const TObjectPtr<UDualContourMeshComponent>* Component = MeshComponents.Find(DivisionIndex))
+					if (IsValid(*Component))
+						(*Component)->RefreshCollision();
+			DensityEditDirtyDivisions.Reset();
+		}
 		return;
+	}
 	if (bInProgress)
 		DensityEditDirtyDivisions.Reset();
 	bDensityEditInProgress = bInProgress;
+	bUpdateCollisionDuringDensityEdit = bInProgress && bUpdateCollisionDuringEdit;
 	if (!bDensityEditInProgress)
 	{
 		for (const int32 DivisionIndex : DensityEditDirtyDivisions)

@@ -75,6 +75,7 @@ void UDualContourBrushTool::SetTargetActor(ADualContourMeshActor* InTargetActor)
 		FinishStroke(true);
 	TargetActor = InTargetActor;
 	bHasHit = false;
+	bHasActiveRay = false;
 	bFlattenHeightLocked = false;
 }
 
@@ -146,6 +147,55 @@ bool UDualContourBrushTool::UpdateHit(const FRay& WorldRay, float* OutDistance)
 	return false;
 }
 
+bool UDualContourBrushTool::UpdateSculptHitAlongNormal(
+	const FVector& WorldPosition,
+	const FVector& WorldNormal)
+{
+	bHasHit = false;
+	if (!TargetWorld || !TargetActor || !Settings)
+		return false;
+
+	const FVector TraceNormal = WorldNormal.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
+	const float TraceHalfDepth = FMath::Max(50.0f, Settings->BrushSize);
+	TArray<FHitResult> Hits;
+	FCollisionObjectQueryParams ObjectQuery(FCollisionObjectQueryParams::AllObjects);
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(DualContourSculptNormalTrace), true);
+	TargetWorld->LineTraceMultiByObjectType(
+		Hits,
+		WorldPosition + TraceNormal * TraceHalfDepth,
+		WorldPosition - TraceNormal * TraceHalfDepth,
+		ObjectQuery,
+		QueryParams);
+
+	const FHitResult* ClosestHit = nullptr;
+	float ClosestDistanceSquared = TNumericLimits<float>::Max();
+	for (const FHitResult& Hit : Hits)
+	{
+		if (Hit.GetActor() != TargetActor || !Hit.GetComponent()
+		    || !Hit.GetComponent()->IsA<UDualContourMeshComponent>())
+		{
+			continue;
+		}
+
+		const float DistanceSquared = FVector::DistSquared(Hit.ImpactPoint, WorldPosition);
+		if (DistanceSquared < ClosestDistanceSquared)
+		{
+			ClosestDistanceSquared = DistanceSquared;
+			ClosestHit = &Hit;
+		}
+	}
+
+	if (!ClosestHit)
+		return false;
+
+	HitPosition = ClosestHit->ImpactPoint;
+	HitNormal = ClosestHit->ImpactNormal.GetSafeNormal(UE_SMALL_NUMBER, TraceNormal);
+	if (FVector::DotProduct(HitNormal, TraceNormal) < 0.0f)
+		HitNormal *= -1.0f;
+	bHasHit = true;
+	return true;
+}
+
 FInputRayHit UDualContourBrushTool::CanBeginClickDragSequence(const FInputDeviceRay& PressPos)
 {
 	float Distance = 0.0f;
@@ -160,7 +210,23 @@ void UDualContourBrushTool::OnClickPress(const FInputDeviceRay& PressPos)
 		return;
 	bStrokeActive = true;
 	if (Settings->ActiveTool != EDualContourEditTool::PaintMaterial)
-		TargetActor->SetDensityEditInProgress(true);
+	{
+		// The cursor and subsequent stamps must follow the preview mesh, so keep its
+		// collision in sync instead of tracing against the surface from stroke start.
+		TargetActor->SetDensityEditInProgress(true, true);
+	}
+	ActiveRayOrigin = PressPos.WorldRay.Origin;
+	ActiveRayDirection = PressPos.WorldRay.Direction;
+	bHasActiveRay = true;
+	StrokeOrigin = HitPosition;
+	StrokeNormal = HitNormal;
+	bStationarySculptStroke = Settings->ActiveTool == EDualContourEditTool::Sculpt
+	                         && !Settings->bUseClayBrush;
+	bStationarySculptSubtract = bStationarySculptStroke && bShiftDown;
+	StrokeGrowthDirection = bStationarySculptSubtract ? -StrokeNormal : StrokeNormal;
+	bStrokeMoved = false;
+	StationarySculptDistance = 0.0f;
+	StationarySculptEmbedDepth = 0.0f;
 	bFlattenHeightLocked = Settings->ActiveTool == EDualContourEditTool::Flatten;
 	if (bFlattenHeightLocked)
 	{
@@ -176,9 +242,26 @@ void UDualContourBrushTool::OnClickPress(const FInputDeviceRay& PressPos)
 	StrokeDeltas.Reset();
 	MaterialStrokeDeltas.Reset();
 	LastStampPosition = HitPosition;
+	LastStampNormal = HitNormal;
 	LastPreviewFlushTime = FPlatformTime::Seconds();
 	StationaryAccumulator = 0.0f;
-	ApplyStampAt(HitPosition, HitNormal, 1.0f);
+	if (bStationarySculptStroke)
+	{
+		const float ActorScale = FMath::Max(
+			FMath::Abs(TargetActor->GetActorTransform().GetScale3D().X), UE_SMALL_NUMBER);
+		const float WorldCellSize = TargetActor->DualContour->CellSize * ActorScale;
+		const float WorldRadius = Settings->BrushSize * 0.5f;
+		StationarySculptEmbedDepth = FMath::Max(WorldCellSize * 2.0f, WorldRadius * 0.25f);
+		const float EmbedStampSpacing = FMath::Max(WorldCellSize, Settings->BrushSize * 0.15f);
+		for (float Distance = -StationarySculptEmbedDepth; Distance < 0.0f; Distance += EmbedStampSpacing)
+			ApplyStationarySculptStamp(Distance, 1.0f);
+		StationarySculptDistance = 0.0f;
+		ApplyStationarySculptStamp(StationarySculptDistance, 1.0f);
+	}
+	else
+	{
+		ApplyStampAt(HitPosition, HitNormal, 1.0f);
+	}
 	if (Settings->ActiveTool == EDualContourEditTool::Brush)
 		FinishStroke(false);
 }
@@ -206,7 +289,26 @@ bool UDualContourBrushTool::BeginEditBatch()
 
 void UDualContourBrushTool::OnClickDrag(const FInputDeviceRay& DragPos)
 {
-	if (!bStrokeActive || !UpdateHit(DragPos.WorldRay))
+	if (!bStrokeActive)
+		return;
+	if (bStationarySculptStroke && !bStrokeMoved)
+	{
+		constexpr float RayOriginMoveToleranceSquared = 0.01f;
+		constexpr float RayDirectionDotTolerance = 0.999999f;
+		const bool bRayMoved = FVector::DistSquared(ActiveRayOrigin, DragPos.WorldRay.Origin) > RayOriginMoveToleranceSquared
+		                       || FVector::DotProduct(ActiveRayDirection, DragPos.WorldRay.Direction) < RayDirectionDotTolerance;
+		if (!bRayMoved)
+		{
+			// Collision updates can produce drag callbacks even though the physical
+			// mouse ray is unchanged. Do not trace the growing cylinder in that case.
+			return;
+		}
+		bStrokeMoved = true;
+	}
+	ActiveRayOrigin = DragPos.WorldRay.Origin;
+	ActiveRayDirection = DragPos.WorldRay.Direction;
+	bHasActiveRay = true;
+	if (!UpdateHit(DragPos.WorldRay))
 		return;
 	ApplyPathTo(HitPosition, HitNormal);
 	if (FPlatformTime::Seconds() - LastPreviewFlushTime >= FMath::Max(0.08f, Settings->PreviewUpdateInterval))
@@ -217,7 +319,10 @@ void UDualContourBrushTool::OnClickRelease(const FInputDeviceRay& ReleasePos)
 {
 	if (!bStrokeActive)
 		return;
-	if (UpdateHit(ReleasePos.WorldRay))
+	ActiveRayOrigin = ReleasePos.WorldRay.Origin;
+	ActiveRayDirection = ReleasePos.WorldRay.Direction;
+	bHasActiveRay = true;
+	if (UpdateHit(ReleasePos.WorldRay) && (!bStationarySculptStroke || bStrokeMoved))
 		ApplyPathTo(HitPosition, HitNormal);
 	FinishStroke(false);
 }
@@ -247,9 +352,56 @@ bool UDualContourBrushTool::OnUpdateHover(const FInputDeviceRay& DevicePos)
 
 void UDualContourBrushTool::OnTick(float DeltaTime)
 {
-	if (!bStrokeActive || !bHasHit || !Settings || !Settings->bApplyWithoutMoving
+	if (!bStrokeActive || !Settings || !TargetActor || !TargetActor->DualContour || !Settings->bApplyWithoutMoving
 	    || Settings->ActiveTool == EDualContourEditTool::Brush)
 		return;
+
+	if (bStationarySculptStroke && !bStrokeMoved)
+	{
+		StationaryAccumulator += DeltaTime;
+		constexpr float FixedStep = 1.0f / 30.0f;
+		while (StationaryAccumulator >= FixedStep)
+		{
+			const float PreviousDistance = StationarySculptDistance;
+			const float NextDistance = PreviousDistance + Settings->SculptGrowthSpeed * FixedStep;
+			const float ActorScale = FMath::Max(
+				FMath::Abs(TargetActor->GetActorTransform().GetScale3D().X), UE_SMALL_NUMBER);
+			const float WorldCellSize = TargetActor->DualContour->CellSize * ActorScale;
+			const float MaximumSpatialStep = FMath::Max(
+				1.0f, FMath::Min(WorldCellSize, Settings->BrushSize * 0.1f));
+			const float TravelDistance = NextDistance - PreviousDistance;
+			if (TravelDistance > UE_SMALL_NUMBER)
+			{
+				const int32 StepCount = FMath::Max(1, FMath::CeilToInt(TravelDistance / MaximumSpatialStep));
+				for (int32 StepIndex = 1; StepIndex <= StepCount; ++StepIndex)
+				{
+					const float Alpha = static_cast<float>(StepIndex) / static_cast<float>(StepCount);
+					ApplyStationarySculptStamp(FMath::Lerp(PreviousDistance, NextDistance, Alpha), 1.0f);
+				}
+				StationarySculptDistance = NextDistance;
+			}
+			StationaryAccumulator -= FixedStep;
+		}
+		HitPosition = StrokeOrigin + StrokeGrowthDirection * StationarySculptDistance;
+		HitNormal = StrokeNormal;
+		if (FPlatformTime::Seconds() - LastPreviewFlushTime >= FMath::Max(0.033f, Settings->PreviewUpdateInterval))
+			FlushStroke(false);
+		return;
+	}
+
+	// A Sculpt stroke that has moved follows the changing surface along its
+	// normal. Other tools retain screen-ray positioning semantics.
+	const bool bSurfaceNormalSculpt = Settings->ActiveTool == EDualContourEditTool::Sculpt
+	                                 && !Settings->bUseClayBrush;
+	if (bSurfaceNormalSculpt)
+	{
+		if (!UpdateSculptHitAlongNormal(LastStampPosition, LastStampNormal))
+			return;
+	}
+	else if (!bHasActiveRay || !UpdateHit(FRay(ActiveRayOrigin, ActiveRayDirection)))
+	{
+		return;
+	}
 	StationaryAccumulator += DeltaTime;
 	constexpr float FixedStep = 1.0f / 30.0f;
 	while (StationaryAccumulator >= FixedStep)
@@ -257,6 +409,8 @@ void UDualContourBrushTool::OnTick(float DeltaTime)
 		ApplyStampAt(HitPosition, HitNormal, FixedStep);
 		StationaryAccumulator -= FixedStep;
 	}
+	LastStampPosition = HitPosition;
+	LastStampNormal = HitNormal;
 	if (FPlatformTime::Seconds() - LastPreviewFlushTime >= FMath::Max(0.033f, Settings->PreviewUpdateInterval))
 		FlushStroke(false);
 }
@@ -264,17 +418,24 @@ void UDualContourBrushTool::OnTick(float DeltaTime)
 void UDualContourBrushTool::ApplyPathTo(const FVector& WorldPosition, const FVector& WorldNormal)
 {
 	const float Spacing = FMath::Max(1.0f, Settings->BrushSize * 0.15f);
+	const FVector PathStartPosition = LastStampPosition;
+	const FVector PathStartNormal = LastStampNormal;
 	const FVector Delta = WorldPosition - LastStampPosition;
 	const float Distance = Delta.Length();
 	if (Distance < Spacing)
 		return;
 	const int32 Steps = FMath::FloorToInt(Distance / Spacing);
+	float LastAlpha = 0.0f;
 	for (int32 Step = 1; Step <= Steps; ++Step)
 	{
-		const float Alpha = FMath::Min(1.0f, Step * Spacing / Distance);
-		ApplyStampAt(FMath::Lerp(LastStampPosition, WorldPosition, Alpha), WorldNormal, 1.0f);
+		LastAlpha = FMath::Min(1.0f, Step * Spacing / Distance);
+		const FVector StampNormal = FMath::Lerp(PathStartNormal, WorldNormal, LastAlpha)
+		                            .GetSafeNormal(UE_SMALL_NUMBER, WorldNormal);
+		ApplyStampAt(FMath::Lerp(PathStartPosition, WorldPosition, LastAlpha), StampNormal, 1.0f);
 	}
-	LastStampPosition += Delta.GetSafeNormal() * (Steps * Spacing);
+	LastStampPosition = FMath::Lerp(PathStartPosition, WorldPosition, LastAlpha);
+	LastStampNormal = FMath::Lerp(PathStartNormal, WorldNormal, LastAlpha)
+	                  .GetSafeNormal(UE_SMALL_NUMBER, WorldNormal);
 }
 
 bool UDualContourBrushTool::ApplyStampAt(const FVector& WorldPosition, const FVector& WorldNormal, float TimeScale)
@@ -285,6 +446,21 @@ bool UDualContourBrushTool::ApplyStampAt(const FVector& WorldPosition, const FVe
 	return Settings && Settings->ActiveTool == EDualContourEditTool::PaintMaterial
 		? ApplyMaterialBrushStamp(ActiveMaterialBatch, Stamp)
 		: ApplyBrushStamp(ActiveBatch, Stamp);
+}
+
+bool UDualContourBrushTool::ApplyStationarySculptStamp(float WorldDistance, float TimeScale)
+{
+	if (!TargetActor || !TargetActor->DualContour || !Settings)
+		return false;
+
+	const FVector StampPosition = StrokeOrigin + StrokeGrowthDirection * WorldDistance;
+	FDualContourBrushStamp Stamp = MakeStamp(StampPosition, StrokeNormal, TimeScale);
+	Stamp.Operation = bStationarySculptSubtract
+		                  ? EDualContourDensityEditOperation::SculptSubtract
+		                  : EDualContourDensityEditOperation::Sculpt;
+	Stamp.bUseClayBrush = false;
+	Stamp.bUseDirectionalFalloff = true;
+	return ApplyBrushStamp(ActiveBatch, Stamp);
 }
 
 bool UDualContourBrushTool::ApplyMaterialBrushStamp(FDualContourMaterialEditBatch& Batch, const FDualContourBrushStamp& Stamp) const
@@ -563,10 +739,42 @@ bool UDualContourBrushTool::ApplyBrushStamp(FDualContourEditBatch& Batch, const 
 				float TargetDensity = 0.0f;
 				float Weight = 1.0f;
 				const FVector Offset = LocalPosition - Stamp.LocalCenter;
-				const float Distance = Stamp.Shape == EDualContourBrushShape::Box
-					                       ? FMath::Max3(FMath::Abs(Offset.X), FMath::Abs(Offset.Y), FMath::Abs(Offset.Z))
-					                       : Offset.Length();
-				Weight = EvaluateFalloff(Distance / Stamp.Radius, Stamp.Falloff, Stamp.FalloffType);
+				float Distance = 0.0f;
+				if (Stamp.bUseDirectionalFalloff
+				    && (Stamp.Operation == EDualContourDensityEditOperation::Sculpt
+				        || Stamp.Operation == EDualContourDensityEditOperation::SculptSubtract))
+				{
+					const FVector Axis = Stamp.LocalNormal.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
+					const float AxialDistance = FVector::DotProduct(Offset, Axis);
+					const FVector PlanarOffset = Offset - Axis * AxialDistance;
+					if (Stamp.Shape == EDualContourBrushShape::Box)
+					{
+						FVector AxisX;
+						FVector AxisY;
+						Axis.FindBestAxisVectors(AxisX, AxisY);
+						Distance = FMath::Max(
+							FMath::Abs(FVector::DotProduct(PlanarOffset, AxisX)),
+							FMath::Abs(FVector::DotProduct(PlanarOffset, AxisY)));
+					}
+					else
+					{
+						Distance = PlanarOffset.Length();
+					}
+
+					Weight = EvaluateFalloff(Distance / Stamp.Radius, Stamp.Falloff, Stamp.FalloffType);
+					// Falloff is the axial profile, rather than merely a density
+					// multiplier inside a sphere. Linear therefore has a flat core
+					// and straight tapered rim; Spherical produces the rounded cap.
+					if (FMath::Abs(AxialDistance) > Stamp.Radius * Weight)
+						continue;
+				}
+				else
+				{
+					Distance = Stamp.Shape == EDualContourBrushShape::Box
+						           ? FMath::Max3(FMath::Abs(Offset.X), FMath::Abs(Offset.Y), FMath::Abs(Offset.Z))
+						           : Offset.Length();
+					Weight = EvaluateFalloff(Distance / Stamp.Radius, Stamp.Falloff, Stamp.FalloffType);
+				}
 				if (Weight <= 0.0f)
 					continue;
 				if (Stamp.Operation == EDualContourDensityEditOperation::Smooth)
@@ -599,6 +807,20 @@ bool UDualContourBrushTool::ApplyBrushStamp(FDualContourEditBatch& Batch, const 
 				}
 
 				const float OldDensity = GetWorkingDensity(X, Y, Z);
+				if (!Stamp.bUseClayBrush
+				    && (Stamp.Operation == EDualContourDensityEditOperation::Sculpt
+				        || Stamp.Operation == EDualContourDensityEditOperation::SculptSubtract))
+				{
+					const float Direction = Stamp.Operation == EDualContourDensityEditOperation::Sculpt ? 1.0f : -1.0f;
+					const float NewDensity = OldDensity
+					                         + Direction * GDualContourMaxLinearDensity * OperationWeight * Weight;
+					if (FMath::IsNearlyEqual(NewDensity, OldDensity, KINDA_SMALL_NUMBER))
+						continue;
+					SetWorkingDensity(X, Y, Z, NewDensity);
+					bChanged = true;
+					continue;
+				}
+
 				float CombinedDensity = TargetDensity;
 				if (Stamp.Operation == EDualContourDensityEditOperation::SculptSubtract
 				    || Stamp.Operation == EDualContourDensityEditOperation::StampDifference)
@@ -712,6 +934,11 @@ void UDualContourBrushTool::FinishStroke(bool bCancel)
 		return;
 	FlushStroke(true);
 	bStrokeActive = false;
+	bHasActiveRay = false;
+	bStationarySculptStroke = false;
+	bStationarySculptSubtract = false;
+	bStrokeMoved = false;
+	StationarySculptEmbedDepth = 0.0f;
 	bFlattenHeightLocked = false;
 	if (TargetActor && (!Settings || Settings->ActiveTool != EDualContourEditTool::PaintMaterial))
 		TargetActor->SetDensityEditInProgress(false);
