@@ -5,6 +5,7 @@
 #include "VolumeSampledDualContour.h"
 #include "DualContour.h"
 #include "DualContourMeshActor.h"
+#include "DualContourMaterialBrushVolume.h"
 #include "EditMode/DualContourEdMode.h"
 #include "SparseVolumeTexture/SparseVolumeTexture.h"
 #include "AdvancedPreviewScene.h"
@@ -12,7 +13,12 @@
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
 #include "PrimitiveDrawingUtils.h"
+#include "EngineUtils.h"
+#include "ScopedTransaction.h"
 #include "UObject/UnrealType.h"
+#include "ToolMenus.h"
+#include "ViewportToolbar/UnrealEdViewportToolbar.h"
+#include "Widgets/Layout/SBox.h"
 
 namespace
 {
@@ -109,6 +115,36 @@ void SDualContourEditorViewport::Construct(const FArguments& InArgs)
 	RefreshPreview();
 	ViewportClient->SetViewRotation(FRotator(-15.0, -135.0, 0.0));
 	ViewportClient->FocusPreview();
+}
+
+TSharedPtr<SWidget> SDualContourEditorViewport::BuildViewportToolbar()
+{
+	const FName ToolbarName(TEXT("DualContourEditor.ViewportToolbar"));
+	if (!UToolMenus::Get()->IsMenuRegistered(ToolbarName))
+	{
+		UToolMenu* Menu = UToolMenus::Get()->RegisterMenu(ToolbarName, NAME_None, EMultiBoxType::SlimHorizontalToolBar);
+		Menu->StyleName = TEXT("ViewportToolbar");
+		FToolMenuSection& Section = Menu->AddSection(TEXT("Left"));
+		Section.AddEntry(UE::UnrealEd::CreateTransformsSubmenu());
+		Section.AddEntry(UE::UnrealEd::CreateSnappingSubmenu());
+	}
+
+	FToolMenuContext MenuContext;
+	MenuContext.AppendCommandList(GetCommandList());
+	UUnrealEdViewportToolbarContext* Context = UE::UnrealEd::CreateViewportToolbarDefaultContext(SharedThis(this));
+	Context->AssetEditorToolkit = EditorToolkit;
+	// Region transforms support grid snapping, but do not implement surface tracing.
+	Context->bShowSurfaceSnap = false;
+	MenuContext.AddObject(Context);
+	return SNew(SBox)
+		.Visibility_Lambda([WeakToolkit = EditorToolkit]()
+		{
+			const TSharedPtr<FDualContourEditorToolkit> Toolkit = WeakToolkit.Pin();
+			return Toolkit && Toolkit->GetActiveEditMode() ? EVisibility::Visible : EVisibility::Collapsed;
+		})
+		[
+			UToolMenus::Get()->GenerateWidget(ToolbarName, MenuContext)
+		];
 }
 
 void SDualContourEditorViewport::RefreshPreview()
@@ -281,8 +317,113 @@ FDualContourEditorViewportClient::FDualContourEditorViewportClient(
 	OverrideNearClipPlane(1.0f);
 	bUsingOrbitCamera = true;
 	EngineShowFlags.SetGrid(true);
-	ShowWidget(false);
+	ShowWidget(true);
 	SetIsSimulateInEditorViewport(true);
+}
+
+bool FDualContourEditorViewportClient::ShouldOrbitCamera() const
+{
+	// Never use the asset-preview convention where an unmodified left drag orbits.
+	// It conflicts with both material painting and legacy transform-widget dragging.
+	// The base implementation keeps the standard editor Alt+drag orbit gesture.
+	return FEditorViewportClient::ShouldOrbitCamera();
+}
+
+bool FDualContourEditorViewportClient::CanSetWidgetMode(UE::Widget::EWidgetMode NewMode) const
+{
+	const TSharedPtr<FDualContourEditorToolkit> Toolkit = EditorToolkit.Pin();
+	const UDualContourEdMode* Mode = Toolkit ? Toolkit->GetActiveEditMode() : nullptr;
+	return Mode && Mode->GetSelectedMaterialBrushVolume();
+}
+
+bool FDualContourEditorViewportClient::CanCycleWidgetMode() const
+{
+	return CanSetWidgetMode(GetWidgetMode());
+}
+
+FVector FDualContourEditorViewportClient::GetWidgetLocation() const
+{
+	const TSharedPtr<FDualContourEditorToolkit> Toolkit = EditorToolkit.Pin();
+	const UDualContourEdMode* Mode = Toolkit ? Toolkit->GetActiveEditMode() : nullptr;
+	if (const ADualContourMaterialBrushVolume* Volume = Mode ? Mode->GetSelectedMaterialBrushVolume() : nullptr)
+		return Volume->GetActorLocation();
+	return FEditorViewportClient::GetWidgetLocation();
+}
+
+bool FDualContourEditorViewportClient::InputWidgetDelta(
+	FViewport* InViewport,
+	EAxisList::Type CurrentAxis,
+	FVector& Drag,
+	FRotator& Rot,
+	FVector& Scale)
+{
+	const TSharedPtr<FDualContourEditorToolkit> Toolkit = EditorToolkit.Pin();
+	UDualContourEdMode* Mode = Toolkit ? Toolkit->GetActiveEditMode() : nullptr;
+	if (CurrentAxis != EAxisList::None && Mode && Mode->ApplyMaterialBrushTransformDelta(Drag, Rot, Scale))
+	{
+		Invalidate();
+		return true;
+	}
+	return FEditorViewportClient::InputWidgetDelta(InViewport, CurrentAxis, Drag, Rot, Scale);
+}
+
+void FDualContourEditorViewportClient::ProcessClick(
+	FSceneView& View,
+	HHitProxy* HitProxy,
+	FKey Key,
+	EInputEvent Event,
+	uint32 HitX,
+	uint32 HitY)
+{
+	const TSharedPtr<FDualContourEditorToolkit> Toolkit = EditorToolkit.Pin();
+	UDualContourEdMode* Mode = Toolkit ? Toolkit->GetActiveEditMode() : nullptr;
+	if (HitProxy && HitProxy->IsA(HActor::StaticGetType()))
+	{
+		HActor* ActorHit = static_cast<HActor*>(HitProxy);
+		if (ADualContourMaterialBrushVolume* Volume = Cast<ADualContourMaterialBrushVolume>(ActorHit->Actor))
+		{
+			if (Mode)
+			{
+				const FViewportClick Click(&View, this, Key, Event, HitX, HitY);
+				Mode->SelectMaterialBrushVolume(Volume, Click.IsControlDown());
+				Invalidate();
+				return;
+			}
+		}
+	}
+	if (Key == EKeys::LeftMouseButton && Mode && Mode->HasSelectedMaterialBrushVolumes())
+	{
+		Mode->ClearMaterialBrushVolumeSelection();
+		Invalidate();
+		return;
+	}
+	FEditorViewportClient::ProcessClick(View, HitProxy, Key, Event, HitX, HitY);
+}
+
+void FDualContourEditorViewportClient::TrackingStarted(
+	const FInputEventState& InInputState,
+	bool bIsDraggingWidget,
+	bool bNudge)
+{
+	FEditorViewportClient::TrackingStarted(InInputState, bIsDraggingWidget, bNudge);
+	if (!bIsDraggingWidget)
+		return;
+	const TSharedPtr<FDualContourEditorToolkit> Toolkit = EditorToolkit.Pin();
+	if (UDualContourEdMode* Mode = Toolkit ? Toolkit->GetActiveEditMode() : nullptr)
+	{
+		TransformTransaction = MakeUnique<FScopedTransaction>(
+			NSLOCTEXT("DualContourEditorViewport", "TransformMaterialRegion", "Transform Dual Contour Material Region"));
+		Mode->BeginMaterialBrushTransform();
+	}
+}
+
+void FDualContourEditorViewportClient::TrackingStopped()
+{
+	const TSharedPtr<FDualContourEditorToolkit> Toolkit = EditorToolkit.Pin();
+	if (UDualContourEdMode* Mode = Toolkit ? Toolkit->GetActiveEditMode() : nullptr)
+		Mode->EndMaterialBrushTransform();
+	TransformTransaction.Reset();
+	FEditorViewportClient::TrackingStopped();
 }
 
 bool FDualContourEditorViewportClient::InputKey(const FInputKeyEventArgs& EventArgs)

@@ -43,6 +43,7 @@ public:
 	UMaterialInterface* GetPreviewMaterial() const;
 	bool ShouldShowDualContourBounds() const { return bShowDualContourBounds; }
 	bool IsEditModeEnabled() const { return bEditModeEnabled; }
+	UDualContourEdMode* GetActiveEditMode() const;
 
 	virtual FName GetToolkitFName() const override;
 	virtual FText GetBaseToolkitName() const override;
@@ -90,7 +91,6 @@ private:
 	void SetActiveEditTool(uint8 ToolValue);
 	bool IsEditToolSelected(uint8 ToolValue) const;
 	bool CanUseEditTools() const;
-	UDualContourEdMode* GetActiveEditMode() const;
 	void RefreshEditPanel();
 
 	static const FName ViewportTabId;

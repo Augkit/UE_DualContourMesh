@@ -8,6 +8,7 @@ class FAdvancedPreviewScene;
 class FDualContourEditorToolkit;
 class FDualContourEditorViewportClient;
 class FEditorModeTools;
+class FScopedTransaction;
 
 DECLARE_MULTICAST_DELEGATE(FOnPreviewMeshComponentsUpdated);
 
@@ -33,7 +34,7 @@ public:
 
 protected:
 	virtual TSharedRef<FEditorViewportClient> MakeEditorViewportClient() override;
-	virtual TSharedPtr<SWidget> BuildViewportToolbar() override { return nullptr; }
+	virtual TSharedPtr<SWidget> BuildViewportToolbar() override;
 
 private:
 	TWeakPtr<FDualContourEditorToolkit> EditorToolkit;
@@ -51,9 +52,16 @@ public:
 		const TWeakPtr<FDualContourEditorToolkit>& InEditorToolkit, FEditorModeTools* InModeTools);
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void Draw(const FSceneView* View, FPrimitiveDrawInterface* PDI) override;
-	virtual bool ShouldOrbitCamera() const override { return true; }
-	virtual bool CanSetWidgetMode(UE::Widget::EWidgetMode NewMode) const override { return false; }
-	virtual bool CanCycleWidgetMode() const override { return false; }
+	virtual bool ShouldOrbitCamera() const override;
+	virtual bool CanSetWidgetMode(UE::Widget::EWidgetMode NewMode) const override;
+	virtual bool CanCycleWidgetMode() const override;
+	virtual FVector GetWidgetLocation() const override;
+	virtual bool InputWidgetDelta(FViewport* InViewport, EAxisList::Type CurrentAxis,
+		FVector& Drag, FRotator& Rot, FVector& Scale) override;
+	virtual void ProcessClick(FSceneView& View, HHitProxy* HitProxy, FKey Key,
+		EInputEvent Event, uint32 HitX, uint32 HitY) override;
+	virtual void TrackingStarted(const FInputEventState& InInputState, bool bIsDraggingWidget, bool bNudge) override;
+	virtual void TrackingStopped() override;
 	virtual bool InputKey(const FInputKeyEventArgs& EventArgs) override;
 	void SetPreviewBounds(const FBox& InBounds) { PreviewBounds = InBounds; }
 	void FocusPreview();
@@ -61,4 +69,5 @@ public:
 private:
 	TWeakPtr<FDualContourEditorToolkit> EditorToolkit;
 	FBox PreviewBounds = FBox(ForceInit);
+	TUniquePtr<FScopedTransaction> TransformTransaction;
 };

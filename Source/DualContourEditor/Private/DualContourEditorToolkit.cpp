@@ -244,6 +244,11 @@ TSharedRef<SDockTab> FDualContourEditorToolkit::SpawnDetailsTab(const FSpawnTabA
 void FDualContourEditorToolkit::CreateEditorModeManager()
 {
 	EditorModeManager = MakeShared<FAssetEditorModeManager>();
+	// This editor uses the legacy FWidget path because material brush regions are
+	// transformed through UDualContourEdMode::ApplyMaterialBrushTransformDelta.
+	// Leaving viewport ITF support enabled lets the generic asset-editor left-click
+	// interaction capture the press before FMouseDeltaTracker sees HWidgetAxis.
+	EditorModeManager->SetSupportsViewportITF(false);
 }
 
 void FDualContourEditorToolkit::ExtendToolbar()

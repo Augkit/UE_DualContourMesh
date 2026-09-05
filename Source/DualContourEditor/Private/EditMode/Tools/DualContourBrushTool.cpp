@@ -3,6 +3,7 @@
 #include "EditMode/DualContourEditModeSettings.h"
 #include "EditMode/Editing/DualContourEditChange.h"
 #include "DualContour.h"
+#include "DualContourMaterialBrushVolume.h"
 #include "DualContourMeshActor.h"
 #include "DualContourMeshComponent.h"
 #include "DualContourUtils.h"
@@ -147,6 +148,17 @@ bool UDualContourBrushTool::UpdateHit(const FRay& WorldRay, float* OutDistance)
 	return false;
 }
 
+void UDualContourBrushTool::SetMaterialRegionTransformMode(bool bEnabled)
+{
+	if (bMaterialRegionTransformMode == bEnabled)
+		return;
+	if (bEnabled && bStrokeActive)
+		FinishStroke(false);
+	bMaterialRegionTransformMode = bEnabled;
+	if (bEnabled)
+		bHasHit = false;
+}
+
 bool UDualContourBrushTool::UpdateSculptHitAlongNormal(
 	const FVector& WorldPosition,
 	const FVector& WorldNormal)
@@ -198,6 +210,8 @@ bool UDualContourBrushTool::UpdateSculptHitAlongNormal(
 
 FInputRayHit UDualContourBrushTool::CanBeginClickDragSequence(const FInputDeviceRay& PressPos)
 {
+	if (bMaterialRegionTransformMode)
+		return FInputRayHit();
 	float Distance = 0.0f;
 	return UpdateHit(PressPos.WorldRay, &Distance) ? FInputRayHit(Distance) : FInputRayHit();
 }
@@ -335,6 +349,8 @@ void UDualContourBrushTool::OnTerminateDragSequence()
 
 FInputRayHit UDualContourBrushTool::BeginHoverSequenceHitTest(const FInputDeviceRay& PressPos)
 {
+	if (bMaterialRegionTransformMode)
+		return FInputRayHit();
 	float Distance = 0.0f;
 	return UpdateHit(PressPos.WorldRay, &Distance) ? FInputRayHit(Distance) : FInputRayHit();
 }
@@ -510,6 +526,93 @@ bool UDualContourBrushTool::ApplyMaterialBrushStamp(FDualContourMaterialEditBatc
 				bChanged |= Pending->Before != Pending->WorkingId;
 			}
 	return bChanged;
+}
+
+int32 UDualContourBrushTool::ApplyMaterialBrushVolumes(
+	TConstArrayView<ADualContourMaterialBrushVolume*> BrushVolumes)
+{
+	UDualContour* DualContour = TargetActor ? TargetActor->DualContour.Get() : nullptr;
+	if (bStrokeActive || !Settings || !IsValid(DualContour) || !DualContour->HasCurrentGeneratedData()
+		|| BrushVolumes.IsEmpty())
+	{
+		return 0;
+	}
+
+	FDualContourMaterialEditBatch Batch;
+	Batch.bOpen = true;
+	Batch.Owner = DualContour;
+	const FIntVector Dims = DualContour->GetSampleDimensions();
+	const FTransform TargetTransform = TargetActor->GetActorTransform();
+	const FTransform WorldToTarget = TargetTransform.Inverse();
+
+	for (ADualContourMaterialBrushVolume* BrushVolume : BrushVolumes)
+	{
+		if (!IsValid(BrushVolume) || BrushVolume->TargetActor != TargetActor)
+			continue;
+
+		BrushVolume->CacheBrushGeometry();
+		const FBox WorldBounds = BrushVolume->GetBrushWorldBounds();
+		if (!WorldBounds.IsValid)
+			continue;
+
+		FBox TargetBounds(ForceInit);
+		for (int32 CornerIndex = 0; CornerIndex < 8; ++CornerIndex)
+		{
+			const FVector Corner(
+				(CornerIndex & 1) ? WorldBounds.Max.X : WorldBounds.Min.X,
+				(CornerIndex & 2) ? WorldBounds.Max.Y : WorldBounds.Min.Y,
+				(CornerIndex & 4) ? WorldBounds.Max.Z : WorldBounds.Min.Z);
+			TargetBounds += WorldToTarget.TransformPosition(Corner);
+		}
+
+		const FIntVector SampleMin(
+			FMath::Clamp(FMath::FloorToInt(TargetBounds.Min.X / DualContour->CellSize), 0, Dims.X - 1),
+			FMath::Clamp(FMath::FloorToInt(TargetBounds.Min.Y / DualContour->CellSize), 0, Dims.Y - 1),
+			FMath::Clamp(FMath::FloorToInt(TargetBounds.Min.Z / DualContour->CellSize), 0, Dims.Z - 1));
+		const FIntVector SampleMax(
+			FMath::Clamp(FMath::CeilToInt(TargetBounds.Max.X / DualContour->CellSize), 0, Dims.X - 1),
+			FMath::Clamp(FMath::CeilToInt(TargetBounds.Max.Y / DualContour->CellSize), 0, Dims.Y - 1),
+			FMath::Clamp(FMath::CeilToInt(TargetBounds.Max.Z / DualContour->CellSize), 0, Dims.Z - 1));
+		const uint8 PaintId = static_cast<uint8>(FMath::Clamp(Settings->PaintMaterialId, 0, 255));
+
+		for (int32 Z = SampleMin.Z; Z <= SampleMax.Z; ++Z)
+			for (int32 Y = SampleMin.Y; Y <= SampleMax.Y; ++Y)
+				for (int32 X = SampleMin.X; X <= SampleMax.X; ++X)
+				{
+					// Region painting is deliberately restricted to solid samples.
+					if (DualContour->GetDensity(X, Y, Z) < GDualContourIsoValue)
+						continue;
+					const FVector TargetLocalPosition = DualContour->GetSampleLocalPosition(X, Y, Z);
+					if (!BrushVolume->EncompassesWorldPosition(TargetTransform.TransformPosition(TargetLocalPosition)))
+						continue;
+
+					const FIntVector ChunkCoord = DualContourUtils::ChunkCoord(X, Y, Z);
+					TMap<uint16, FDualContourPendingMaterialSample>& Chunk = Batch.ChunkSamples.FindOrAdd(ChunkCoord);
+					const uint16 LocalIndex = DualContourUtils::ChunkLocalIndex(X, Y, Z);
+					FDualContourPendingMaterialSample* Pending = Chunk.Find(LocalIndex);
+					if (!Pending)
+					{
+						FDualContourPendingMaterialSample Initial;
+						Initial.Before = DualContour->GetMaterialId(X, Y, Z);
+						Initial.WorkingId = Initial.Before;
+						Pending = &Chunk.Add(LocalIndex, Initial);
+					}
+					Pending->WorkingId = PaintId;
+				}
+	}
+
+	FDualContourMaterialEditResult Result;
+	if (!DualContour->ApplyMaterialEditBatch(Batch, Result))
+		return 0;
+
+	const int32 ChangedSampleCount = Result.Deltas.Num();
+	TUniquePtr<FDualContourMaterialEditChange> Change = MakeUnique<FDualContourMaterialEditChange>();
+	Change->Deltas = MoveTemp(Result.Deltas);
+	GetToolManager()->EmitObjectChange(
+		DualContour, MoveTemp(Change), LOCTEXT("MaterialRegionEdit", "Paint Dual Contour Material Region"));
+	DualContour->MarkPackageDirty();
+	TargetActor->MarkPackageDirty();
+	return ChangedSampleCount;
 }
 
 bool UDualContourBrushTool::ApplyBrushStamp(FDualContourEditBatch& Batch, const FDualContourBrushStamp& Stamp) const

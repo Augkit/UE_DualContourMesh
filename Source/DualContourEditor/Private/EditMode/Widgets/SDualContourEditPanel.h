@@ -4,6 +4,8 @@
 #include "EditMode/DualContourEditModeSettings.h"
 
 class IDetailsView;
+class ADualContourMaterialBrushVolume;
+class SVerticalBox;
 class UDualContourEdMode;
 
 class SDualContourEditPanel final : public SCompoundWidget
@@ -19,6 +21,18 @@ private:
 	FText GetTargetText() const;
 	FSlateColor GetTargetColor() const;
 	EVisibility GetBrushControlsVisibility() const;
+	EVisibility GetMaterialRegionControlsVisibility() const;
+	FReply CreateBoxMaterialRegion();
+	FReply CreateSphereMaterialRegion();
+	FReply CreateSplineMaterialRegion();
+	FReply ApplySelectedMaterialRegions();
+	FReply ResumeMaterialBrush();
+	bool CanApplySelectedMaterialRegions() const;
+	void RebuildMaterialRegionList();
+	void HandleMaterialRegionSelectionChanged();
+	FReply SelectMaterialRegion(TWeakObjectPtr<ADualContourMaterialBrushVolume> Volume);
+	FReply DeleteMaterialRegion(TWeakObjectPtr<ADualContourMaterialBrushVolume> Volume);
+	FText GetMaterialRegionLabel(TWeakObjectPtr<ADualContourMaterialBrushVolume> Volume) const;
 	EDualContourBrushShape GetBrushShape() const;
 	void SetBrushShape(EDualContourBrushShape Shape);
 	EDualContourBrushFalloff GetBrushFalloffType() const;
@@ -27,4 +41,6 @@ private:
 
 	TWeakObjectPtr<UDualContourEdMode> EditMode;
 	TSharedPtr<IDetailsView> DetailsView;
+	TSharedPtr<IDetailsView> RegionDetailsView;
+	TSharedPtr<SVerticalBox> MaterialRegionList;
 };

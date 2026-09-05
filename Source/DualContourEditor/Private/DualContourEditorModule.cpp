@@ -4,6 +4,7 @@
 #include "Modules/ModuleManager.h"
 #include "PropertyHandle.h"
 #include "PropertyEditorModule.h"
+#include "ToolMenus.h"
 
 namespace
 {
@@ -34,6 +35,8 @@ public:
 
 	virtual void ShutdownModule() override
 	{
+		if (UToolMenus* Menus = UToolMenus::TryGet())
+			Menus->RemoveMenu(TEXT("DualContourEditor.ViewportToolbar"));
 		if (FModuleManager::Get().IsModuleLoaded(TEXT("PropertyEditor")))
 		{
 			FPropertyEditorModule& PropertyEditor = FModuleManager::GetModuleChecked<FPropertyEditorModule>(TEXT("PropertyEditor"));

@@ -7,6 +7,7 @@
 #include "DualContourBrushTool.generated.h"
 
 class ADualContourMeshActor;
+class ADualContourMaterialBrushVolume;
 class FPrimitiveDrawInterface;
 class UDualContourEditModeSettings;
 class UMaterialInterface;
@@ -35,6 +36,7 @@ class UDualContourBrushTool final : public UInteractiveTool, public IClickDragBe
 public:
 	void Initialize(UWorld* InWorld, UDualContourEditModeSettings* InSettings, ADualContourMeshActor* InTargetActor);
 	void SetTargetActor(ADualContourMeshActor* InTargetActor);
+	void SetMaterialRegionTransformMode(bool bEnabled);
 
 	virtual void Setup() override;
 	virtual void Shutdown(EToolShutdownType ShutdownType) override;
@@ -53,6 +55,9 @@ public:
 	virtual void OnBeginHover(const FInputDeviceRay& DevicePos) override;
 	virtual bool OnUpdateHover(const FInputDeviceRay& DevicePos) override;
 	virtual void OnEndHover() override { bHasHit = false; }
+
+	/** Applies selected placement volumes as one undoable material edit. Returns the changed sample count. */
+	int32 ApplyMaterialBrushVolumes(TConstArrayView<ADualContourMaterialBrushVolume*> BrushVolumes);
 
 private:
 	bool UpdateHit(const FRay& WorldRay, float* OutDistance = nullptr);
@@ -112,6 +117,7 @@ private:
 	bool bStationarySculptStroke = false;
 	bool bStationarySculptSubtract = false;
 	bool bStrokeMoved = false;
+	bool bMaterialRegionTransformMode = false;
 
 	static constexpr int32 ShiftModifierId = 1;
 };
