@@ -4,6 +4,7 @@
 #include "InteractiveToolBuilder.h"
 #include "BaseBehaviors/BehaviorTargetInterfaces.h"
 #include "DualContourTypes.h"
+#include "DualContourEditorTypes.h"
 #include "EditMode/Editing/DualContourEditChange.h"
 #include "DualContourBrushTool.generated.h"
 

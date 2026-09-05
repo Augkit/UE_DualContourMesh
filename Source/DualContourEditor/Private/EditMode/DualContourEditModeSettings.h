@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "InteractiveTool.h"
-#include "DualContourTypes.h"
+#include "DualContourEditorTypes.h"
 #include "DualContourEditModeSettings.generated.h"
 
 class UVolumeSampledDualContour;

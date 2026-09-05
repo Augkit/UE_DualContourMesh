@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Widgets/SCompoundWidget.h"
+#include "DualContourEditorTypes.h"
 #include "EditMode/DualContourEditModeSettings.h"
 
 class IDetailsView;
