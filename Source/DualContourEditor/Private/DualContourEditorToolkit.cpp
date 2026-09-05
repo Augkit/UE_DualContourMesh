@@ -1,11 +1,11 @@
 #include "DualContourEditorToolkit.h"
+#include "EditMode/Widgets/DualContourToolPalette.h"
 
 #include "DualContour.h"
 #include "SVTDualContour.h"
 #include "VolumeSampledDualContour.h"
 #include "DualContourEditorViewport.h"
 #include "EditMode/DualContourEdMode.h"
-#include "EditMode/DualContourEditModeSettings.h"
 #include "EditMode/Widgets/SDualContourEditPanel.h"
 #include "IDetailsView.h"
 #include "PropertyEditorModule.h"
@@ -284,33 +284,12 @@ void FDualContourEditorToolkit::FillToolbar(FToolBarBuilder& ToolbarBuilder)
 	ToolbarBuilder.EndSection();
 
 	ToolbarBuilder.BeginSection(TEXT("EditTools"));
-	auto AddEditTool = [this, &ToolbarBuilder](EDualContourEditTool Tool, const FText& Label,
-		const FText& Tooltip, const FName IconName)
-	{
-		const uint8 ToolValue = static_cast<uint8>(Tool);
-		ToolbarBuilder.AddToolBarButton(
-			FUIAction(
-				FExecuteAction::CreateSP(this, &FDualContourEditorToolkit::SetActiveEditTool, ToolValue),
-				FCanExecuteAction::CreateSP(this, &FDualContourEditorToolkit::CanUseEditTools),
-				FIsActionChecked::CreateSP(this, &FDualContourEditorToolkit::IsEditToolSelected, ToolValue)),
-			NAME_None, Label, Tooltip, FSlateIcon(FAppStyle::GetAppStyleSetName(), IconName),
-			EUserInterfaceActionType::RadioButton);
-	};
-	AddEditTool(EDualContourEditTool::Sculpt, LOCTEXT("Sculpt", "Sculpt"),
-		LOCTEXT("SculptTooltip", "Add volume. Hold Shift to remove volume."), TEXT("LandscapeEditor.SculptTool"));
-	AddEditTool(EDualContourEditTool::Flatten, LOCTEXT("Flatten", "Flatten"),
-		LOCTEXT("FlattenTooltip", "Pick a height on press, then raise or lower the swept surface toward it."),
-		TEXT("LandscapeEditor.FlattenTool"));
-	AddEditTool(EDualContourEditTool::Erase, LOCTEXT("Erase", "Erase"),
-		LOCTEXT("EraseTooltip", "Restore the asset state from when Edit mode was entered."), TEXT("LandscapeEditor.EraseTool"));
-	AddEditTool(EDualContourEditTool::Smooth, LOCTEXT("Smooth", "Smooth"),
-		LOCTEXT("SmoothTooltip", "Smooth the sampled density field."), TEXT("LandscapeEditor.SmoothTool"));
-	AddEditTool(EDualContourEditTool::Brush, LOCTEXT("BrushStamp", "Brush Stamp"),
-		LOCTEXT("BrushStampTooltip", "Stamp a Volume Sampled Dual Contour. Hold Shift for difference."),
-		TEXT("LandscapeEditor.BlueprintBrushTool"));
-	AddEditTool(EDualContourEditTool::PaintMaterial, LOCTEXT("PaintMaterial", "Paint Material"),
-		LOCTEXT("PaintMaterialTooltip", "Paint a material ID. Hold Shift to paint material ID 0."),
-		TEXT("LandscapeEditor.PaintTool"));
+	DualContourToolPalette::Build(ToolbarBuilder,
+		[WeakThis = TWeakPtr<FDualContourEditorToolkit>(SharedThis(this))]() -> TWeakObjectPtr<UDualContourEdMode>
+		{
+			const TSharedPtr<FDualContourEditorToolkit> Toolkit = WeakThis.Pin();
+			return Toolkit && Toolkit->bEditModeEnabled ? Toolkit->GetActiveEditMode() : nullptr;
+		});
 	ToolbarBuilder.EndSection();
 
 	ToolbarBuilder.BeginSection(TEXT("PreviewMaterial"));
@@ -753,25 +732,6 @@ UDualContourEdMode* FDualContourEditorToolkit::GetActiveEditMode() const
 {
 	return Cast<UDualContourEdMode>(
 		GetEditorModeManager().GetActiveScriptableMode(UDualContourEdMode::EM_DualContourEdModeId));
-}
-
-bool FDualContourEditorToolkit::CanUseEditTools() const
-{
-	const UDualContourEdMode* Mode = bEditModeEnabled ? GetActiveEditMode() : nullptr;
-	return Mode && Mode->HasValidTarget();
-}
-
-void FDualContourEditorToolkit::SetActiveEditTool(uint8 ToolValue)
-{
-	if (UDualContourEdMode* Mode = GetActiveEditMode())
-		Mode->SetActiveTool(static_cast<EDualContourEditTool>(ToolValue));
-}
-
-bool FDualContourEditorToolkit::IsEditToolSelected(uint8 ToolValue) const
-{
-	const UDualContourEdMode* Mode = GetActiveEditMode();
-	return Mode && Mode->GetSettings()
-		&& Mode->GetSettings()->ActiveTool == static_cast<EDualContourEditTool>(ToolValue);
 }
 
 void FDualContourEditorToolkit::RefreshEditPanel()

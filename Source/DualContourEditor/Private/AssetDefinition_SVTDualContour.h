@@ -1,10 +1,10 @@
 #pragma once
 
-#include "AssetDefinitionDefault.h"
+#include "AssetDefinition_DualContour.h"
 #include "AssetDefinition_SVTDualContour.generated.h"
 
 UCLASS()
-class UAssetDefinition_SVTDualContour : public UAssetDefinitionDefault
+class UAssetDefinition_SVTDualContour : public UAssetDefinition_DualContour
 {
 	GENERATED_BODY()
 
@@ -12,7 +12,4 @@ public:
 	virtual FText GetAssetDisplayName() const override;
 	virtual FLinearColor GetAssetColor() const override;
 	virtual TSoftClassPtr<UObject> GetAssetClass() const override;
-	virtual TConstArrayView<FAssetCategoryPath> GetAssetCategories() const override;
-	virtual FAssetOpenSupport GetAssetOpenSupport(const FAssetOpenSupportArgs& OpenSupportArgs) const override;
-	virtual EAssetCommandResult OpenAssets(const FAssetOpenArgs& OpenArgs) const override;
 };

@@ -1,6 +1,7 @@
 #include "EditMode/Widgets/SDualContourEditPanel.h"
 
 #include "EditMode/DualContourEdMode.h"
+#include "EditMode/DualContourEditModeSettings.h"
 #include "DualContourMaterialBrushVolume.h"
 #include "PropertyEditorModule.h"
 #include "IDetailsView.h"
@@ -167,17 +168,17 @@ void SDualContourEditPanel::Construct(const FArguments& InArgs)
 					+ SHorizontalBox::Slot().FillWidth(1.0f).Padding(0.0f, 0.0f, 2.0f, 0.0f)
 					[
 						SNew(SButton).Text(LOCTEXT("PlaceBoxRegion", "Place Box"))
-						.OnClicked(this, &SDualContourEditPanel::CreateBoxMaterialRegion)
+						.OnClicked(this, &SDualContourEditPanel::CreateMaterialRegion, EDualContourMaterialBrushVolumeShape::Box)
 					]
 					+ SHorizontalBox::Slot().FillWidth(1.0f).Padding(2.0f, 0.0f)
 					[
 						SNew(SButton).Text(LOCTEXT("PlaceSphereRegion", "Place Sphere"))
-						.OnClicked(this, &SDualContourEditPanel::CreateSphereMaterialRegion)
+						.OnClicked(this, &SDualContourEditPanel::CreateMaterialRegion, EDualContourMaterialBrushVolumeShape::Sphere)
 					]
 					+ SHorizontalBox::Slot().FillWidth(1.0f).Padding(2.0f, 0.0f, 0.0f, 0.0f)
 					[
 						SNew(SButton).Text(LOCTEXT("PlaceSplineRegion", "Place Spline"))
-						.OnClicked(this, &SDualContourEditPanel::CreateSplineMaterialRegion)
+						.OnClicked(this, &SDualContourEditPanel::CreateMaterialRegion, EDualContourMaterialBrushVolumeShape::SplinePrism)
 					]
 				]
 				+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 6.0f, 0.0f, 0.0f)
@@ -301,24 +302,10 @@ EVisibility SDualContourEditPanel::GetMaterialRegionControlsVisibility() const
 		? EVisibility::Visible : EVisibility::Collapsed;
 }
 
-FReply SDualContourEditPanel::CreateBoxMaterialRegion()
+FReply SDualContourEditPanel::CreateMaterialRegion(EDualContourMaterialBrushVolumeShape Shape)
 {
 	if (EditMode.IsValid())
-		EditMode->CreateMaterialBrushVolume(EDualContourMaterialBrushVolumeShape::Box);
-	return FReply::Handled();
-}
-
-FReply SDualContourEditPanel::CreateSphereMaterialRegion()
-{
-	if (EditMode.IsValid())
-		EditMode->CreateMaterialBrushVolume(EDualContourMaterialBrushVolumeShape::Sphere);
-	return FReply::Handled();
-}
-
-FReply SDualContourEditPanel::CreateSplineMaterialRegion()
-{
-	if (EditMode.IsValid())
-		EditMode->CreateMaterialBrushVolume(EDualContourMaterialBrushVolumeShape::SplinePrism);
+		EditMode->CreateMaterialBrushVolume(Shape);
 	return FReply::Handled();
 }
 

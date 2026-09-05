@@ -2,8 +2,8 @@
 
 #include "Widgets/SCompoundWidget.h"
 #include "DualContourEditorTypes.h"
-#include "EditMode/DualContourEditModeSettings.h"
 
+enum class EDualContourMaterialBrushVolumeShape : uint8;
 class IDetailsView;
 class ADualContourMaterialBrushVolume;
 class SVerticalBox;
@@ -23,9 +23,7 @@ private:
 	FSlateColor GetTargetColor() const;
 	EVisibility GetBrushControlsVisibility() const;
 	EVisibility GetMaterialRegionControlsVisibility() const;
-	FReply CreateBoxMaterialRegion();
-	FReply CreateSphereMaterialRegion();
-	FReply CreateSplineMaterialRegion();
+	FReply CreateMaterialRegion(EDualContourMaterialBrushVolumeShape Shape);
 	FReply ApplySelectedMaterialRegions();
 	FReply ResumeMaterialBrush();
 	bool CanApplySelectedMaterialRegions() const;

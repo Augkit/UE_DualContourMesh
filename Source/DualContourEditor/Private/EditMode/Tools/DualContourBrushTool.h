@@ -70,8 +70,6 @@ private:
 	bool BeginPendingBatch();
 	bool ApplyStampAt(const FVector& WorldPosition, const FVector& WorldNormal, float TimeScale);
 	bool ApplyStationarySculptStamp(float WorldDistance, float TimeScale);
-	bool ApplyBrushStamp(FDualContourPendingBatch& Batch, const FDualContourBrushStamp& Stamp) const;
-	bool ApplyMaterialBrushStamp(FDualContourPendingMaterialBatch& Batch, const FDualContourBrushStamp& Stamp) const;
 	void ApplyPathTo(const FVector& WorldPosition, const FVector& WorldNormal);
 	void FlushStroke(bool bFinalFlush);
 	void FinishStroke(bool bCancel);
