@@ -11,7 +11,7 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDualContourCellsRebuilt, FIntVector, FIn
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDualContourMaterialsChanged, FIntVector, FIntVector);
 
 /** Owns the dual-contour source data, generation settings, and contour-building algorithms. */
-UCLASS(BlueprintType, EditInlineNew)
+UCLASS(BlueprintType)
 class DUALCONTOURMESH_API UDualContour : public UObject
 {
 	GENERATED_BODY()
