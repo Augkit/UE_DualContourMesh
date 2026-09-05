@@ -293,6 +293,9 @@ void FDualContourEditorToolkit::FillToolbar(FToolBarBuilder& ToolbarBuilder)
 	};
 	AddEditTool(EDualContourEditTool::Sculpt, LOCTEXT("Sculpt", "Sculpt"),
 		LOCTEXT("SculptTooltip", "Add volume. Hold Shift to remove volume."), TEXT("LandscapeEditor.SculptTool"));
+	AddEditTool(EDualContourEditTool::Flatten, LOCTEXT("Flatten", "Flatten"),
+		LOCTEXT("FlattenTooltip", "Pick a height on press, then raise or lower the swept surface toward it."),
+		TEXT("LandscapeEditor.FlattenTool"));
 	AddEditTool(EDualContourEditTool::Erase, LOCTEXT("Erase", "Erase"),
 		LOCTEXT("EraseTooltip", "Restore the asset state from when Edit mode was entered."), TEXT("LandscapeEditor.EraseTool"));
 	AddEditTool(EDualContourEditTool::Smooth, LOCTEXT("Smooth", "Smooth"),

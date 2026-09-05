@@ -11,6 +11,7 @@ UENUM()
 enum class EDualContourEditTool : uint8
 {
 	Sculpt,
+	Flatten,
 	Erase,
 	Smooth,
 	Brush,

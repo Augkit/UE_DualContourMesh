@@ -89,11 +89,15 @@ private:
 	FVector LastStampPosition = FVector::ZeroVector;
 	FVector ClayPlaneOrigin = FVector::ZeroVector;
 	FVector ClayPlaneNormal = FVector::UpVector;
+	FVector FlattenPlaneOrigin = FVector::ZeroVector;
+	FVector FlattenPlaneNormal = FVector::UpVector;
+	float FlattenWorldHeight = 0.0f;
 	double LastPreviewFlushTime = 0.0;
 	float StationaryAccumulator = 0.0f;
 	bool bHasHit = false;
 	bool bStrokeActive = false;
 	bool bShiftDown = false;
+	bool bFlattenHeightLocked = false;
 
 	static constexpr int32 ShiftModifierId = 1;
 };

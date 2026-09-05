@@ -15,6 +15,7 @@ enum class EDualContourDensityEditOperation : uint8
 {
 	Sculpt,
 	SculptSubtract,
+	Flatten,
 	Erase,
 	Smooth,
 	StampUnion,
@@ -296,6 +297,8 @@ struct DUALCONTOURMESH_API FDualContourBrushStamp
 	FVector LocalCenter = FVector::ZeroVector;
 	FVector LocalNormal = FVector::UpVector;
 	FVector ClayPlaneOrigin = FVector::ZeroVector;
+	FVector FlattenPlaneOrigin = FVector::ZeroVector;
+	FVector FlattenPlaneNormal = FVector::UpVector;
 	float Radius = 100.0f;
 	float Falloff = 0.5f;
 	float Strength = 0.3f;

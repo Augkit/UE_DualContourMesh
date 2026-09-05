@@ -75,6 +75,7 @@ void UDualContourBrushTool::SetTargetActor(ADualContourMeshActor* InTargetActor)
 		FinishStroke(true);
 	TargetActor = InTargetActor;
 	bHasHit = false;
+	bFlattenHeightLocked = false;
 }
 
 void UDualContourBrushTool::Setup()
@@ -132,6 +133,11 @@ bool UDualContourBrushTool::UpdateHit(const FRay& WorldRay, float* OutDistance)
 			continue;
 		HitPosition = Hit.ImpactPoint;
 		HitNormal = Hit.ImpactNormal.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
+		if (bFlattenHeightLocked && Settings && Settings->ActiveTool == EDualContourEditTool::Flatten)
+		{
+			HitPosition.Z = FlattenWorldHeight;
+			HitNormal = FVector::UpVector;
+		}
 		bHasHit = true;
 		if (OutDistance)
 			*OutDistance = Hit.Distance;
@@ -155,6 +161,16 @@ void UDualContourBrushTool::OnClickPress(const FInputDeviceRay& PressPos)
 	bStrokeActive = true;
 	if (Settings->ActiveTool != EDualContourEditTool::PaintMaterial)
 		TargetActor->SetDensityEditInProgress(true);
+	bFlattenHeightLocked = Settings->ActiveTool == EDualContourEditTool::Flatten;
+	if (bFlattenHeightLocked)
+	{
+		FlattenWorldHeight = HitPosition.Z;
+		const FTransform ActorTransform = TargetActor->GetActorTransform();
+		FlattenPlaneOrigin = ActorTransform.InverseTransformPosition(HitPosition);
+		FlattenPlaneNormal = ActorTransform.InverseTransformVectorNoScale(FVector::UpVector)
+			.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
+		HitNormal = FVector::UpVector;
+	}
 	ClayPlaneOrigin = TargetActor->GetActorTransform().InverseTransformPosition(HitPosition);
 	ClayPlaneNormal = TargetActor->GetActorTransform().InverseTransformVectorNoScale(HitNormal).GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
 	StrokeDeltas.Reset();
@@ -193,7 +209,7 @@ void UDualContourBrushTool::OnClickDrag(const FInputDeviceRay& DragPos)
 	if (!bStrokeActive || !UpdateHit(DragPos.WorldRay))
 		return;
 	ApplyPathTo(HitPosition, HitNormal);
-	if (FPlatformTime::Seconds() - LastPreviewFlushTime >= FMath::Max(0.033f, Settings->PreviewUpdateInterval))
+	if (FPlatformTime::Seconds() - LastPreviewFlushTime >= FMath::Max(0.08f, Settings->PreviewUpdateInterval))
 		FlushStroke(false);
 }
 
@@ -564,6 +580,13 @@ bool UDualContourBrushTool::ApplyBrushStamp(FDualContourEditBatch& Batch, const 
 				{
 					TargetDensity = RestoreSource->GetLinearDensity(X, Y, Z);
 				}
+				else if (Stamp.Operation == EDualContourDensityEditOperation::Flatten)
+				{
+					const float SignedDistance = FVector::DotProduct(
+						LocalPosition - Stamp.FlattenPlaneOrigin,
+						Stamp.FlattenPlaneNormal.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector));
+					TargetDensity = -SignedDistance * GDualContourLinearDensityFixedPointScale;
+				}
 				else if (Stamp.bUseClayBrush)
 				{
 					const float SignedDistance = FVector::DotProduct(LocalPosition - Stamp.ClayPlaneOrigin,
@@ -605,6 +628,8 @@ FDualContourBrushStamp UDualContourBrushTool::MakeStamp(const FVector& WorldPosi
 	Stamp.LocalCenter = ActorTransform.InverseTransformPosition(WorldPosition);
 	Stamp.LocalNormal = ActorTransform.InverseTransformVectorNoScale(WorldNormal).GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
 	Stamp.ClayPlaneOrigin = ClayPlaneOrigin;
+	Stamp.FlattenPlaneOrigin = FlattenPlaneOrigin;
+	Stamp.FlattenPlaneNormal = FlattenPlaneNormal;
 	if (Settings->bUseClayBrush)
 		Stamp.LocalNormal = ClayPlaneNormal;
 	Stamp.Radius = Settings->BrushSize * 0.5f / FMath::Max(ActorScale, UE_SMALL_NUMBER);
@@ -622,6 +647,9 @@ FDualContourBrushStamp UDualContourBrushTool::MakeStamp(const FVector& WorldPosi
 			break;
 		case EDualContourEditTool::Smooth:
 			Stamp.Operation = EDualContourDensityEditOperation::Smooth;
+			break;
+		case EDualContourEditTool::Flatten:
+			Stamp.Operation = EDualContourDensityEditOperation::Flatten;
 			break;
 		case EDualContourEditTool::Brush:
 			Stamp.Operation = bShiftDown ? EDualContourDensityEditOperation::StampDifference : EDualContourDensityEditOperation::StampUnion;
@@ -684,6 +712,7 @@ void UDualContourBrushTool::FinishStroke(bool bCancel)
 		return;
 	FlushStroke(true);
 	bStrokeActive = false;
+	bFlattenHeightLocked = false;
 	if (TargetActor && (!Settings || Settings->ActiveTool != EDualContourEditTool::PaintMaterial))
 		TargetActor->SetDensityEditInProgress(false);
 	if (!TargetActor || !TargetActor->DualContour)
@@ -732,6 +761,11 @@ bool UDualContourBrushTool::ProjectBrushPointToSurface(const FVector& PlanePoint
 {
 	if (!TargetWorld || !TargetActor)
 		return false;
+	if (bFlattenHeightLocked && Settings && Settings->ActiveTool == EDualContourEditTool::Flatten)
+	{
+		OutSurfacePoint = FVector(PlanePoint.X, PlanePoint.Y, FlattenWorldHeight + 0.75f);
+		return true;
+	}
 
 	const FVector TraceOffset = HitNormal * ProjectionHalfDepth;
 	TArray<FHitResult> Hits;
