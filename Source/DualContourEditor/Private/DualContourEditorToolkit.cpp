@@ -316,6 +316,15 @@ void FDualContourEditorToolkit::FillToolbar(FToolBarBuilder& ToolbarBuilder)
 		]);
 	ToolbarBuilder.EndSection();
 
+	ToolbarBuilder.BeginSection(TEXT("Thumbnail"));
+	ToolbarBuilder.AddToolBarButton(
+		FUIAction(FExecuteAction::CreateSP(this, &FDualContourEditorToolkit::CaptureThumbnail)),
+		NAME_None,
+		LOCTEXT("CaptureThumbnail", "Set Thumbnail"),
+		LOCTEXT("CaptureThumbnailTooltip", "Use the current preview viewport image as this asset's thumbnail."),
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), TEXT("Icons.Settings")));
+	ToolbarBuilder.EndSection();
+
 	ToolbarBuilder.BeginSection(TEXT("DualContour"));
 	if (GetSVTDualContour())
 	{
@@ -689,6 +698,12 @@ void FDualContourEditorToolkit::HandlePreviewMaterialChanged(const FAssetData& A
 	CustomPreviewMaterial = Cast<UMaterialInterface>(AssetData.GetAsset());
 	if (Viewport)
 		Viewport->RefreshPreviewMaterial();
+}
+
+void FDualContourEditorToolkit::CaptureThumbnail()
+{
+	if (Viewport)
+		Viewport->CaptureThumbnail();
 }
 
 void FDualContourEditorToolkit::SetInteractionMode(bool bEnableEditing)

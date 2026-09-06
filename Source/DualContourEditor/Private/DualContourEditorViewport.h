@@ -25,6 +25,8 @@ public:
 	void InvalidatePreview();
 	/** Consumes generated mesh data even when this Slate viewport is not ticking. */
 	void ProcessPendingMeshUpdates();
+	/** Captures the current preview viewport and stores it as the asset package thumbnail. */
+	bool CaptureThumbnail();
 	bool SetEditingEnabled(bool bEnabled);
 	ADualContourMeshActor* GetDensityActor() const { return DensityActor; }
 	FOnPreviewMeshComponentsUpdated OnMeshComponentsUpdated;
@@ -65,6 +67,7 @@ public:
 	virtual bool InputKey(const FInputKeyEventArgs& EventArgs) override;
 	void SetPreviewBounds(const FBox& InBounds) { PreviewBounds = InBounds; }
 	void FocusPreview();
+	FViewport* GetViewport() const { return Viewport; }
 
 private:
 	TWeakPtr<FDualContourEditorToolkit> EditorToolkit;

@@ -83,6 +83,7 @@ private:
 	EVisibility GetCustomPreviewMaterialVisibility() const;
 	FString GetPreviewMaterialPath() const;
 	void HandlePreviewMaterialChanged(const FAssetData& AssetData);
+	void CaptureThumbnail();
 	void ToggleDualContourBounds();
 	void SetInteractionMode(bool bEnableEditing);
 	bool CanEnableEditMode() const;

@@ -16,8 +16,12 @@
 #include "EngineUtils.h"
 #include "ScopedTransaction.h"
 #include "UObject/UnrealType.h"
+#include "Misc/ObjectThumbnail.h"
+#include "ObjectTools.h"
+#include "ThumbnailRendering/ThumbnailManager.h"
 #include "ToolMenus.h"
 #include "ViewportToolbar/UnrealEdViewportToolbar.h"
+#include "Framework/Application/SlateApplication.h"
 #include "Widgets/Layout/SBox.h"
 
 namespace
@@ -244,6 +248,60 @@ void SDualContourEditorViewport::ProcessPendingMeshUpdates()
 {
 	if (DensityActor)
 		DensityActor->ProcessPendingMeshUpdates();
+}
+
+bool SDualContourEditorViewport::CaptureThumbnail()
+{
+	const TSharedPtr<FDualContourEditorToolkit> Toolkit = EditorToolkit.Pin();
+	UDualContour* Asset = Toolkit ? Toolkit->GetAsset() : nullptr;
+	FViewport* ActiveViewport = ViewportClient ? ViewportClient->GetViewport() : nullptr;
+	if (!Asset || !ActiveViewport)
+		return false;
+
+	const FIntPoint ViewportSize = ActiveViewport->GetSizeXY();
+	if (ViewportSize.X <= 0 || ViewportSize.Y <= 0)
+		return false;
+
+	TArray<FColor> Pixels;
+	FReadSurfaceDataFlags ReadFlags(RCM_UNorm);
+	ReadFlags.SetLinearToGamma(false);
+	if (!ActiveViewport->ReadPixels(Pixels, ReadFlags)
+		|| Pixels.Num() != ViewportSize.X * ViewportSize.Y)
+	{
+		return false;
+	}
+
+	// Content Browser thumbnails are square. Crop the longer viewport dimension
+	// around the center instead of stretching the preview image.
+	const int32 SquareSize = FMath::Min(ViewportSize.X, ViewportSize.Y);
+	const int32 CropOffsetX = (ViewportSize.X - SquareSize) / 2;
+	const int32 CropOffsetY = (ViewportSize.Y - SquareSize) / 2;
+	TArray<FColor> SquarePixels;
+	SquarePixels.SetNumUninitialized(SquareSize * SquareSize);
+	for (int32 Y = 0; Y < SquareSize; ++Y)
+	{
+		const int32 SourceY = CropOffsetY + Y;
+		FMemory::Memcpy(
+			SquarePixels.GetData() + Y * SquareSize,
+			Pixels.GetData() + SourceY * ViewportSize.X + CropOffsetX,
+			SquareSize * sizeof(FColor));
+	}
+
+	FObjectThumbnail Thumbnail;
+	Thumbnail.SetImageSize(SquareSize, SquareSize);
+	TArray<uint8>& ImageData = Thumbnail.AccessImageData();
+	ImageData.SetNumUninitialized(SquarePixels.Num() * sizeof(FColor));
+	FMemory::Memcpy(ImageData.GetData(), SquarePixels.GetData(), ImageData.Num());
+
+	ThumbnailTools::CacheThumbnail(
+		Asset->GetFullName(),
+		&Thumbnail,
+		Asset->GetOutermost());
+
+	Asset->GetOutermost()->MarkPackageDirty();
+	UThumbnailManager::Get().GetOnThumbnailDirtied().Broadcast(Asset);
+	FSlateApplication::Get().InvalidateAllWidgets(false);
+	return true;
 }
 
 bool SDualContourEditorViewport::SetEditingEnabled(bool bEnabled)
