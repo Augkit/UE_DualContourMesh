@@ -256,23 +256,12 @@ void UDualContourBrushTool::OnClickPress(const FInputDeviceRay& PressPos)
 
 bool UDualContourBrushTool::BeginPendingBatch()
 {
-	ActiveBatch = FDualContourPendingBatch();
-	ActiveMaterialBatch = FDualContourPendingMaterialBatch();
+	ActiveEdit.Reset();
 	UDualContour* DualContour = TargetActor ? TargetActor->DualContour.Get() : nullptr;
 	if (!IsValid(DualContour) || !DualContour->HasCurrentGeneratedData())
 		return false;
-
-	if (Settings && Settings->ActiveTool == EDualContourEditTool::PaintMaterial)
-	{
-		ActiveMaterialBatch.bOpen = true;
-		ActiveMaterialBatch.Owner = DualContour;
-	}
-	else
-	{
-		ActiveBatch.bOpen = true;
-		ActiveBatch.Owner = DualContour;
-	}
-	return true;
+	ActiveEdit = MakeUnique<FDualContourEditContext>(*DualContour);
+	return ActiveEdit->IsOpen();
 }
 
 void UDualContourBrushTool::OnClickDrag(const FInputDeviceRay& DragPos)
@@ -430,19 +419,19 @@ void UDualContourBrushTool::ApplyPathTo(const FVector& WorldPosition, const FVec
 
 bool UDualContourBrushTool::ApplyStampAt(const FVector& WorldPosition, const FVector& WorldNormal, float TimeScale)
 {
-	if (!TargetActor || !TargetActor->DualContour)
+	if (!TargetActor || !TargetActor->DualContour || !ActiveEdit)
 		return false;
 	const FDualContourBrushStamp Stamp = MakeStamp(WorldPosition, WorldNormal, TimeScale);
 	return Settings && Settings->ActiveTool == EDualContourEditTool::PaintMaterial
-		? DualContourBrushOperations::ApplyMaterialStamp(TargetActor->DualContour, ActiveMaterialBatch, Stamp,
+		? DualContourBrushOperations::ApplyMaterialStamp(*ActiveEdit, Stamp,
 			bShiftDown ? 0 : static_cast<uint8>(FMath::Clamp(Settings->PaintMaterialId, 0, 255)),
 			Settings->MaterialPaintThreshold, Settings->bPaintSolidSamplesOnly)
-		: DualContourBrushOperations::ApplyDensityStamp(TargetActor->DualContour, TargetActor->InitialDualContour, ActiveBatch, Stamp);
+		: DualContourBrushOperations::ApplyDensityStamp(*ActiveEdit, TargetActor->InitialDualContour, Stamp);
 }
 
 bool UDualContourBrushTool::ApplyStationarySculptStamp(float WorldDistance, float TimeScale)
 {
-	if (!TargetActor || !TargetActor->DualContour || !Settings)
+	if (!TargetActor || !TargetActor->DualContour || !Settings || !ActiveEdit)
 		return false;
 
 	const FVector StampPosition = StrokeOrigin + StrokeGrowthDirection * WorldDistance;
@@ -452,7 +441,7 @@ bool UDualContourBrushTool::ApplyStationarySculptStamp(float WorldDistance, floa
 		                  : EDualContourDensityEditOperation::Sculpt;
 	Stamp.bUseClayBrush = false;
 	Stamp.bUseDirectionalFalloff = true;
-	return DualContourBrushOperations::ApplyDensityStamp(TargetActor->DualContour, TargetActor->InitialDualContour, ActiveBatch, Stamp);
+	return DualContourBrushOperations::ApplyDensityStamp(*ActiveEdit, TargetActor->InitialDualContour, Stamp);
 }
 
 int32 UDualContourBrushTool::ApplyMaterialBrushVolumes(
@@ -465,14 +454,12 @@ int32 UDualContourBrushTool::ApplyMaterialBrushVolumes(
 		return 0;
 	}
 
-	FDualContourPendingMaterialBatch Batch;
-	Batch.bOpen = true;
-	Batch.Owner = DualContour;
-	DualContourBrushOperations::ApplyMaterialVolumes(TargetActor, Batch, BrushVolumes,
+	FDualContourEditContext Edit(*DualContour);
+	DualContourBrushOperations::ApplyMaterialVolumes(TargetActor, Edit, BrushVolumes,
 		static_cast<uint8>(FMath::Clamp(Settings->PaintMaterialId, 0, 255)));
 
 	FDualContourMaterialEditResult Result;
-	if (!DualContour->ApplyPendingMaterialBatch(Batch, Result))
+	if (!Edit.Commit(Result))
 		return 0;
 
 	const int32 ChangedSampleCount = Result.Deltas.Num();
@@ -542,30 +529,25 @@ void UDualContourBrushTool::FlushStroke(bool bFinalFlush)
 {
 	if (!bStrokeActive || !TargetActor || !TargetActor->DualContour)
 		return;
-	if (Settings && Settings->ActiveTool == EDualContourEditTool::PaintMaterial)
+	if (!ActiveEdit)
+		return;
+	FDualContourMaterialEditResult Result;
+	ActiveEdit->Commit(Result,
+	                   [this](const FIntVector& Coord, uint16 Before, uint16 After)
+	                   {
+		                   if (FDualContourSampleDelta* Existing = StrokeDeltas.Find(Coord))
+			                   Existing->After = After;
+		                   else
+			                   StrokeDeltas.Add(Coord, FDualContourSampleDelta{Coord, Before, After});
+	                   });
+	for (const FDualContourMaterialSampleDelta& Delta : Result.Deltas)
 	{
-		FDualContourMaterialEditResult Result;
-		if (TargetActor->DualContour->ApplyPendingMaterialBatch(ActiveMaterialBatch, Result))
-		{
-			for (const FDualContourMaterialSampleDelta& Delta : Result.Deltas)
-			{
-				FDualContourMaterialSampleDelta* Existing = MaterialStrokeDeltas.Find(Delta.SampleCoord);
-				if (Existing) Existing->After = Delta.After;
-				else MaterialStrokeDeltas.Add(Delta.SampleCoord, Delta);
-			}
-		}
+		if (FDualContourMaterialSampleDelta* Existing = MaterialStrokeDeltas.Find(Delta.SampleCoord))
+			Existing->After = Delta.After;
+		else
+			MaterialStrokeDeltas.Add(Delta.SampleCoord, Delta);
 	}
-	else
-	{
-		TargetActor->DualContour->ApplyPendingBatch(ActiveBatch,
-			[this](const FIntVector& SampleCoord, uint16 Before, uint16 After)
-			{
-				if (FDualContourSampleDelta* Existing = StrokeDeltas.Find(SampleCoord))
-					Existing->After = After;
-				else
-					StrokeDeltas.Add(SampleCoord, FDualContourSampleDelta{SampleCoord, Before, After});
-			});
-	}
+	ActiveEdit.Reset();
 	if (!bFinalFlush)
 		BeginPendingBatch();
 	LastPreviewFlushTime = FPlatformTime::Seconds();

@@ -4,6 +4,7 @@
 #include "InteractiveToolBuilder.h"
 #include "BaseBehaviors/BehaviorTargetInterfaces.h"
 #include "DualContourTypes.h"
+#include "DualContourEditContext.h"
 #include "DualContourEditorTypes.h"
 #include "EditMode/Editing/DualContourEditChange.h"
 #include "DualContourBrushTool.generated.h"
@@ -87,8 +88,7 @@ private:
 	UPROPERTY()
 	TObjectPtr<UMaterialInterface> BrushFalloffMaterial;
 
-	FDualContourPendingBatch ActiveBatch;
-	FDualContourPendingMaterialBatch ActiveMaterialBatch;
+	TUniquePtr<FDualContourEditContext> ActiveEdit;
 	TMap<FIntVector, FDualContourSampleDelta> StrokeDeltas;
 	TMap<FIntVector, FDualContourMaterialSampleDelta> MaterialStrokeDeltas;
 	FVector HitPosition = FVector::ZeroVector;

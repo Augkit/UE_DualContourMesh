@@ -1,4 +1,6 @@
 #include "DualContour.h"
+#include "DualContourEditContext.h"
+#include "DualContourSampledRegionUtils.h"
 #include "DualContourUtils.h"
 #include "Async/Async.h"
 #include "Async/ParallelFor.h"
@@ -38,55 +40,7 @@ bool Solve3x3(const double Matrix[3][3], const double RightHandSide[3], double S
 	return true;
 }
 
-bool IsValidSampleBounds(const FIntVector& FullDimensions, const FIntVector& SampleMin, const FIntVector& SampleDimensions)
-{
-	if (SampleMin.X < 0 || SampleMin.Y < 0 || SampleMin.Z < 0
-	    || SampleDimensions.X < 0 || SampleDimensions.Y < 0 || SampleDimensions.Z < 0)
-		return false;
 
-	const bool bEmpty = SampleDimensions.X == 0 || SampleDimensions.Y == 0 || SampleDimensions.Z == 0;
-	if (bEmpty)
-	{
-		return SampleDimensions.X == 0 && SampleDimensions.Y == 0 && SampleDimensions.Z == 0
-		       && SampleMin.X <= FullDimensions.X && SampleMin.Y <= FullDimensions.Y && SampleMin.Z <= FullDimensions.Z;
-	}
-
-	return SampleMin.X < FullDimensions.X && SampleMin.Y < FullDimensions.Y && SampleMin.Z < FullDimensions.Z
-	       && SampleDimensions.X <= FullDimensions.X - SampleMin.X
-	       && SampleDimensions.Y <= FullDimensions.Y - SampleMin.Y
-	       && SampleDimensions.Z <= FullDimensions.Z - SampleMin.Z;
-}
-
-bool IsValidSampledRegion(const FIntVector& FullDimensions, const FDualContourSampledRegion& Region)
-{
-	if (!IsValidSampleBounds(FullDimensions, Region.SampleMin, Region.SampleDimensions))
-		return false;
-	if (Region.SampleDimensions == FIntVector::ZeroValue)
-		return Region.Chunks.IsEmpty();
-
-	const FIntVector SampleMax = Region.SampleMin + Region.SampleDimensions;
-	const FIntVector ChunkMin(Region.SampleMin.X / GDualContourChunkSize,
-		Region.SampleMin.Y / GDualContourChunkSize, Region.SampleMin.Z / GDualContourChunkSize);
-	const FIntVector ChunkMaxExclusive(FMath::DivideAndRoundUp(SampleMax.X, GDualContourChunkSize),
-		FMath::DivideAndRoundUp(SampleMax.Y, GDualContourChunkSize),
-		FMath::DivideAndRoundUp(SampleMax.Z, GDualContourChunkSize));
-	TSet<FIntVector> UniqueChunkCoords;
-	UniqueChunkCoords.Reserve(Region.Chunks.Num());
-	const int32 ExpandedChunkSize = GDualContourChunkSize * GDualContourChunkSize * GDualContourChunkSize;
-	for (const FDualContourSampledChunk& SampledChunk : Region.Chunks)
-	{
-		const FIntVector& Coord = SampledChunk.ChunkCoord;
-		if (Coord.X < ChunkMin.X || Coord.Y < ChunkMin.Y || Coord.Z < ChunkMin.Z
-		    || Coord.X >= ChunkMaxExclusive.X || Coord.Y >= ChunkMaxExclusive.Y || Coord.Z >= ChunkMaxExclusive.Z
-		    || UniqueChunkCoords.Contains(Coord)
-		    || (!SampledChunk.Density.IsUniform() && SampledChunk.Density.DensitySamples.Num() != ExpandedChunkSize))
-		{
-			return false;
-		}
-		UniqueChunkCoords.Add(Coord);
-	}
-	return true;
-}
 }
 
 void UDualContour::EnsureRebuildComplete() const
@@ -340,7 +294,7 @@ bool UDualContour::ReplaceDensityChunks(FDualContourSampledRegion&& SampledRegio
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_ReplaceDensityChunks);
 	EnsureRebuildComplete();
 	bRebuildRequired = true;
-	if (!ValidateGenerationSettings() || !IsValidSampledRegion(GetSampleDimensions(), SampledRegion))
+	if (!ValidateGenerationSettings() || !DualContourSampling::IsValidSampledRegion(GetSampleDimensions(), SampledRegion))
 	{
 		UE_LOG(LogDualContour, Error, TEXT("ReplaceDensityChunks aborted for %s because the sampled region is invalid."),
 			*GetNameSafe(GetOuter()));
@@ -374,109 +328,69 @@ bool UDualContour::ReplaceDensityChunks(FDualContourSampledRegion&& SampledRegio
 		const FIntVector CellRangeMin(FMath::Max(0, SampleMin.X - 1), FMath::Max(0, SampleMin.Y - 1),
 			FMath::Max(0, SampleMin.Z - 1));
 		const FIntVector CellRangeMax(FMath::Min(CellCount.X, SampleMax.X), FMath::Min(CellCount.Y, SampleMax.Y),
-			FMath::Min(CellCount.Z, SampleMax.Z));
+		                              FMath::Min(CellCount.Z, SampleMax.Z));
 		AsyncRebuildCellsInRange(CellRangeMin, CellRangeMax, bBroadcastCellsRebuilt);
 	}
 	return true;
 }
 
-bool UDualContour::ModifyDensityChunks(const FDualContourSampledRegion& SampledRegion, bool bExcavate,
-	FIntVector& OutAffectedCellMin, FIntVector& OutAffectedCellMax)
+bool UDualContour::ModifyDensityChunks(const FDualContourSampledRegion& SampledRegion, bool bExcavate, FIntVector& OutAffectedCellMin,
+                                       FIntVector& OutAffectedCellMax)
 {
-	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_ModifyDensityChunks);
-	OutAffectedCellMin = FIntVector::ZeroValue;
-	OutAffectedCellMax = FIntVector::ZeroValue;
-	const FIntVector FullSampleDimensions = GetSampleDimensions();
-	if (!HasCurrentGeneratedData() || !IsValidSampledRegion(FullSampleDimensions, SampledRegion))
+	OutAffectedCellMin = OutAffectedCellMax = FIntVector::ZeroValue;
+	FDualContourEditContext Edit(*this);
+	if (!Edit.ApplySampledRegion(SampledRegion, bExcavate))
 		return false;
-
-	// Drain any previous rebuild before writing DensityChunks (the previous BG task reads them).
-	EnsureRebuildComplete();
-
-	TSet<FIntVector> ModifiedChunks;
-	FIntVector ModifiedSampleMin = FullSampleDimensions;
-	FIntVector ModifiedSampleMax(-1, -1, -1);
-	const FIntVector SampleMax = SampledRegion.SampleMin + SampledRegion.SampleDimensions;
-	for (const FDualContourSampledChunk& SampledChunk : SampledRegion.Chunks)
-	{
-		if (SampledChunk.Density.IsUniform()
-		    && (SampledChunk.Density.UniformValue == 0
-		        || (bExcavate && SampledChunk.Density.UniformValue < GDualContourIsoValue)))
+	FIntVector Min = GetSampleDimensions(), Max(-1);
+	FDualContourMaterialEditResult Result;
+	const bool bChanged = Edit.Commit(Result,
+	                                  [&Min, &Max](const FIntVector& Coord, uint16, uint16)
+	                                  {
+		                                  for (int32 Axis = 0; Axis < 3; ++Axis)
+		                                  {
+			                                  Min[Axis] = FMath::Min(Min[Axis], Coord[Axis]);
+			                                  Max[Axis] = FMath::Max(Max[Axis], Coord[Axis]);
+		                                  }
+	                                  });
+	if (bChanged)
+		for (int32 Axis = 0; Axis < 3; ++Axis)
 		{
-			continue;
+			OutAffectedCellMin[Axis] = FMath::Max(0, Min[Axis] - 1);
+			OutAffectedCellMax[Axis] = FMath::Min(CellCount[Axis], Max[Axis] + 1);
 		}
-
-		const FIntVector ChunkOrigin = DualContourUtils::ChunkOrigin(SampledChunk.ChunkCoord);
-		const FIntVector BuildMin(
-			FMath::Max(SampledRegion.SampleMin.X, ChunkOrigin.X),
-			FMath::Max(SampledRegion.SampleMin.Y, ChunkOrigin.Y),
-			FMath::Max(SampledRegion.SampleMin.Z, ChunkOrigin.Z));
-		const FIntVector BuildMax(
-			FMath::Min(SampleMax.X, ChunkOrigin.X + GDualContourChunkSize),
-			FMath::Min(SampleMax.Y, ChunkOrigin.Y + GDualContourChunkSize),
-			FMath::Min(SampleMax.Z, ChunkOrigin.Z + GDualContourChunkSize));
-		FDensityChunk* TargetChunk = DensityChunks.Find(SampledChunk.ChunkCoord);
-		for (int32 SampleZ = BuildMin.Z; SampleZ < BuildMax.Z; ++SampleZ)
-			for (int32 SampleY = BuildMin.Y; SampleY < BuildMax.Y; ++SampleY)
-				for (int32 SampleX = BuildMin.X; SampleX < BuildMax.X; ++SampleX)
-				{
-					const uint16 LocalIndex = DualContourUtils::ChunkLocalIndex(SampleX, SampleY, SampleZ);
-					const uint16 SamplerDensity = SampledChunk.Density.IsUniform()
-						                              ? SampledChunk.Density.UniformValue
-						                              : SampledChunk.Density.DensitySamples[LocalIndex];
-					if (SamplerDensity == 0 || (bExcavate && SamplerDensity < GDualContourIsoValue))
-						continue;
-
-					const uint16 OldDensity =
-						TargetChunk
-							? (TargetChunk->IsUniform()
-								   ? TargetChunk->UniformValue
-								   : TargetChunk->DensitySamples[LocalIndex])
-							: 0;
-					uint16 NewDensity = FMath::Max(OldDensity, SamplerDensity);
-					if (bExcavate)
-					{
-						const uint16 DifferenceDensity =
-							static_cast<uint16>(2u * static_cast<uint32>(GDualContourIsoValue) - SamplerDensity);
-						NewDensity = FMath::Min(OldDensity, DifferenceDensity);
-					}
-					if (NewDensity == OldDensity)
-						continue;
-
-					if (!TargetChunk)
-						TargetChunk = &DensityChunks.FindOrAdd(SampledChunk.ChunkCoord);
-					TargetChunk->SetDensitySample(LocalIndex, NewDensity);
-					ModifiedChunks.Add(SampledChunk.ChunkCoord);
-					ModifiedSampleMin.X = FMath::Min(ModifiedSampleMin.X, SampleX);
-					ModifiedSampleMin.Y = FMath::Min(ModifiedSampleMin.Y, SampleY);
-					ModifiedSampleMin.Z = FMath::Min(ModifiedSampleMin.Z, SampleZ);
-					ModifiedSampleMax.X = FMath::Max(ModifiedSampleMax.X, SampleX);
-					ModifiedSampleMax.Y = FMath::Max(ModifiedSampleMax.Y, SampleY);
-					ModifiedSampleMax.Z = FMath::Max(ModifiedSampleMax.Z, SampleZ);
-				}
-	}
-	if (ModifiedChunks.IsEmpty())
-		return false;
-	CompactDensityChunks(ModifiedChunks);
-	RecordModifiedDensityChunks(ModifiedChunks);
-
-	const FIntVector CellRangeMin(FMath::Max(0, ModifiedSampleMin.X - 1), FMath::Max(0, ModifiedSampleMin.Y - 1),
-		FMath::Max(0, ModifiedSampleMin.Z - 1));
-	const FIntVector CellRangeMax(FMath::Min(CellCount.X, ModifiedSampleMax.X + 1),
-		FMath::Min(CellCount.Y, ModifiedSampleMax.Y + 1), FMath::Min(CellCount.Z, ModifiedSampleMax.Z + 1));
-	AsyncRebuildCellsInRange(CellRangeMin, CellRangeMax);
-	OutAffectedCellMin = CellRangeMin;
-	OutAffectedCellMax = CellRangeMax;
-	return true;
+	return bChanged;
 }
 
 bool UDualContour::ApplyPendingBatch(FDualContourPendingBatch& Batch, TFunctionRef<void(const FIntVector&, uint16, uint16)> OnSampleChanged)
 {
+	FDualContourPendingMaterialBatch MaterialBatch;
+	MaterialBatch.Owner = this;
+	MaterialBatch.bOpen = true;
+	FDualContourMaterialEditResult Result;
+	return ApplyPendingEdit(Batch, MaterialBatch, Result, OnSampleChanged);
+}
+
+bool UDualContour::ApplyPendingEdit(FDualContourPendingBatch& Batch, FDualContourPendingMaterialBatch& MaterialBatch,
+                                    FDualContourMaterialEditResult& OutResult,
+                                    TFunctionRef<void(const FIntVector&, uint16, uint16)> OnSampleChanged)
+{
+	check(IsInGameThread());
+	OutResult = FDualContourMaterialEditResult();
+	if (!MaterialBatch.bOpen || MaterialBatch.Owner != this)
+		return false;
 	if (!Batch.bOpen || Batch.Owner != this || !HasCurrentGeneratedData())
 		return false;
 	Batch.bOpen = false;
 	Batch.Owner = nullptr;
+	MaterialBatch.bOpen = false;
+	MaterialBatch.Owner = nullptr;
 	EnsureRebuildComplete();
+	struct FDensityChange
+	{
+		FIntVector Coord;
+		uint16 Before, After;
+	};
+	TArray<FDensityChange> DensityChanges;
 
 	TSet<FIntVector> ActuallyDirtyChunks;
 	const FIntVector SampleDims = GetSampleDimensions();
@@ -493,17 +407,51 @@ bool UDualContour::ApplyPendingBatch(FDualContourPendingBatch& Batch, TFunctionR
 			if (Before == After)
 				continue;
 			WriteDirtyDensitySample(SampleCoord.X, SampleCoord.Y, SampleCoord.Z, After, ActuallyDirtyChunks);
-			OnSampleChanged(SampleCoord, Before, After);
+			DensityChanges.Add({SampleCoord, Before, After});
 		}
 	}
 	Batch.ChunkSamples.Reset();
-	if (ActuallyDirtyChunks.IsEmpty())
-		return false;
-
+	TSet<FIntVector> DirtyChunks;
+	FIntVector SampleMin = GetSampleDimensions();
+	FIntVector SampleMax(-1, -1, -1);
+	for (const TPair<FIntVector, TMap<uint16, FDualContourPendingMaterialSample>>& ChunkPair : MaterialBatch.ChunkSamples)
+	{
+		const FIntVector ChunkOrigin = DualContourUtils::ChunkOrigin(ChunkPair.Key);
+		for (const TPair<uint16, FDualContourPendingMaterialSample>& SamplePair : ChunkPair.Value)
+		{
+			const FIntVector SampleCoord = ChunkOrigin + DualContourUtils::ChunkLocalCoord(SamplePair.Key);
+			if (!DualContourUtils::IsValidCoordinate(SampleDims, SampleCoord.X, SampleCoord.Y, SampleCoord.Z))
+				continue;
+			const uint8 Before = GetMaterialId(SampleCoord.X, SampleCoord.Y, SampleCoord.Z);
+			if (Before == SamplePair.Value.WorkingId)
+				continue;
+			WriteDirtyMaterialSample(SampleCoord.X, SampleCoord.Y, SampleCoord.Z, SamplePair.Value.WorkingId, DirtyChunks);
+			FDualContourMaterialSampleDelta& Delta = OutResult.Deltas.AddDefaulted_GetRef();
+			Delta.SampleCoord = SampleCoord;
+			Delta.Before = Before;
+			Delta.After = SamplePair.Value.WorkingId;
+			SampleMin.X = FMath::Min(SampleMin.X, SampleCoord.X);
+			SampleMin.Y = FMath::Min(SampleMin.Y, SampleCoord.Y);
+			SampleMin.Z = FMath::Min(SampleMin.Z, SampleCoord.Z);
+			SampleMax.X = FMath::Max(SampleMax.X, SampleCoord.X);
+			SampleMax.Y = FMath::Max(SampleMax.Y, SampleCoord.Y);
+			SampleMax.Z = FMath::Max(SampleMax.Z, SampleCoord.Z);
+		}
+	}
+	MaterialBatch.ChunkSamples.Reset();
+	const bool bDensityChanged = !ActuallyDirtyChunks.IsEmpty();
 	CompactDensityChunks(ActuallyDirtyChunks);
 	RecordModifiedDensityChunks(ActuallyDirtyChunks);
-	AsyncRebuildDirtyCellChunks(MoveTemp(ActuallyDirtyChunks));
-	return true;
+	CompactMaterialChunks(DirtyChunks);
+	RecordModifiedMaterialChunks(DirtyChunks);
+	// Both stores and save overlays are complete before observers receive the edit.
+	for (const FDensityChange& Change : DensityChanges)
+		OnSampleChanged(Change.Coord, Change.Before, Change.After);
+	if (!OutResult.IsEmpty())
+		BroadcastMaterialSampleRange(SampleMin, SampleMax);
+	if (bDensityChanged)
+		AsyncRebuildDirtyCellChunks(MoveTemp(ActuallyDirtyChunks));
+	return bDensityChanged || !OutResult.IsEmpty();
 }
 
 void UDualContour::WriteDirtyDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint16 Density, TSet<FIntVector>& DirtyChunks)
@@ -542,44 +490,10 @@ void UDualContour::CompactDensityChunks(const TSet<FIntVector>& ChunkCoords)
 
 bool UDualContour::ApplyPendingMaterialBatch(FDualContourPendingMaterialBatch& Batch, FDualContourMaterialEditResult& OutResult)
 {
-	OutResult = FDualContourMaterialEditResult();
-	if (!HasCurrentGeneratedData() || !Batch.bOpen || Batch.Owner != this)
-		return false;
-	Batch.bOpen = false;
-	Batch.Owner = nullptr;
-	EnsureRebuildComplete();
-
-	TSet<FIntVector> DirtyChunks;
-	FIntVector SampleMin = GetSampleDimensions();
-	FIntVector SampleMax(-1, -1, -1);
-	for (const TPair<FIntVector, TMap<uint16, FDualContourPendingMaterialSample>>& ChunkPair : Batch.ChunkSamples)
-	{
-		const FIntVector ChunkOrigin = DualContourUtils::ChunkOrigin(ChunkPair.Key);
-		for (const TPair<uint16, FDualContourPendingMaterialSample>& SamplePair : ChunkPair.Value)
-		{
-			if (SamplePair.Value.Before == SamplePair.Value.WorkingId)
-				continue;
-			const FIntVector SampleCoord = ChunkOrigin + DualContourUtils::ChunkLocalCoord(SamplePair.Key);
-			WriteDirtyMaterialSample(SampleCoord.X, SampleCoord.Y, SampleCoord.Z, SamplePair.Value.WorkingId, DirtyChunks);
-			FDualContourMaterialSampleDelta& Delta = OutResult.Deltas.AddDefaulted_GetRef();
-			Delta.SampleCoord = SampleCoord;
-			Delta.Before = SamplePair.Value.Before;
-			Delta.After = SamplePair.Value.WorkingId;
-			SampleMin.X = FMath::Min(SampleMin.X, SampleCoord.X);
-			SampleMin.Y = FMath::Min(SampleMin.Y, SampleCoord.Y);
-			SampleMin.Z = FMath::Min(SampleMin.Z, SampleCoord.Z);
-			SampleMax.X = FMath::Max(SampleMax.X, SampleCoord.X);
-			SampleMax.Y = FMath::Max(SampleMax.Y, SampleCoord.Y);
-			SampleMax.Z = FMath::Max(SampleMax.Z, SampleCoord.Z);
-		}
-	}
-	Batch.ChunkSamples.Reset();
-	if (OutResult.IsEmpty())
-		return false;
-	CompactMaterialChunks(DirtyChunks);
-	RecordModifiedMaterialChunks(DirtyChunks);
-	BroadcastMaterialSampleRange(SampleMin, SampleMax);
-	return true;
+ FDualContourPendingBatch DensityBatch;
+ DensityBatch.Owner = this;
+ DensityBatch.bOpen = true;
+ return ApplyPendingEdit(DensityBatch, Batch, OutResult);
 }
 
 bool UDualContour::ApplyMaterialEditDeltas(TConstArrayView<FDualContourMaterialSampleDelta> Deltas, bool bUseAfterValues,
@@ -594,7 +508,7 @@ bool UDualContour::ApplyMaterialEditDeltas(TConstArrayView<FDualContourMaterialS
 	for (const FDualContourMaterialSampleDelta& Delta : Deltas)
 	{
 		WriteDirtyMaterialSample(Delta.SampleCoord.X, Delta.SampleCoord.Y, Delta.SampleCoord.Z,
-			bUseAfterValues ? Delta.After : Delta.Before, DirtyChunks);
+		                         bUseAfterValues ? Delta.After : Delta.Before, DirtyChunks);
 		SampleMin.X = FMath::Min(SampleMin.X, Delta.SampleCoord.X);
 		SampleMin.Y = FMath::Min(SampleMin.Y, Delta.SampleCoord.Y);
 		SampleMin.Z = FMath::Min(SampleMin.Z, Delta.SampleCoord.Z);

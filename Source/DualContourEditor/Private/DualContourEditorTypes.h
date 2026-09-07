@@ -33,7 +33,8 @@ enum class EDualContourBrushFalloff : uint8
 
 class UVolumeSampledDualContour;
 
-/** Editor brush description. All positions and sizes are in the target DualContour's local space. */
+/** Editor input description, adapted into runtime samplers and operations by DualContourBrushOperations.
+ * All positions and sizes are in the target DualContour's local space; this struct never owns pending writes. */
 struct DUALCONTOUREDITOR_API FDualContourBrushStamp
 {
 	EDualContourDensityEditOperation Operation = EDualContourDensityEditOperation::Sculpt;

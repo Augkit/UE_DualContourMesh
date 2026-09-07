@@ -33,7 +33,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Volume Sampling")
 	bool ReplaceDualContour(UDualContour* Target, const FTransform& SampleTransform, FText& OutError);
 
-	/** Combines this sampler with existing target density and returns the rebuilt half-open cell range. */
+	/** Combines this sampler with existing target density and returns the directly affected half-open cell range. */
 	bool ModifyDualContour(UDualContour* Target, const FTransform& SampleTransform, bool bExcavate,
 		FIntVector& OutAffectedCellMin, FIntVector& OutAffectedCellMax, FText& OutError);
 
