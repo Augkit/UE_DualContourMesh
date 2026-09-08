@@ -9,11 +9,14 @@ class DUALCONTOURMESH_API UDualContourSampler : public UVolumeSampler
 {
 	GENERATED_BODY()
 
-protected:
-	virtual UDualContour* ResolveDualContour() const PURE_VIRTUAL(UDualContourSampler::ResolveDualContour, return nullptr;);
+public:
+	virtual bool Sample(const FVector& Position, float& Value, float& Weight) const override;
+
 	virtual bool Prepare(FText& OutError) const override;
 	virtual void Finish() const override;
-	virtual float SampleNormalized(const FVector& UVW) const override;
+
+protected:
+	virtual UDualContour* ResolveDualContour() const PURE_VIRTUAL(UDualContourSampler::ResolveDualContour, return nullptr;);
 
 	mutable TWeakObjectPtr<UDualContour> CachedDualContour;
 };

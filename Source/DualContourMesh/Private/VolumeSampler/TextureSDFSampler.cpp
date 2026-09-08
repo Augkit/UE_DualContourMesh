@@ -128,6 +128,16 @@ float UTextureSDFSampler::SampleCachedTexture(const FVector& UVW) const
 	return SignedDistanceToDensity(FMath::Lerp(D0, D1, FZ));
 }
 
+bool UTextureSDFSampler::Sample(const FVector& Position, float& Value, float& Weight) const
+{
+	FVector UVW;
+	if (!TryGetNormalizedPosition(Position, UVW))
+		return false;
+	Weight = 1.0f;
+	Value = SampleCachedTexture(UVW);
+	return FMath::IsFinite(Value);
+}
+
 void UTextureSDFSampler::Finish() const
 {
 	CachedResolution = FIntVector::ZeroValue;
@@ -147,11 +157,6 @@ bool UTex3DSDFSampler::PrepareTexture(FText& OutError) const
 		return false;
 	}
 	return ReadFloatTexture(*Texture, Texture->GetPlatformData(), CachedResolution, CachedSignedDistances, OutError);
-}
-
-float UTex3DSDFSampler::SampleNormalized(const FVector& UVW) const
-{
-	return SampleCachedTexture(UVW);
 }
 
 bool UTex2DSDFSampler::Prepare(FText& OutError) const
@@ -208,9 +213,4 @@ bool UTex2DSDFSampler::PrepareTexture(FText& OutError) const
 					AtlasValues[AtlasX + AtlasY * AtlasResolution.X];
 			}
 	return true;
-}
-
-float UTex2DSDFSampler::SampleNormalized(const FVector& UVW) const
-{
-	return SampleCachedTexture(UVW);
 }

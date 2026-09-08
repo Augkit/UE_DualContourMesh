@@ -152,12 +152,12 @@ bool FDualContourUnifiedVolumeTest::RunTest(const FString& Parameters)
 	Sphere->Radius = 1;
 	Sphere->SamplingTransform = FTransform(FVector(2, 0, 0));
 	FText Error;
-	TestTrue(TEXT("Prepare existing SDF source"), Sphere->BeginSampling(Error));
+	TestTrue(TEXT("Prepare existing SDF source"), static_cast<UVolumeSampler*>(Sphere.Get())->Prepare(Error));
 	float Value = 0, Weight = 0;
 	TestTrue(TEXT("Transformed center"), Sphere->Sample(FVector(4, 2, 2), Value, Weight));
 	TestEqual(TEXT("Default influence"), Weight, 1.0f);
 	TestFalse(TEXT("Outside finite bounds"), Sphere->Sample(FVector(1, 2, 2), Value, Weight));
-	Sphere->EndSampling();
+	static_cast<UVolumeSampler*>(Sphere.Get())->Finish();
 
 	FDualContourEditContext Edit(*Grid);
 	TestTrue(TEXT("Existing source feeds edit"), Edit.ApplyDensity(EDualContourDensityOperation::Replace, *Sphere));

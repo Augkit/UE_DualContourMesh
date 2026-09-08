@@ -30,6 +30,22 @@ bool UProceduralVolumeSampler::Prepare(FText& OutError) const
 	return true;
 }
 
+bool UProceduralVolumeSampler::Sample(const FVector& Position, float& Value, float& Weight) const
+{
+	FVector UVW;
+	if (!TryGetNormalizedPosition(Position, UVW))
+		return false;
+	Weight = 1.0f;
+	const FVector LocalPosition = (UVW - FVector(0.5)) * VolumeSize;
+	const float SignedDistance = GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint)
+		                             ? GetSignedDistance(LocalPosition)
+		                             : GetSignedDistance_Implementation(LocalPosition);
+	Value = FMath::IsFinite(SignedDistance)
+		        ? (DensityBias - SignedDistance * DensityScale) * GDualContourLinearDensityFixedPointScale
+		        : 0.0f;
+	return FMath::IsFinite(Value);
+}
+
 float UProceduralVolumeSampler::GetSignedDistance_Implementation(const FVector& LocalPosition) const
 {
 	return 1.0e20f;
@@ -38,21 +54,9 @@ float UProceduralVolumeSampler::GetSignedDistance_Implementation(const FVector& 
 bool UProceduralVolumeSampler::SupportsParallelSampling() const
 {
 	// Blueprint event dispatch uses ProcessEvent and must stay on the game thread. Native
-	// implementations are called directly by SampleNormalized and only read prepared state.
+	// implementations are called directly by Sample and only read prepared state.
 	return !GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint);
 }
-
-float UProceduralVolumeSampler::SampleNormalized(const FVector& UVW) const
-{
-	const FVector LocalPosition = (UVW - FVector(0.5)) * VolumeSize;
-	const float SignedDistance = GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint)
-		                             ? GetSignedDistance(LocalPosition)
-		                             : GetSignedDistance_Implementation(LocalPosition);
-	if (!FMath::IsFinite(SignedDistance))
-		return 0.0f;
-	return (DensityBias - SignedDistance * DensityScale) * GDualContourLinearDensityFixedPointScale;
-}
-
 
 bool USphereVolumeSampler::Prepare(FText& OutError) const
 {

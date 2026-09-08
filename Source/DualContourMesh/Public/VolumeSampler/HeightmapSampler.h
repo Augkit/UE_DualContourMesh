@@ -38,7 +38,6 @@ public:
 	virtual void PostEditChangeChainProperty(FPropertyChangedChainEvent& PropertyChangedEvent) override;
 #endif
 
-protected:
 	virtual bool Prepare(FText& OutError) const override;
 	virtual void Finish() const override;
 

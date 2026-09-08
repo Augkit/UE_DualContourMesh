@@ -19,19 +19,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volume")
 	FTransform SamplingTransform = FTransform::Identity;
 
-	/** Bounds and samples are in the target contour's local space. Call BeginSampling/EndSampling around a pass. */
+	/** Bounds and samples are in the target contour's local space. Call Prepare/Finish around a pass. */
 	virtual FBox GetBounds() const;
-	virtual bool Sample(const FVector& Position, float& Value, float& Weight) const;
+	virtual bool Sample(const FVector& Position, float& Value, float& Weight) const PURE_VIRTUAL(UVolumeSampler::Sample, return false;);
 
-	bool BeginSampling(FText& OutError) const
-	{
-		return Prepare(OutError);
-	}
-
-	void EndSampling() const
-	{
-		Finish();
-	}
+	/** Prepares resources and validates the sampler for one sampling pass. */
+	virtual bool Prepare(FText& OutError) const;
+	/** Releases resources held for the current sampling pass. */
+	virtual void Finish() const;
 
 	bool CanSampleInParallel() const
 	{
@@ -53,10 +48,9 @@ public:
 #endif
 
 protected:
-	virtual bool Prepare(FText& OutError) const;
-	virtual void Finish() const;
-	/** True when SampleNormalized may be called concurrently while the game thread is blocked. */
+	/** True when Sample may be called concurrently while the game thread is blocked. */
 	virtual bool SupportsParallelSampling() const { return false; }
-	virtual float SampleNormalized(const FVector& UVW) const PURE_VIRTUAL(UVolumeSampler::SampleNormalized, return 0.0f;);
+	/** Maps target-local Position through the volume placement; false outside [0, 1]. */
+	bool TryGetNormalizedPosition(const FVector& Position, FVector& OutUVW) const;
 
 };

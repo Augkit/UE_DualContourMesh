@@ -11,10 +11,4 @@ public:
 	FTransform TargetTransform;
 	virtual FBox GetBounds() const override;
 	virtual bool Sample(const FVector& Position, float& Value, float& Weight) const override;
-
-protected:
-	virtual float SampleNormalized(const FVector& UVW) const override
-	{
-		return 0;
-	}
 };

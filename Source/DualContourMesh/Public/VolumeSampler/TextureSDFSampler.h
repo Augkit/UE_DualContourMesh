@@ -10,6 +10,8 @@ class DUALCONTOURMESH_API UTextureSDFSampler : public UVolumeSampler
 	GENERATED_BODY()
 
 public:
+	virtual bool Sample(const FVector& Position, float& Value, float& Weight) const override;
+
 	/** Density units per signed-distance unit. Negative SDF values become solid density. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "0.0"))
 	float DensityScale = 16.0f;
@@ -39,10 +41,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF")
 	TObjectPtr<UVolumeTexture> Texture;
 
-protected:
 	virtual bool Prepare(FText& OutError) const override;
+
+protected:
 	virtual bool PrepareTexture(FText& OutError) const override;
-	virtual float SampleNormalized(const FVector& UVW) const override;
 };
 
 /** Samples a Z-slice Texture2D atlas exported by StaticMeshSDFExporter. */
@@ -59,8 +61,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "1"))
 	FIntVector VolumeResolution = FIntVector(64, 64, 64);
 
-protected:
 	virtual bool Prepare(FText& OutError) const override;
+
+protected:
 	virtual bool PrepareTexture(FText& OutError) const override;
-	virtual float SampleNormalized(const FVector& UVW) const override;
 };

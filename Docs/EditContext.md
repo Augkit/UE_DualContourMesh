@@ -25,8 +25,8 @@ All sampling sources now inherit `UVolumeSampler`. There is no separate F field-
 
 - `GetBounds()` returns a finite target-local bounding box.
 - `Sample(Position, Value, Weight)` returns linear density and influence weight. False or zero weight excludes the position.
-- The default implementation applies `SamplingTransform` about `Pivot * VolumeSize`, validates normalized coordinates, sets `Weight` to one, then calls `SampleNormalized`. Samplers that need custom influence can override `Sample` directly.
-- `BeginSampling` / `EndSampling` wrap existing resource preparation/cleanup. Context and generation paths balance these even on early exits. Direct callers must do the same and keep the source alive.
+- Each source implements `Sample` directly. Procedural, texture and contour sources share `TryGetNormalizedPosition`, which applies `SamplingTransform` about `Pivot * VolumeSize` and validates normalized coordinates; they set `Weight` to one and reject non-finite density. Brush sources implement their own coordinates and influence weights.
+- `Prepare` / `Finish` wrap resource preparation/cleanup. Context and generation paths balance these even on early exits. Direct callers must do the same and keep the source alive.
 - `CanSampleInParallel` exposes the existing explicit thread-safety capability. Native procedural sources can run in parallel; Blueprint SDF dispatch remains on the game thread.
 
 Density strength is multiplied by source weight. Material painting compares weight to the threshold and optionally checks pending solid density. Chunk generation uses weight as a validity mask (positive weights retain sampled density); it does not interpolate against a previous grid. The transform-aware edit overload applies an explicit transform outside the source's own placement, around the volume pivot.

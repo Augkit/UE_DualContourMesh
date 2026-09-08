@@ -120,11 +120,11 @@ bool FDualContourEditContext::ApplyDensityInternal(EDualContourDensityOperation 
 {
 	check(IsInGameThread());
 	FText Error;
-	if (!IsOpen() || !Sampler.BeginSampling(Error))
+	if (!IsOpen() || !Sampler.Prepare(Error))
 		return false;
 	ON_SCOPE_EXIT
 	{
-		Sampler.EndSampling();
+		Sampler.Finish();
 	};
 	FIntVector Min, Max;
 	if (!FMath::IsFinite(Strength) || Strength <= 0 || !GetSampleBounds(Sampler, SampleTransform, Min, Max))
@@ -250,11 +250,11 @@ bool FDualContourEditContext::ApplyMaterial(const UVolumeSampler& Sampler, uint8
 {
 	check(IsInGameThread());
 	FText Error;
-	if (!IsOpen() || !Sampler.BeginSampling(Error))
+	if (!IsOpen() || !Sampler.Prepare(Error))
 		return false;
 	ON_SCOPE_EXIT
 	{
-		Sampler.EndSampling();
+		Sampler.Finish();
 	};
 	FIntVector Min, Max;
 	if (!FMath::IsFinite(Threshold) || !GetSampleBounds(Sampler, nullptr, Min, Max))

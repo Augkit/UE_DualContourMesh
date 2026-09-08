@@ -26,9 +26,9 @@ bool FDualContourSamplerBuilder::BuildDensityChunks(const UVolumeSampler& Sample
 		OutError = NSLOCTEXT("VolumeSampler", "InvalidTransformScale", "SampleTransform scale must be non-zero on every axis.");
 		return false;
 	}
-	if (!Sampler.BeginSampling(OutError))
+	if (!Sampler.Prepare(OutError))
 		return false;
-	ON_SCOPE_EXIT { Sampler.EndSampling(); };
+	ON_SCOPE_EXIT { Sampler.Finish(); };
 
 	const FVector PivotPosition = Sampler.Pivot * Sampler.VolumeSize;
 	const FBox SourceBounds = Sampler.GetBounds();

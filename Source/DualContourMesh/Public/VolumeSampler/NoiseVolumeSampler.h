@@ -159,7 +159,6 @@ public:
 
 	virtual float GetSignedDistance_Implementation(const FVector& LocalPosition) const override;
 
-protected:
 	virtual bool Prepare(FText& OutError) const override;
 	virtual void Finish() const override;
 

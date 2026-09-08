@@ -17,6 +17,8 @@ class DUALCONTOURMESH_API UProceduralVolumeSampler : public UVolumeSampler
 	GENERATED_BODY()
 
 public:
+	virtual bool Sample(const FVector& Position, float& Value, float& Weight) const override;
+
 	/** Density units generated per sampler-local signed-distance unit. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volume", meta = (ClampMin = "0.0001"))
 	float DensityScale = 16.0f;
@@ -33,10 +35,10 @@ public:
 	float GetSignedDistance(const FVector& LocalPosition) const;
 	virtual float GetSignedDistance_Implementation(const FVector& LocalPosition) const;
 
-protected:
 	virtual bool Prepare(FText& OutError) const override;
+
+protected:
 	virtual bool SupportsParallelSampling() const override;
-	virtual float SampleNormalized(const FVector& UVW) const override;
 };
 
 /** Analytic sphere centered in the sampled volume. */
@@ -70,7 +72,6 @@ public:
 
 	virtual float GetSignedDistance_Implementation(const FVector& LocalPosition) const override;
 
-protected:
 	virtual bool Prepare(FText& OutError) const override;
 };
 
@@ -89,7 +90,6 @@ public:
 
 	virtual float GetSignedDistance_Implementation(const FVector& LocalPosition) const override;
 
-protected:
 	virtual bool Prepare(FText& OutError) const override;
 };
 
@@ -109,7 +109,6 @@ public:
 
 	virtual float GetSignedDistance_Implementation(const FVector& LocalPosition) const override;
 
-protected:
 	virtual bool Prepare(FText& OutError) const override;
 };
 
@@ -129,6 +128,5 @@ public:
 
 	virtual float GetSignedDistance_Implementation(const FVector& LocalPosition) const override;
 
-protected:
 	virtual bool Prepare(FText& OutError) const override;
 };

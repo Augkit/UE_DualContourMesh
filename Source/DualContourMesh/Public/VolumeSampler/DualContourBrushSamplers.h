@@ -26,12 +26,6 @@ public:
 	static float EvaluateFalloff(float Distance, float Falloff, EDualContourEditFalloff Type);
 	virtual FBox GetBounds() const override;
 	virtual bool Sample(const FVector& Position, float& Value, float& Weight) const override;
-
-protected:
-	virtual float SampleNormalized(const FVector& UVW) const override
-	{
-		return 0.0f;
-	}
 };
 
 /** A plane density field restricted by another sampler's mask. */
@@ -56,22 +50,15 @@ public:
 
 	virtual bool Sample(const FVector& Position, float& Value, float& Weight) const override;
 
-protected:
-	virtual float SampleNormalized(const FVector& UVW) const override
-	{
-		return 0.0f;
-	}
-
-protected:
 	virtual bool Prepare(FText& OutError) const override
 	{
-		return Mask && Mask->BeginSampling(OutError);
+		return Mask && Mask->Prepare(OutError);
 	}
 
 	virtual void Finish() const override
 	{
 		if (Mask)
-			Mask->EndSampling();
+			Mask->Finish();
 	}
 
 private:
@@ -92,13 +79,6 @@ public:
 	virtual FBox GetBounds() const override;
 	virtual bool Sample(const FVector& Position, float& Value, float& Weight) const override;
 
-protected:
-	virtual float SampleNormalized(const FVector& UVW) const override
-	{
-		return 0.0f;
-	}
-
-public:
 	virtual bool SupportsParallelSampling() const override
 	{
 		return true;
@@ -120,22 +100,15 @@ public:
 	virtual FBox GetBounds() const override;
 	virtual bool Sample(const FVector& Position, float& Value, float& Weight) const override;
 
-protected:
-	virtual float SampleNormalized(const FVector& UVW) const override
-	{
-		return 0.0f;
-	}
-
-protected:
 	virtual bool Prepare(FText& OutError) const override
 	{
-		return Mask && Mask->BeginSampling(OutError);
+		return Mask && Mask->Prepare(OutError);
 	}
 
 	virtual void Finish() const override
 	{
 		if (Mask)
-			Mask->EndSampling();
+			Mask->Finish();
 	}
 
 private:

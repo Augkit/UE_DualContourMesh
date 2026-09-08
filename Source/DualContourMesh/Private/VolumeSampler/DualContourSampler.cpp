@@ -16,15 +16,20 @@ bool UDualContourSampler::Prepare(FText& OutError) const
 	return true;
 }
 
-float UDualContourSampler::SampleNormalized(const FVector& UVW) const
-{
-	const UDualContour* Source = CachedDualContour.Get();
-	if (!Source)
-		return 0.0f;
-	return Source->TrilinearDensity(UVW * FVector(Source->CellCount.X, Source->CellCount.Y, Source->CellCount.Z));
-}
-
 void UDualContourSampler::Finish() const
 {
 	CachedDualContour.Reset();
+}
+
+bool UDualContourSampler::Sample(const FVector& Position, float& Value, float& Weight) const
+{
+	FVector UVW;
+	if (!TryGetNormalizedPosition(Position, UVW))
+		return false;
+	Weight = 1.0f;
+	const UDualContour* Source = CachedDualContour.Get();
+	Value = Source
+		        ? Source->TrilinearDensity(UVW * FVector(Source->CellCount.X, Source->CellCount.Y, Source->CellCount.Z))
+		        : 0.0f;
+	return FMath::IsFinite(Value);
 }

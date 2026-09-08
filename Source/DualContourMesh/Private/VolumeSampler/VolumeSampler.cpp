@@ -15,15 +15,11 @@ FBox UVolumeSampler::GetBounds() const
 	return Bounds;
 }
 
-bool UVolumeSampler::Sample(const FVector& Position, float& Value, float& Weight) const
+bool UVolumeSampler::TryGetNormalizedPosition(const FVector& Position, FVector& OutUVW) const
 {
 	const FVector P = Pivot * VolumeSize;
-	const FVector UVW = (P + SamplingTransform.InverseTransformPosition(Position - P)) / VolumeSize;
-	if (UVW.ContainsNaN() || UVW.GetMin() < 0 || UVW.GetMax() > 1)
-		return false;
-	Weight = 1.0f;
-	Value = SampleNormalized(UVW);
-	return FMath::IsFinite(Value);
+	OutUVW = (P + SamplingTransform.InverseTransformPosition(Position - P)) / VolumeSize;
+	return !OutUVW.ContainsNaN() && OutUVW.GetMin() >= 0 && OutUVW.GetMax() <= 1;
 }
 
 bool UVolumeSampler::Prepare(FText& OutError) const
