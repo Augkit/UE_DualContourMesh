@@ -194,6 +194,30 @@ float UDualContour::GetLinearDensity(int32 SampleX, int32 SampleY, int32 SampleZ
 	return FDensityChunk::DecodeLinearDensity(GetDensity(SampleX, SampleY, SampleZ));
 }
 
+float UDualContour::GetTrilinearDensity(const FVector& GridPos) const
+{
+	const FIntVector Dims = GetSampleDimensions();
+	const float GridX = FMath::Clamp(GridPos.X, 0., static_cast<double>(Dims.X - 1));
+	const float GridY = FMath::Clamp(GridPos.Y, 0., static_cast<double>(Dims.Y - 1));
+	const float GridZ = FMath::Clamp(GridPos.Z, 0., static_cast<double>(Dims.Z - 1));
+	const int32 LowerX = FMath::Clamp(FMath::FloorToInt(GridX), 0, Dims.X - 2);
+	const int32 LowerY = FMath::Clamp(FMath::FloorToInt(GridY), 0, Dims.Y - 2);
+	const int32 LowerZ = FMath::Clamp(FMath::FloorToInt(GridZ), 0, Dims.Z - 2);
+	const int32 UpperX = LowerX + 1, UpperY = LowerY + 1, UpperZ = LowerZ + 1;
+	const float BlendX = GridX - LowerX, BlendY = GridY - LowerY, BlendZ = GridZ - LowerZ;
+
+	return FMath::Lerp(
+		FMath::Lerp(
+			FMath::Lerp(GetLinearDensity(LowerX, LowerY, LowerZ), GetLinearDensity(UpperX, LowerY, LowerZ), BlendX),
+			FMath::Lerp(GetLinearDensity(LowerX, UpperY, LowerZ), GetLinearDensity(UpperX, UpperY, LowerZ), BlendX),
+			BlendY),
+		FMath::Lerp(
+			FMath::Lerp(GetLinearDensity(LowerX, LowerY, UpperZ), GetLinearDensity(UpperX, LowerY, UpperZ), BlendX),
+			FMath::Lerp(GetLinearDensity(LowerX, UpperY, UpperZ), GetLinearDensity(UpperX, UpperY, UpperZ), BlendX),
+			BlendY),
+		BlendZ);
+}
+
 uint8 UDualContour::GetMaterialId(int32 SampleX, int32 SampleY, int32 SampleZ) const
 {
 	if (!DualContourUtils::IsValidCoordinate(GetSampleDimensions(), SampleX, SampleY, SampleZ))
@@ -651,37 +675,13 @@ void UDualContour::CompactMaterialChunks(const TSet<FIntVector>& ChunkCoords)
 				MaterialChunks.Remove(ChunkCoord);
 }
 
-float UDualContour::TrilinearDensity(const FVector& GridPos) const
-{
-	const FIntVector Dims = GetSampleDimensions();
-	const float GridX = FMath::Clamp(GridPos.X, 0., static_cast<double>(Dims.X - 1));
-	const float GridY = FMath::Clamp(GridPos.Y, 0., static_cast<double>(Dims.Y - 1));
-	const float GridZ = FMath::Clamp(GridPos.Z, 0., static_cast<double>(Dims.Z - 1));
-	const int32 LowerX = FMath::Clamp(FMath::FloorToInt(GridX), 0, Dims.X - 2);
-	const int32 LowerY = FMath::Clamp(FMath::FloorToInt(GridY), 0, Dims.Y - 2);
-	const int32 LowerZ = FMath::Clamp(FMath::FloorToInt(GridZ), 0, Dims.Z - 2);
-	const int32 UpperX = LowerX + 1, UpperY = LowerY + 1, UpperZ = LowerZ + 1;
-	const float BlendX = GridX - LowerX, BlendY = GridY - LowerY, BlendZ = GridZ - LowerZ;
-
-	return FMath::Lerp(
-		FMath::Lerp(
-			FMath::Lerp(GetLinearDensity(LowerX, LowerY, LowerZ), GetLinearDensity(UpperX, LowerY, LowerZ), BlendX),
-			FMath::Lerp(GetLinearDensity(LowerX, UpperY, LowerZ), GetLinearDensity(UpperX, UpperY, LowerZ), BlendX),
-			BlendY),
-		FMath::Lerp(
-			FMath::Lerp(GetLinearDensity(LowerX, LowerY, UpperZ), GetLinearDensity(UpperX, LowerY, UpperZ), BlendX),
-			FMath::Lerp(GetLinearDensity(LowerX, UpperY, UpperZ), GetLinearDensity(UpperX, UpperY, UpperZ), BlendX),
-			BlendY),
-		BlendZ);
-}
-
 FVector UDualContour::CalculateCentralDifferenceNormal(const FVector& GridPosition) const
 {
 	constexpr float Step = 0.125f;
 	return (-FVector(
-			TrilinearDensity(GridPosition + FVector(Step, 0, 0)) - TrilinearDensity(GridPosition - FVector(Step, 0, 0)),
-			TrilinearDensity(GridPosition + FVector(0, Step, 0)) - TrilinearDensity(GridPosition - FVector(0, Step, 0)),
-			TrilinearDensity(GridPosition + FVector(0, 0, Step)) - TrilinearDensity(GridPosition - FVector(0, 0, Step))))
+			GetTrilinearDensity(GridPosition + FVector(Step, 0, 0)) - GetTrilinearDensity(GridPosition - FVector(Step, 0, 0)),
+			GetTrilinearDensity(GridPosition + FVector(0, Step, 0)) - GetTrilinearDensity(GridPosition - FVector(0, Step, 0)),
+			GetTrilinearDensity(GridPosition + FVector(0, 0, Step)) - GetTrilinearDensity(GridPosition - FVector(0, 0, Step))))
 		.GetSafeNormal();
 }
 

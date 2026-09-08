@@ -29,7 +29,7 @@ bool UDualContourSampler::Sample(const FVector& Position, float& Value, float& W
 	Weight = 1.0f;
 	const UDualContour* Source = CachedDualContour.Get();
 	Value = Source
-		        ? Source->TrilinearDensity(UVW * FVector(Source->CellCount.X, Source->CellCount.Y, Source->CellCount.Z))
+		        ? Source->GetTrilinearDensity(UVW * FVector(Source->CellCount.X, Source->CellCount.Y, Source->CellCount.Z))
 		        : 0.0f;
 	return FMath::IsFinite(Value);
 }

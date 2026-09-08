@@ -90,7 +90,7 @@ bool UDualContourVolumeBrushSampler::Sample(const FVector& Position, float& Valu
 	const FVector P = SourceToTarget.InverseTransformPosition(Position) / Grid->CellSize;
 	if (P.X < 0 || P.Y < 0 || P.Z < 0 || P.X > Grid->CellCount.X || P.Y > Grid->CellCount.Y || P.Z > Grid->CellCount.Z)
 		return false;
-	Value = Grid->TrilinearDensity(P);
+	Value = Grid->GetTrilinearDensity(P);
 	Weight = 1.0f;
 	return true;
 }

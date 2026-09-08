@@ -53,10 +53,14 @@ public:
 	/** Broadcast after material samples change. The affected cell range is [CellMin, CellMax). */
 	FOnDualContourMaterialsChanged OnMaterialsChanged;
 
+	FIntVector GetSampleDimensions() const { return FIntVector(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }
+	FVector GetSampleLocalPosition(int32 SampleX, int32 SampleY, int32 SampleZ) const { return FVector(SampleX, SampleY, SampleZ) * CellSize; }
+
 	bool HasCurrentGeneratedData() const;
 
 	uint16 GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
 	float GetLinearDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
+	float GetTrilinearDensity(const FVector& GridPos) const;
 	uint8 GetMaterialId(int32 SampleX, int32 SampleY, int32 SampleZ) const;
 	/** Returns the chunk overlay accumulated by runtime density mutation paths. */
 	const FDualContourDensityChunks& GetModifiedDensityChunks() const { return ModifiedDensityChunks; }
@@ -91,12 +95,6 @@ public:
 		FDualContourDensityChangedCallback OnSampleChanged = [](const FIntVector&, uint16, uint16) {});
 	bool ApplyPendingMaterialBatch(FDualContourPendingMaterialBatch& Batch,
 		FDualContourMaterialChangedCallback OnSampleChanged = [](const FIntVector&, uint8, uint8) {});
-
-	FIntVector GetSampleDimensions() const { return FIntVector(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }
-
-	FVector GetSampleLocalPosition(int32 SampleX, int32 SampleY, int32 SampleZ) const { return FVector(SampleX, SampleY, SampleZ) * CellSize; }
-
-	float TrilinearDensity(const FVector& GridPos) const;
 
 	virtual void PostLoad() override;
 	virtual void PreSave(FObjectPreSaveContext SaveContext) override;
