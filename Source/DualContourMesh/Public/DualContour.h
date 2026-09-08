@@ -75,9 +75,6 @@ public:
 	bool Rebuild();
 	/** Moves sampler-built density chunks into this grid; density outside the sampled range becomes zero. */
 	bool ReplaceDensityChunks(FDualContourSampledRegion&& SampledRegion, bool bBroadcastCellsRebuilt = true);
-	/** Combines sampled density through a one-shot edit context and rebuilds dirty chunks and their neighbours. */
-	bool ModifyDensityChunks(const FDualContourSampledRegion& SampledRegion, bool bExcavate,
-		FIntVector& OutAffectedCellMin, FIntVector& OutAffectedCellMax);
 
 	/** Consumes pending writes and rebuilds changed chunks. Callback receives actual encoded changes; it must not mutate this grid or batch. */
 	bool ApplyPendingBatch(FDualContourPendingBatch& Batch,
@@ -88,12 +85,12 @@ public:
 
 	/** Consumes both batches before notification. Observers must not mutate this grid during submission. */
 	bool ApplyPendingEdit(
-	    FDualContourPendingBatch& DensityBatch, FDualContourPendingMaterialBatch& MaterialBatch, FDualContourMaterialEditResult& OutResult,
-	    TFunctionRef<void(const FIntVector&, uint16, uint16)> OnDensityChanged = [](const FIntVector&, uint16, uint16) {});
+		FDualContourPendingBatch& DensityBatch, FDualContourPendingMaterialBatch& MaterialBatch, FDualContourMaterialEditResult& OutResult,
+		TFunctionRef<void(const FIntVector&, uint16, uint16)> OnDensityChanged = [](const FIntVector&, uint16, uint16) {});
 
 	bool ApplyPendingMaterialBatch(FDualContourPendingMaterialBatch& Batch, FDualContourMaterialEditResult& OutResult);
 	bool ApplyMaterialEditDeltas(TConstArrayView<FDualContourMaterialSampleDelta> Deltas, bool bUseAfterValues,
-	                             FDualContourMaterialEditResult* OutResult = nullptr);
+		FDualContourMaterialEditResult* OutResult = nullptr);
 	bool ApplyModifiedMaterialChunks(const FDualContourMaterialChunks& InModifiedMaterialChunks);
 
 	FIntVector GetSampleDimensions() const { return FIntVector(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }

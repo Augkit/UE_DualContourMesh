@@ -1,41 +1,44 @@
-# One-shot edits
+# One-shot edits and unified volume sources
 
-`FDualContourEditContext` is a runtime C++ object that owns pending density and material writes for one submission. Construct, stage and commit it on the game thread. Keep the target alive and do not modify or regenerate it through another path between construction and submission. Samplers are borrowed only for the duration of each `Apply` call.
+`FDualContourEditContext` stages density and material changes for one submission. Reads include pending values. It is non-copyable; commit closes it, and destruction discards unsubmitted writes. Keep the target alive and avoid other writes until submission. All staging/submission occurs on the game thread.
 
 ```cpp
 #include "DualContourEditContext.h"
+#include "DualContourTypes.h"
+#include "VolumeSampler/ProceduralVolumeSampler.h"
+#include "UObject/StrongObjectPtr.h"
+
+TStrongObjectPtr<USphereVolumeSampler> Source(NewObject<USphereVolumeSampler>());
+Source->VolumeSize = FVector(200);
+Source->Radius = 80;
+Source->SamplingTransform = FTransform(LocalOffset);
 
 FDualContourEditContext Edit(*Target);
-FDualContourVolumeSampler Volume(*BrushSource, SourceToTarget);
-Edit.ApplyDensity(Volume, EDualContourEditOperation::Union);
-
-FDualContourShapeSampler Mask;
-Mask.Center = LocalCenter;
-Mask.Radius = 100.0f;
-Edit.ApplyMaterial(Mask, 3, 0.5f, true);
-
-FDualContourMaterialEditResult MaterialChanges;
-Edit.Commit(MaterialChanges, [](const FIntVector& Coord, uint16 Before, uint16 After)
-{
-    // Collect actual encoded density changes for undo, if needed.
-});
+Edit.ApplyDensity(EDualContourDensityOperation::Union, *Source);
+Edit.ApplyMaterial(*Source, 3, 0.5f, true);
+Edit.Commit();
 ```
 
-Material painting above sees density staged by the volume operation. `GetDensity` returns linear density, including any pending value; `GetMaterial` likewise checks pending material writes first. `SetDensity` and `SetMaterial` validate coordinates. Returning samples to their original values produces no change on submission.
+All sampling sources now inherit `UVolumeSampler`. There is no separate F field-sampler interface. Existing procedural, texture, noise and contour sources can feed editing directly.
 
-Samplers implement target-local `GetBounds` and `Sample(Position, Value, Weight)`. Returning false or zero weight excludes a sample, including when the material threshold is zero. Density values use the project's centered fixed-point units. The operation selects how to use them:
+## Source contract
 
-- Add/Subtract apply a signed maximum-density increment scaled by strength and mask weight.
-- Union/Difference combine the sampled density with the pending density.
-- Replace interpolates toward the sampled density.
-- Smooth uses the mask and a three-axis `[1, 2, 1] / 4` filter over a snapshot taken before that operation.
+- `GetBounds()` returns a finite target-local bounding box.
+- `Sample(Position, Value, Weight)` returns linear density and influence weight. False or zero weight excludes the position.
+- The default implementation applies `SamplingTransform` about `Pivot * VolumeSize`, validates normalized coordinates, sets `Weight` to one, then calls `SampleNormalized`. Samplers that need custom influence can override `Sample` directly.
+- `BeginSampling` / `EndSampling` wrap existing resource preparation/cleanup. Context and generation paths balance these even on early exits. Direct callers must do the same and keep the source alive.
+- `CanSampleInParallel` exposes the existing explicit thread-safety capability. Native procedural sources can run in parallel; Blueprint SDF dispatch remains on the game thread.
 
-Built-in samplers cover sphere/box masks, directional falloff, plane fields, matching-grid restore, and transformed contour volumes. Plane and restore samplers borrow their mask. Volume sampling supports parallel computation while the game thread waits; custom samplers remain serial unless they explicitly opt in. `ApplySampledRegion` also accepts precomputed chunk samples from the existing `UVolumeSampler` pipeline, preserving its encoded union/difference rules.
+Density strength is multiplied by source weight. Material painting compares weight to the threshold and optionally checks pending solid density. Chunk generation uses weight as a validity mask (positive weights retain sampled density); it does not interpolate against a previous grid. The transform-aware edit overload applies an explicit transform outside the source's own placement, around the volume pivot.
 
-`Commit` closes the context, writes both stores through `UDualContour::ApplyPendingEdit`, records save overlays, then notifies observers and starts density rebuilding once. Material-only edits do not rebuild cells. Density callbacks and material deltas report actual committed values, not merely staged intent. Callbacks and notification handlers must not mutate the target during submission. The bool result means at least one actual change; empty/no-op submissions return false and are still consumed. Density contour rebuilding remains asynchronous.
+`DualContourBrushSamplers.h` supplies UObject shape/falloff, masked plane, transformed volume-brush and matching-grid restore sources. They override target-local bounds/sample directly; their coordinates are already target-local. Composite masks are GC-tracked and their preparation is delegated. Editor placement volumes also use a UVolumeSampler subclass. These sources support both editing and chunk generation through the common bounds/sample interface.
 
-Copying is disabled. A second commit or writes after commit fail. Destruction discards unsubmitted writes; it never commits implicitly. Undo transactions and package dirtying remain the caller's responsibility. This is a synchronous staging/submission contract, not an asynchronous job with revision conflict resolution.
+## Editing and submission
 
-The editor retains `FDualContourBrushStamp` as an input description. `DualContourBrushOperations` adapts it to samplers and operations; the brush tool owns one context per preview submission. Material placement volumes implement the same sampler contract. Existing single-batch submission APIs and `ModifyDensityChunks` remain available as compatibility entry points.
+`EDualContourDensityOperation` describes Add/Subtract, Union/Difference, Replace or Smooth. `FDualContourEditContext` performs the target read, operation evaluation and result staging; Smooth owns its three-pass neighborhood snapshot per invocation.
 
-Run `Automation RunTests DualContour.EditContext` for lifecycle, mixed density/material visibility, no-op edits, smoothing symmetry, transformed/parallel volume sampling, and sampled-region coverage.
+Commit writes both stores and save overlays through `UDualContour::ApplyPendingEdit` before notifying observers. Density rebuild is asynchronous; material-only edits do not rebuild cells. Callbacks report actual encoded changes; returning to original values creates no undo delta. Callbacks must not mutate the target. Undo transactions and package dirtying remain caller responsibilities.
+
+The editor retains BrushStamp as input configuration, adapting it into sources and operation objects. Single-batch submission remains available through `UDualContour::ApplyPendingBatch` for callers that already own final density values.
+
+Run `Automation RunTests DualContour.EditContext` for batch lifecycle, pending-batch submission, mixed visibility, smoothing/volume operations, and existing procedural sources shared by editing and generation.

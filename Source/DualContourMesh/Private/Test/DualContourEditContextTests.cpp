@@ -1,7 +1,10 @@
 #include "DualContourEditContext.h"
-#include "DualContour.h"
-#include "Misc/AutomationTest.h"
+#include "DualContourSamplerBuilder.h"
+#include "VolumeSampler/DualContourBrushSamplers.h"
 #include "UObject/StrongObjectPtr.h"
+#include "DualContour.h"
+#include "DualContourUtils.h"
+#include "Misc/AutomationTest.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -16,7 +19,8 @@ bool FDualContourEditContextTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Initialize"), Grid->Rebuild());
 	Grid->GetCell(0, 0, 0);
 	const FIntVector Center(2);
-	FDualContourShapeSampler Sphere;
+	TStrongObjectPtr<UDualContourShapeVolumeSampler> SphereOwner(NewObject<UDualContourShapeVolumeSampler>());
+	auto& Sphere = *SphereOwner;
 	Sphere.Center = FVector(Center);
 	Sphere.Radius = 0.75f;
 	FDualContourEditContext Edit(*Grid);
@@ -55,10 +59,10 @@ bool FDualContourEditContextTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualContourEditSamplerTest, "DualContour.EditContext.Samplers",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualContourFieldSamplerTest, "DualContour.EditContext.Samplers",
                                  EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FDualContourEditSamplerTest::RunTest(const FString& Parameters)
+bool FDualContourFieldSamplerTest::RunTest(const FString& Parameters)
 {
 	TStrongObjectPtr<UDualContour> Grid(NewObject<UDualContour>());
 	Grid->CellCount = FIntVector(4);
@@ -71,61 +75,105 @@ bool FDualContourEditSamplerTest::RunTest(const FString& Parameters)
 			for (int32 X = 0; X <= 4; ++X)
 				Edit.SetDensity(FIntVector(X, Y, Z), 0);
 	Edit.SetDensity(FIntVector(2), 64);
-	FDualContourShapeSampler Shape;
+	TStrongObjectPtr<UDualContourShapeVolumeSampler> ShapeOwner(NewObject<UDualContourShapeVolumeSampler>());
+	auto& Shape = *ShapeOwner;
 	Shape.Center = FVector(2);
 	Shape.Radius = 4;
 	Shape.Falloff = 0;
-	TestTrue(TEXT("Smooth staged impulse"), Edit.ApplyDensity(Shape, EDualContourEditOperation::Smooth));
+	TestTrue(TEXT("Smooth staged impulse"), Edit.ApplyDensity(EDualContourDensityOperation::Smooth, Shape));
 	TestEqual(TEXT("Gaussian center"), Edit.GetDensity(FIntVector(2)), 8.0f);
 	TestEqual(TEXT("Symmetric negative neighbor"), Edit.GetDensity(FIntVector(1, 2, 2)), 4.0f);
 	TestEqual(TEXT("Symmetric positive neighbor"), Edit.GetDensity(FIntVector(3, 2, 2)), 4.0f);
 	Shape.Radius = 0.75f;
-	FDualContourPlaneSampler Plane(Shape, FVector(2, 2, 3), FVector::UpVector, 64);
-	Edit.ApplyDensity(Plane, EDualContourEditOperation::Replace);
+	TStrongObjectPtr<UDualContourPlaneVolumeSampler> PlaneOwner(NewObject<UDualContourPlaneVolumeSampler>());
+	auto& Plane = *PlaneOwner;
+	Plane.Initialize(Shape, FVector(2, 2, 3), FVector::UpVector, 64);
+	Edit.ApplyDensity(EDualContourDensityOperation::Replace, Plane);
 	TestEqual(TEXT("Plane sample"), Edit.GetDensity(FIntVector(2)), 64.0f);
 	Edit.Commit();
 	Grid->GetCell(0, 0, 0);
-	FDualContourVolumeSampler Volume(*Grid, FTransform(FVector(10, 0, 0)));
+	TStrongObjectPtr<UDualContourVolumeBrushSampler> VolumeOwner(NewObject<UDualContourVolumeBrushSampler>());
+	auto& Volume = *VolumeOwner;
+	Volume.Initialize(*Grid, FTransform(FVector(10, 0, 0)));
 	float Value = 0, Weight = 0;
 	TestTrue(TEXT("Transformed volume sample"), Volume.Sample(FVector(12, 2, 2), Value, Weight));
 	TestEqual(TEXT("Volume value"), Value, 64.0f);
 	TestFalse(TEXT("Outside volume"), Volume.Sample(FVector(9, 2, 2), Value, Weight));
 	FDualContourEditContext Difference(*Grid);
-	FDualContourVolumeSampler IdentityVolume(*Grid, FTransform::Identity);
-	TestTrue(TEXT("Parallel volume difference"), Difference.ApplyDensity(IdentityVolume, EDualContourEditOperation::Difference));
+	TStrongObjectPtr<UDualContourVolumeBrushSampler> IdentityVolumeOwner(NewObject<UDualContourVolumeBrushSampler>());
+	auto& IdentityVolume = *IdentityVolumeOwner;
+	IdentityVolume.Initialize(*Grid, FTransform::Identity);
+	TestTrue(TEXT("Parallel volume difference"), Difference.ApplyDensity(EDualContourDensityOperation::Difference, IdentityVolume));
 	TestEqual(TEXT("Difference uses source snapshot"), Difference.GetDensity(FIntVector(2)), -64.0f);
 	Difference.Commit();
 	Grid->GetCell(0, 0, 0);
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualContourSampledRegionEditTest, "DualContour.EditContext.SampledRegion",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualContourPendingBatchEditTest, "DualContour.EditContext.PendingBatch",
                                  EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FDualContourSampledRegionEditTest::RunTest(const FString& Parameters)
+bool FDualContourPendingBatchEditTest::RunTest(const FString& Parameters)
 {
 	TStrongObjectPtr<UDualContour> Grid(NewObject<UDualContour>());
 	Grid->CellCount = FIntVector(4);
 	Grid->Rebuild();
 	Grid->GetCell(0, 0, 0);
-	FDualContourSampledRegion Region;
-	Region.SampleMin = FIntVector(2);
-	Region.SampleDimensions = FIntVector(1);
-	Region.Chunks.AddDefaulted();
-	Region.Chunks[0].Density.UniformValue = FDensityChunk::EncodeDensity(100);
-	FIntVector Min, Max;
-	TestTrue(TEXT("Region union via context"), Grid->ModifyDensityChunks(Region, false, Min, Max));
+	auto ApplyDensity = [Grid = Grid.Get()](uint16 Density)
+	{
+		FDualContourPendingBatch Batch;
+		Batch.Owner = Grid;
+		Batch.bOpen = true;
+		TMap<uint16, FDualContourPendingSample>& Chunk = Batch.ChunkSamples.FindOrAdd(FIntVector::ZeroValue);
+		Chunk.Add(DualContourUtils::ChunkLocalIndex(2, 2, 2),
+		          {Grid->GetDensity(2, 2, 2), FDensityChunk::DecodeLinearDensity(Density)});
+		return Grid->ApplyPendingBatch(Batch);
+	};
+	TestTrue(TEXT("Pending union"), ApplyDensity(FDensityChunk::EncodeDensity(100)));
 	TestEqual(TEXT("Union density"), Grid->GetLinearDensity(2, 2, 2), 100.0f);
-	TestEqual(TEXT("Affected min"), Min, FIntVector(1));
-	TestEqual(TEXT("Affected exclusive max"), Max, FIntVector(3));
-	TestTrue(TEXT("Region difference"), Grid->ModifyDensityChunks(Region, true, Min, Max));
+	TestTrue(TEXT("Pending difference"), ApplyDensity(FDensityChunk::EncodeDensity(-100)));
 	TestEqual(TEXT("Difference density"), Grid->GetLinearDensity(2, 2, 2), -100.0f);
-	Region.Chunks[0].Density.UniformValue = 0;
-	TestFalse(TEXT("Empty samples are neutral"), Grid->ModifyDensityChunks(Region, false, Min, Max));
-	Region.Chunks.AddDefaulted();
-	FDualContourEditContext Invalid(*Grid);
-	TestFalse(TEXT("Duplicate chunks rejected"), Invalid.ApplySampledRegion(Region, false));
-	TestFalse(TEXT("Invalid region stages nothing"), Invalid.Commit());
+	TestFalse(TEXT("No-op pending batch"), ApplyDensity(FDensityChunk::EncodeDensity(-100)));
+	Grid->GetCell(0, 0, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualContourUnifiedVolumeTest, "DualContour.EditContext.UnifiedVolumeSource",
+                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDualContourUnifiedVolumeTest::RunTest(const FString& Parameters)
+{
+	TStrongObjectPtr<UDualContour> Grid(NewObject<UDualContour>());
+	Grid->CellCount = FIntVector(8);
+	Grid->CellSize = 1;
+	Grid->Rebuild();
+	Grid->GetCell(0, 0, 0);
+	TStrongObjectPtr<USphereVolumeSampler> Sphere(NewObject<USphereVolumeSampler>());
+	Sphere->VolumeSize = FVector(4);
+	Sphere->Radius = 1;
+	Sphere->SamplingTransform = FTransform(FVector(2, 0, 0));
+	FText Error;
+	TestTrue(TEXT("Prepare existing SDF source"), Sphere->BeginSampling(Error));
+	float Value = 0, Weight = 0;
+	TestTrue(TEXT("Transformed center"), Sphere->Sample(FVector(4, 2, 2), Value, Weight));
+	TestEqual(TEXT("Default influence"), Weight, 1.0f);
+	TestFalse(TEXT("Outside finite bounds"), Sphere->Sample(FVector(1, 2, 2), Value, Weight));
+	Sphere->EndSampling();
+
+	FDualContourEditContext Edit(*Grid);
+	TestTrue(TEXT("Existing source feeds edit"), Edit.ApplyDensity(EDualContourDensityOperation::Replace, *Sphere));
+	Edit.Commit();
+	const uint16 Edited = Grid->GetDensity(4, 2, 2);
+	FDualContourSampledRegion SampledRegion;
+	TestTrue(TEXT("Same source feeds generation"), FDualContourSamplerBuilder::BuildDensityChunks(*Sphere, Grid.Get(), FTransform::Identity, SampledRegion, Error));
+	TestTrue(TEXT("Replace generated density"), Grid->ReplaceDensityChunks(MoveTemp(SampledRegion)));
+	TestEqual(TEXT("Generation and edit agree"), Grid->GetDensity(4, 2, 2), Edited);
+	TStrongObjectPtr<UDualContourShapeVolumeSampler> Brush(NewObject<UDualContourShapeVolumeSampler>());
+	Brush->Center = FVector(3);
+	Brush->Radius = 1.5f;
+	SampledRegion.Reset();
+	TestTrue(TEXT("New source feeds generation"), FDualContourSamplerBuilder::BuildDensityChunks(*Brush, Grid.Get(), FTransform::Identity, SampledRegion, Error));
+	TestTrue(TEXT("Replace brush density"), Grid->ReplaceDensityChunks(MoveTemp(SampledRegion)));
+	TestEqual(TEXT("New source center density"), Grid->GetDensity(3, 3, 3), FDensityChunk::EncodeDensity(GDualContourMaxLinearDensity));
 	Grid->GetCell(0, 0, 0);
 	return true;
 }

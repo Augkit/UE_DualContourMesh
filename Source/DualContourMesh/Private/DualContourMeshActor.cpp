@@ -9,6 +9,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "UObject/StrongObjectPtr.h"
+#include "DualContourEditContext.h"
 #include "VolumeSampler/VolumeSampler.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDualContourMesh, Log, All);
@@ -924,17 +925,16 @@ bool ADualContourMeshActor::ModifyDensityWithSampler(const FVector& WorldHitPos,
 	const FTransform SamplerTransform(
 		SamplerRotation, LocalHitPosition - SamplerPivotPosition, FVector(UniformScale));
 
-	FIntVector AffectedCellMin = FIntVector::ZeroValue;
-	FIntVector AffectedCellMax = FIntVector::ZeroValue;
-	FText Error;
-	if (!Sampler->ModifyDualContour(
-		DualContour, SamplerTransform, bExcavate, AffectedCellMin, AffectedCellMax, Error))
+	const EDualContourDensityOperation Operation = bExcavate
+		                                               ? EDualContourDensityOperation::Difference
+		                                               : EDualContourDensityOperation::Union;
+	FDualContourEditContext Edit(*DualContour);
+	if (!Edit.ApplyDensity(Operation, *Sampler, SamplerTransform))
 	{
-		if (!Error.IsEmpty())
-			UE_LOG(LogDualContourMesh, Warning, TEXT("Density edit failed for %s: %s"), *GetName(), *Error.ToString());
+		UE_LOG(LogDualContourMesh, Warning, TEXT("Density edit failed for %s."), *GetName());
 		return false;
 	}
-	return true;
+	return Edit.Commit();
 }
 
 void ADualContourMeshActor::SetDensityEditInProgress(bool bInProgress, bool bUpdateCollisionDuringEdit)

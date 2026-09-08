@@ -8,6 +8,7 @@
 #include "DualContourMeshComponent.h"
 #include "Engine/DirectionalLight.h"
 #include "VolumeSampler/NoiseVolumeSampler.h"
+#include "DualContourSamplerBuilder.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/SkyLight.h"
 #include "Engine/TextureCube.h"
@@ -247,7 +248,9 @@ void ADualContourVisualSweepPlayerController::RunDualContourVisualSweep()
 	Sampler->HeightAmplitude = FMath::Max(0.0f, CVarDualContourVisualTestHeightAmplitude.GetValueOnGameThread());
 
 	FText Error;
-	if (!Sampler->ReplaceDualContour(MeshActor->DualContour, FTransform::Identity, Error))
+	FDualContourSampledRegion SampledRegion;
+	if (!FDualContourSamplerBuilder::BuildDensityChunks(*Sampler, MeshActor->DualContour, FTransform::Identity, SampledRegion, Error)
+	    || !MeshActor->DualContour->ReplaceDensityChunks(MoveTemp(SampledRegion)))
 	{
 		UE_LOG(LogDualContourVisualSweep, Error, TEXT("Failed to build Noise: %s"), *Error.ToString());
 		FinishVisualSweep(false);

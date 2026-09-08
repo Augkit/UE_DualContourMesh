@@ -10,6 +10,16 @@ inline constexpr uint16 GDualContourIsoValue = 32768;
 inline constexpr float GDualContourLinearDensityFixedPointScale = 64.0f;
 inline constexpr int32 GDualContourChunkSize = 16;
 
+enum class EDualContourDensityOperation : uint8
+{
+	Add,
+	Subtract,
+	Union,
+	Difference,
+	Replace,
+	Smooth,
+};
+
 UENUM(BlueprintType)
 enum class EDualContourVertexSolveMode : uint8
 {

@@ -2,13 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
-#include "DualContourTypes.h"
 #include "VolumeSampler.generated.h"
-
-class UDualContour;
-class USVTDualContour;
-class UTexture2D;
-class UVolumeTexture;
 
 #if WITH_EDITOR
 DECLARE_MULTICAST_DELEGATE(FOnVolumeSamplerPropertyChanged);
@@ -21,6 +15,29 @@ class DUALCONTOURMESH_API UVolumeSampler : public UObject
 	GENERATED_BODY()
 
 public:
+	/** Target-local placement, rotating/scaling about Pivot * VolumeSize. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volume")
+	FTransform SamplingTransform = FTransform::Identity;
+
+	/** Bounds and samples are in the target contour's local space. Call BeginSampling/EndSampling around a pass. */
+	virtual FBox GetBounds() const;
+	virtual bool Sample(const FVector& Position, float& Value, float& Weight) const;
+
+	bool BeginSampling(FText& OutError) const
+	{
+		return Prepare(OutError);
+	}
+
+	void EndSampling() const
+	{
+		Finish();
+	}
+
+	bool CanSampleInParallel() const
+	{
+		return SupportsParallelSampling();
+	}
+
 	/** Size of the sampled volume in DualContour local-space units before SampleTransform is applied. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volume", meta = (ClampMin = "0.0001"))
 	FVector VolumeSize = FVector(640.0);
@@ -28,14 +45,6 @@ public:
 	/** Normalized point about which SampleTransform rotates and scales. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volume", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	FVector Pivot = FVector(0.5);
-
-	/** Fills Target with this sampler after applying translation, rotation and scale about Pivot. */
-	UFUNCTION(BlueprintCallable, Category = "Volume Sampling")
-	bool ReplaceDualContour(UDualContour* Target, const FTransform& SampleTransform, FText& OutError);
-
-	/** Combines this sampler with existing target density and returns the directly affected half-open cell range. */
-	bool ModifyDualContour(UDualContour* Target, const FTransform& SampleTransform, bool bExcavate,
-		FIntVector& OutAffectedCellMin, FIntVector& OutAffectedCellMax, FText& OutError);
 
 #if WITH_EDITOR
 	FOnVolumeSamplerPropertyChanged OnPropertyChanged;
@@ -50,7 +59,4 @@ protected:
 	virtual bool SupportsParallelSampling() const { return false; }
 	virtual float SampleNormalized(const FVector& UVW) const PURE_VIRTUAL(UVolumeSampler::SampleNormalized, return 0.0f;);
 
-private:
-	/** Samples the transformed volume directly into independently owned density chunks. */
-	bool BuildDensityChunks(UDualContour* Target, const FTransform& SampleTransform, FDualContourSampledRegion& OutRegion, FText& OutError) const;
 };
