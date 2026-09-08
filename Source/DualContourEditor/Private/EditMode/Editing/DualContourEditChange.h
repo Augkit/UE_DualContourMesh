@@ -3,14 +3,6 @@
 #include "InteractiveToolChange.h"
 #include "DualContourTypes.h"
 
-/** Encoded density history owned exclusively by the editor. */
-struct FDualContourDensitySampleDelta
-{
-	FIntVector SampleCoord = FIntVector::ZeroValue;
-	uint16 Before = 0;
-	uint16 After = 0;
-};
-
 namespace DualContourEditing
 {
 bool ApplyDensityDeltas(UDualContour& DualContour, TConstArrayView<FDualContourDensitySampleDelta> Deltas, bool bUseAfterValues);
@@ -18,7 +10,7 @@ bool ApplyMaterialDeltas(UDualContour& DualContour, TConstArrayView<FDualContour
 }
 
 /** Sparse stroke-level undo. UDualContour::DensityChunks deliberately remains NonTransactional. */
-class FDualContourEditChange final : public FToolCommandChange
+class FDualContourDensityEditChange final : public FToolCommandChange
 {
 public:
 	TArray<FDualContourDensitySampleDelta> Deltas;

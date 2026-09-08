@@ -277,19 +277,11 @@ bool FDualContourEditContext::ApplyMaterial(const UVolumeSampler& Sampler, uint8
 	return bChanged;
 }
 
-bool FDualContourEditContext::Commit(FDualContourMaterialEditResult& MaterialResult,
-	FDualContourDensityChangedCallback OnDensityChanged)
+bool FDualContourEditContext::Commit(FDualContourDensityChangedCallback OnDensityChanged, FDualContourMaterialChangedCallback OnMaterialChanged)
 {
 	check(IsInGameThread());
-	MaterialResult = FDualContourMaterialEditResult();
 	if (!IsOpen())
 		return false;
 	bOpen = false;
-	return Target->ApplyPendingEdit(DensityBatch, MaterialBatch, MaterialResult, OnDensityChanged);
-}
-
-bool FDualContourEditContext::Commit()
-{
-	FDualContourMaterialEditResult Result;
-	return Commit(Result);
+	return Target->ApplyPendingEdit(DensityBatch, MaterialBatch, OnDensityChanged, OnMaterialChanged);
 }

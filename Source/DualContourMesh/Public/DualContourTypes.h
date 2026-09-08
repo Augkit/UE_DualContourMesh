@@ -3,8 +3,8 @@
 #include "Templates/Function.h"
 #include "DualContourTypes.generated.h"
 
-using FDualContourDensityChangedCallback =
-TFunctionRef<void(const FIntVector&, uint16, uint16)>;
+using FDualContourDensityChangedCallback = TFunctionRef<void(const FIntVector&, uint16, uint16)>;
+using FDualContourMaterialChangedCallback = TFunctionRef<void(const FIntVector&, uint8, uint8)>;
 
 inline constexpr float GDualContourMinLinearDensity = -32768.0f;
 inline constexpr float GDualContourLinearIsoValue = 0.0f;
@@ -222,6 +222,13 @@ struct DUALCONTOURMESH_API FDualContourMeshData
 	}
 };
 
+struct DUALCONTOURMESH_API FDualContourDensitySampleDelta
+{
+	FIntVector SampleCoord = FIntVector::ZeroValue;
+	uint16 Before = 0;
+	uint16 After = 0;
+};
+
 struct DUALCONTOURMESH_API FDualContourMaterialBlend
 {
 	TStaticArray<uint8, 4> Ids{0, 0, 0, 0};
@@ -235,15 +242,9 @@ struct DUALCONTOURMESH_API FDualContourMaterialSampleDelta
 	uint8 After = 0;
 };
 
-struct DUALCONTOURMESH_API FDualContourMaterialEditResult
-{
-	TArray<FDualContourMaterialSampleDelta> Deltas;
-	bool IsEmpty() const { return Deltas.IsEmpty(); }
-};
-
 class UDualContour;
 
-struct FDualContourPendingSample
+struct FDualContourPendingDensitySample
 {
 	uint16 Before = 0;
 	float WorkingValue = 0.0f;
@@ -253,7 +254,7 @@ struct FDualContourPendingSample
 struct DUALCONTOURMESH_API FDualContourPendingDensityBatch
 {
 	UDualContour* Owner = nullptr;
-	TMap<FIntVector, TMap<uint16, FDualContourPendingSample>> ChunkSamples;
+	TMap<FIntVector, TMap<uint16, FDualContourPendingDensitySample>> ChunkSamples;
 	bool bOpen = false;
 };
 

@@ -84,11 +84,13 @@ public:
 
 	/** Consumes both batches before notification. Observers must not mutate this grid during submission. */
 	bool ApplyPendingEdit(FDualContourPendingDensityBatch& DensityBatch, FDualContourPendingMaterialBatch& MaterialBatch,
-		FDualContourMaterialEditResult& OutResult, FDualContourDensityChangedCallback OnDensityChanged = [](const FIntVector&, uint16, uint16) {});
+		FDualContourDensityChangedCallback OnDensityChanged = [](const FIntVector&, uint16, uint16) {},
+		FDualContourMaterialChangedCallback OnMaterialChanged = [](const FIntVector&, uint8, uint8) {});
 	/** Consumes pending writes and rebuilds changed chunks. Callback receives actual encoded changes; it must not mutate this grid or batch. */
 	bool ApplyPendingDensityBatch(FDualContourPendingDensityBatch& Batch,
 		FDualContourDensityChangedCallback OnSampleChanged = [](const FIntVector&, uint16, uint16) {});
-	bool ApplyPendingMaterialBatch(FDualContourPendingMaterialBatch& Batch, FDualContourMaterialEditResult& OutResult);
+	bool ApplyPendingMaterialBatch(FDualContourPendingMaterialBatch& Batch,
+		FDualContourMaterialChangedCallback OnSampleChanged = [](const FIntVector&, uint8, uint8) {});
 
 	FIntVector GetSampleDimensions() const { return FIntVector(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }
 

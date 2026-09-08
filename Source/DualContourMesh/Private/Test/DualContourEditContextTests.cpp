@@ -8,7 +8,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualContourEditContextTest, "DualContour.EditContext.BatchLifecycle",
-                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FDualContourEditContextTest::RunTest(const FString& Parameters)
 {
@@ -28,16 +28,24 @@ bool FDualContourEditContextTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Outside mask excluded even at zero threshold"), Edit.GetMaterial(FIntVector(1, 1, 1)), uint8(0));
 	TestEqual(TEXT("No density write before commit"), Grid->GetDensity(2, 2, 2), uint16(0));
 	TestEqual(TEXT("No material write before commit"), Grid->GetMaterialId(2, 2, 2), uint8(0));
-	bool bObservedBoth = false;
-	FDualContourMaterialEditResult Result;
-	TestTrue(TEXT("Mixed commit"), Edit.Commit(Result,
-	                                           [&](const FIntVector& Coord, uint16 Before, uint16 After)
-	                                           {
-		                                           bObservedBoth = Grid->GetMaterialId(Coord.X, Coord.Y, Coord.Z) == 7 && Before == 0 &&
-		                                                           After == FDensityChunk::EncodeDensity(100.0f);
-	                                           }));
-	TestTrue(TEXT("Callback sees both final stores"), bObservedBoth);
-	TestEqual(TEXT("One actual material delta"), Result.Deltas.Num(), 1);
+	bool bMaterialObservedBoth = false;
+	bool bDensityObservedBoth = false;
+	TArray<FDualContourMaterialSampleDelta> MaterialDeltas;
+	TestTrue(TEXT("Mixed commit"), Edit.Commit(
+		[&](const FIntVector& Coord, uint8 Before, uint8 After)
+		{
+			MaterialDeltas.Add({Coord, Before, After});
+			bMaterialObservedBoth = Grid->GetDensity(Coord.X, Coord.Y, Coord.Z) ==
+			                        FDensityChunk::EncodeDensity(100.0f);
+		},
+		[&](const FIntVector& Coord, uint16 Before, uint16 After)
+		{
+			bDensityObservedBoth = Grid->GetMaterialId(Coord.X, Coord.Y, Coord.Z) == 7 && Before == 0 &&
+			                       After == FDensityChunk::EncodeDensity(100.0f);
+		}));
+	TestTrue(TEXT("Material callback sees both final stores"), bMaterialObservedBoth);
+	TestTrue(TEXT("Density callback sees both final stores"), bDensityObservedBoth);
+	TestEqual(TEXT("One actual material delta"), MaterialDeltas.Num(), 1);
 	TestTrue(TEXT("Density save overlay"), !Grid->GetModifiedDensityChunks().IsEmpty());
 	TestTrue(TEXT("Material save overlay"), !Grid->GetModifiedMaterialChunks().IsEmpty());
 	TestFalse(TEXT("Cannot submit twice"), Edit.Commit());
@@ -52,14 +60,20 @@ bool FDualContourEditContextTest::RunTest(const FString& Parameters)
 	NoOp.SetDensity(Center, 100.0f);
 	NoOp.SetMaterial(Center, 8);
 	NoOp.SetMaterial(Center, 7);
-	TestFalse(TEXT("Returning to original values has no changes"), NoOp.Commit(Result));
-	TestTrue(TEXT("No spurious undo delta"), Result.IsEmpty());
+	MaterialDeltas.Reset();
+	TestFalse(TEXT("Returning to original values has no changes"), NoOp.Commit(
+		[](const FIntVector&, uint16, uint16) {},
+		[&MaterialDeltas](const FIntVector& Coord, uint8 Before, uint8 After)
+		{
+			MaterialDeltas.Add({Coord, Before, After});
+		}));
+	TestTrue(TEXT("No spurious undo delta"), MaterialDeltas.IsEmpty());
 	Grid->GetCell(0, 0, 0);
 	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualContourFieldSamplerTest, "DualContour.EditContext.Samplers",
-                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FDualContourFieldSamplerTest::RunTest(const FString& Parameters)
 {
@@ -110,7 +124,7 @@ bool FDualContourFieldSamplerTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualContourPendingBatchEditTest, "DualContour.EditContext.PendingBatch",
-                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FDualContourPendingBatchEditTest::RunTest(const FString& Parameters)
 {
@@ -123,9 +137,9 @@ bool FDualContourPendingBatchEditTest::RunTest(const FString& Parameters)
 		FDualContourPendingDensityBatch Batch;
 		Batch.Owner = Grid;
 		Batch.bOpen = true;
-		TMap<uint16, FDualContourPendingSample>& Chunk = Batch.ChunkSamples.FindOrAdd(FIntVector::ZeroValue);
+		TMap<uint16, FDualContourPendingDensitySample>& Chunk = Batch.ChunkSamples.FindOrAdd(FIntVector::ZeroValue);
 		Chunk.Add(DualContourUtils::ChunkLocalIndex(2, 2, 2),
-		          {Grid->GetDensity(2, 2, 2), FDensityChunk::DecodeLinearDensity(Density)});
+			{Grid->GetDensity(2, 2, 2), FDensityChunk::DecodeLinearDensity(Density)});
 		return Grid->ApplyPendingDensityBatch(Batch);
 	};
 	TestTrue(TEXT("Pending union"), ApplyDensity(FDensityChunk::EncodeDensity(100)));
@@ -138,7 +152,8 @@ bool FDualContourPendingBatchEditTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualContourUnifiedVolumeTest, "DualContour.EditContext.UnifiedVolumeSource",
-                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
 bool FDualContourUnifiedVolumeTest::RunTest(const FString& Parameters)
 {
 	TStrongObjectPtr<UDualContour> Grid(NewObject<UDualContour>());
