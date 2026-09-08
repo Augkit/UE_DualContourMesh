@@ -182,21 +182,6 @@ struct DUALCONTOURMESH_API FDualContourSampledChunk
 	FDensityChunk Density;
 };
 
-/** Chunk-native density samples covering the half-open range [SampleMin, SampleMin + SampleDimensions). */
-struct DUALCONTOURMESH_API FDualContourSampledRegion
-{
-	FIntVector SampleMin = FIntVector::ZeroValue;
-	FIntVector SampleDimensions = FIntVector::ZeroValue;
-	TArray<FDualContourSampledChunk> Chunks;
-
-	void Reset()
-	{
-		SampleMin = FIntVector::ZeroValue;
-		SampleDimensions = FIntVector::ZeroValue;
-		Chunks.Reset();
-	}
-};
-
 // Sparse cell chunk. Only active (surface-crossing) cells are stored.
 USTRUCT(BlueprintType)
 struct DUALCONTOURMESH_API FCellChunk

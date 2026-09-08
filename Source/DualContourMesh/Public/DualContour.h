@@ -10,6 +10,8 @@
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDualContourCellsRebuilt, FIntVector, FIntVector);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDualContourMaterialsChanged, FIntVector, FIntVector);
 
+class UVolumeSampler;
+
 /** Owns the dual-contour source data, generation settings, and contour-building algorithms. */
 UCLASS(BlueprintType)
 class DUALCONTOURMESH_API UDualContour : public UObject
@@ -73,8 +75,9 @@ public:
 	bool CopyFrom(const UDualContour* Source, bool bBroadcastCellsRebuilt = true);
 
 	bool Rebuild();
-	/** Moves sampler-built density chunks into this grid; density outside the sampled range becomes zero. */
-	bool ReplaceDensityChunks(FDualContourSampledRegion&& SampledRegion, bool bBroadcastCellsRebuilt = true);
+	/** Replaces density from sampled chunks; density outside the sampled range becomes zero. */
+	bool ApplySampledDensity(const FIntVector& SampleMin, const FIntVector& SampleDimensions,
+		TArray<FDualContourSampledChunk>&& SampledChunks, bool bBroadcastCellsRebuilt = true);
 
 	/** Consumes pending writes and rebuilds changed chunks. Callback receives actual encoded changes; it must not mutate this grid or batch. */
 	bool ApplyPendingBatch(FDualContourPendingBatch& Batch,

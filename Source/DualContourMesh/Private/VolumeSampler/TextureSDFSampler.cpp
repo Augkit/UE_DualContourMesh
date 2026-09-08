@@ -144,7 +144,7 @@ void UTextureSDFSampler::Finish() const
 	CachedSignedDistances.Reset();
 }
 
-bool UTex3DSDFSampler::Prepare(FText& OutError) const
+bool UTextureSDFSampler::Prepare(FText& OutError) const
 {
 	return Super::Prepare(OutError) && PrepareTexture(OutError);
 }
@@ -157,11 +157,6 @@ bool UTex3DSDFSampler::PrepareTexture(FText& OutError) const
 		return false;
 	}
 	return ReadFloatTexture(*Texture, Texture->GetPlatformData(), CachedResolution, CachedSignedDistances, OutError);
-}
-
-bool UTex2DSDFSampler::Prepare(FText& OutError) const
-{
-	return Super::Prepare(OutError) && PrepareTexture(OutError);
 }
 
 bool UTex2DSDFSampler::PrepareTexture(FText& OutError) const

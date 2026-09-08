@@ -64,4 +64,9 @@ public:
 
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
+
+private:
+#if WITH_EDITOR
+	bool Sample(FText& OutError);
+#endif
 };

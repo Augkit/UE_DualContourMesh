@@ -21,23 +21,24 @@ inline bool IsValidSampleBounds(const FIntVector& FullDimensions, const FIntVect
 	       SampleDimensions.Z <= FullDimensions.Z - SampleMin.Z;
 }
 
-inline bool IsValidSampledRegion(const FIntVector& FullDimensions, const FDualContourSampledRegion& Region)
+inline bool IsValidSampledChunks(const FIntVector& FullDimensions, const FIntVector& SampleMin,
+	const FIntVector& SampleDimensions, const TArray<FDualContourSampledChunk>& Chunks)
 {
-	if (!IsValidSampleBounds(FullDimensions, Region.SampleMin, Region.SampleDimensions))
+	if (!IsValidSampleBounds(FullDimensions, SampleMin, SampleDimensions))
 		return false;
-	if (Region.SampleDimensions == FIntVector::ZeroValue)
-		return Region.Chunks.IsEmpty();
+	if (SampleDimensions == FIntVector::ZeroValue)
+		return Chunks.IsEmpty();
 
-	const FIntVector SampleMax = Region.SampleMin + Region.SampleDimensions;
-	const FIntVector ChunkMin(Region.SampleMin.X / GDualContourChunkSize, Region.SampleMin.Y / GDualContourChunkSize,
-	                          Region.SampleMin.Z / GDualContourChunkSize);
+	const FIntVector SampleMax = SampleMin + SampleDimensions;
+	const FIntVector ChunkMin(SampleMin.X / GDualContourChunkSize, SampleMin.Y / GDualContourChunkSize,
+	                          SampleMin.Z / GDualContourChunkSize);
 	const FIntVector ChunkMaxExclusive(FMath::DivideAndRoundUp(SampleMax.X, GDualContourChunkSize),
 	                                   FMath::DivideAndRoundUp(SampleMax.Y, GDualContourChunkSize),
 	                                   FMath::DivideAndRoundUp(SampleMax.Z, GDualContourChunkSize));
 	TSet<FIntVector> UniqueChunkCoords;
-	UniqueChunkCoords.Reserve(Region.Chunks.Num());
+	UniqueChunkCoords.Reserve(Chunks.Num());
 	const int32 ExpandedChunkSize = GDualContourChunkSize * GDualContourChunkSize * GDualContourChunkSize;
-	for (const FDualContourSampledChunk& SampledChunk : Region.Chunks)
+	for (const FDualContourSampledChunk& SampledChunk : Chunks)
 	{
 		const FIntVector& Coord = SampledChunk.ChunkCoord;
 		if (Coord.X < ChunkMin.X || Coord.Y < ChunkMin.Y || Coord.Z < ChunkMin.Z || Coord.X >= ChunkMaxExclusive.X ||

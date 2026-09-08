@@ -1,7 +1,6 @@
 #include "VolumeSampledDualContour.h"
 
 #if WITH_EDITOR
-#include "DualContourSamplerBuilder.h"
 #include "VolumeSampler/VolumeSampler.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "UObject/ObjectSaveContext.h"
@@ -20,12 +19,9 @@ bool UVolumeSampledDualContour::SampleSource()
 		TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampledDualContour_Modify);
 		Modify();
 	}
-	FDualContourSampledRegion SampledRegion;
-	if (!FDualContourSamplerBuilder::BuildDensityChunks(*VolumeSampler, this, SampleTransform, SampledRegion, Error)
-	    || !ReplaceDensityChunks(MoveTemp(SampledRegion)))
+	if (!VolumeSampler->ApplyToDualContour(this, SampleTransform, Error))
 	{
-		UE_LOG(LogVolumeSampledDualContour, Error, TEXT("Volume sampling failed for %s: %s"),
-			*GetPathName(), *Error.ToString());
+		UE_LOG(LogVolumeSampledDualContour, Error, TEXT("Volume sampling failed for %s: %s"), *GetPathName(), *Error.ToString());
 		return false;
 	}
 

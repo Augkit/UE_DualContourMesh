@@ -1,5 +1,4 @@
 #include "DualContourEditContext.h"
-#include "DualContourSamplerBuilder.h"
 #include "VolumeSampler/DualContourBrushSamplers.h"
 #include "UObject/StrongObjectPtr.h"
 #include "DualContour.h"
@@ -163,16 +162,12 @@ bool FDualContourUnifiedVolumeTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Existing source feeds edit"), Edit.ApplyDensity(EDualContourDensityOperation::Replace, *Sphere));
 	Edit.Commit();
 	const uint16 Edited = Grid->GetDensity(4, 2, 2);
-	FDualContourSampledRegion SampledRegion;
-	TestTrue(TEXT("Same source feeds generation"), FDualContourSamplerBuilder::BuildDensityChunks(*Sphere, Grid.Get(), FTransform::Identity, SampledRegion, Error));
-	TestTrue(TEXT("Replace generated density"), Grid->ReplaceDensityChunks(MoveTemp(SampledRegion)));
+	TestTrue(TEXT("Same source feeds generation"), Sphere->ApplyToDualContour(Grid.Get(), FTransform::Identity, Error));
 	TestEqual(TEXT("Generation and edit agree"), Grid->GetDensity(4, 2, 2), Edited);
 	TStrongObjectPtr<UDualContourShapeVolumeSampler> Brush(NewObject<UDualContourShapeVolumeSampler>());
 	Brush->Center = FVector(3);
 	Brush->Radius = 1.5f;
-	SampledRegion.Reset();
-	TestTrue(TEXT("New source feeds generation"), FDualContourSamplerBuilder::BuildDensityChunks(*Brush, Grid.Get(), FTransform::Identity, SampledRegion, Error));
-	TestTrue(TEXT("Replace brush density"), Grid->ReplaceDensityChunks(MoveTemp(SampledRegion)));
+	TestTrue(TEXT("New source feeds generation"), Brush->ApplyToDualContour(Grid.Get(), FTransform::Identity, Error));
 	TestEqual(TEXT("New source center density"), Grid->GetDensity(3, 3, 3), FDensityChunk::EncodeDensity(GDualContourMaxLinearDensity));
 	Grid->GetCell(0, 0, 0);
 	return true;

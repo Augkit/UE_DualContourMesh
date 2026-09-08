@@ -234,7 +234,7 @@ bool FDualContourEditContext::ApplyDensityInternal(EDualContourDensityOperation 
 		if (!FMath::IsNearlyEqual(Value, Before, KINDA_SMALL_NUMBER))
 			Writes[Index] = {Coord, Value, true};
 	};
-	if (Sampler.CanSampleInParallel())
+	if (Sampler.SupportsParallelSampling())
 		ParallelFor(TEXT("DualContour.EditSamples"), Writes.Num(), 256, Compute, EParallelForFlags::Unbalanced);
 	else
 		for (int32 Index = 0; Index < Writes.Num(); ++Index)

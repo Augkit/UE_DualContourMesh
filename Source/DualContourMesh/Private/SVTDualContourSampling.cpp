@@ -1,8 +1,7 @@
-#include "SVTDualContourBuilder.h"
-
 #if WITH_EDITOR
 
 #include "SVTDualContour.h"
+#include "DualContour.h"
 #include "DualContourUtils.h"
 #include "SparseVolumeTexture/SparseVolumeTexture.h"
 #include "SparseVolumeTexture/ISparseVolumeTextureStreamingManager.h"
@@ -69,30 +68,28 @@ void ComputeUVTransform(ESVTDualContourFit Fit, const FVector3f& TargetSize, con
 }
 }
 
-bool FSVTDualContourBuilder::Sample(const USVTDualContour& SVTDualContour,
-	FDualContourSampledRegion& OutRegion, FText& OutError)
+bool USVTDualContour::Sample(FText& OutError)
 {
 	check(IsInGameThread());
-	OutRegion.Reset();
 	if (!FApp::CanEverRender())
 	{
 		OutError = NSLOCTEXT("SVTDualContour", "RenderingUnavailable", "Rendering is unavailable in this process.");
 		return false;
 	}
-	if (!SVTDualContour.SourceSparseVolumeTexture)
+	if (!SourceSparseVolumeTexture)
 	{
 		OutError = NSLOCTEXT("SVTDualContour", "MissingInput", "A source SVT is required.");
 		return false;
 	}
 
-	if (SVTDualContour.CellCount.X <= 0 || SVTDualContour.CellCount.Y <= 0 || SVTDualContour.CellCount.Z <= 0
-	    || SVTDualContour.CellCount.X >= MAX_int32 || SVTDualContour.CellCount.Y >= MAX_int32
-	    || SVTDualContour.CellCount.Z >= MAX_int32)
+	if (CellCount.X <= 0 || CellCount.Y <= 0 || CellCount.Z <= 0
+	    || CellCount.X >= MAX_int32 || CellCount.Y >= MAX_int32
+	    || CellCount.Z >= MAX_int32)
 	{
 		OutError = NSLOCTEXT("SVTDualContour", "InvalidResolution", "The density sample resolution is invalid or too large.");
 		return false;
 	}
-	const FIntVector SampleDims = SVTDualContour.CellCount + FIntVector(1);
+	const FIntVector SampleDims = CellCount + FIntVector(1);
 	if (SampleDims.X > MAX_int32 / SampleDims.Y)
 	{
 		OutError = NSLOCTEXT("SVTDualContour", "InvalidResolution", "The density sample resolution is invalid or too large.");
@@ -106,9 +103,9 @@ bool FSVTDualContourBuilder::Sample(const USVTDualContour& SVTDualContour,
 	}
 	const int64 NumSamples64 = SampleArea * SampleDims.Z;
 
-	UStaticSparseVolumeTexture* Source = SVTDualContour.SourceSparseVolumeTexture;
+	UStaticSparseVolumeTexture* Source = SourceSparseVolumeTexture;
 	USparseVolumeTextureFrame* Frame = USparseVolumeTextureFrame::GetFrameAndIssueStreamingRequest(
-		Source, GetTypeHash(&SVTDualContour), 0.f, 0.f, 0.f, true, false);
+		Source, GetTypeHash(this), 0.f, 0.f, 0.f, true, false);
 	if (!Frame)
 	{
 		OutError = NSLOCTEXT("SVTDualContour", "MissingFrame", "The source SVT has no frame to sample.");
@@ -120,26 +117,26 @@ bool FSVTDualContourBuilder::Sample(const USVTDualContour& SVTDualContour,
 
 	const FIntVector SourceResolution = Source->GetVolumeResolution();
 	const FVector3f TargetSize(
-		SVTDualContour.CellCount.X * SVTDualContour.CellSize,
-		SVTDualContour.CellCount.Y * SVTDualContour.CellSize,
-		SVTDualContour.CellCount.Z * SVTDualContour.CellSize);
+		CellCount.X * CellSize,
+		CellCount.Y * CellSize,
+		CellCount.Z * CellSize);
 	FVector3f UVScale;
 	FVector3f UVBias;
-	ComputeUVTransform(SVTDualContour.Fit, TargetSize, FVector3f(SourceResolution), UVScale, UVBias);
+	ComputeUVTransform(Fit, TargetSize, FVector3f(SourceResolution), UVScale, UVBias);
 
 	const uint32 NumSamples = static_cast<uint32>(NumSamples64);
 	const uint32 NumBytes = NumSamples * sizeof(uint32);
 	TSharedRef<FRHIGPUBufferReadback, ESPMode::ThreadSafe> Readback =
 		MakeShared<FRHIGPUBufferReadback, ESPMode::ThreadSafe>(TEXT("SVTDualContourReadback"));
 	TSharedRef<bool, ESPMode::ThreadSafe> bResourcesValid = MakeShared<bool, ESPMode::ThreadSafe>(true);
-	const uint32 AttributeIndex = static_cast<uint32>(SVTDualContour.DensityAttribute);
-	const float DensityScale = SVTDualContour.DensityScale;
-	const float DensityBias = SVTDualContour.DensityBias;
+	const uint32 AttributeIndex = static_cast<uint32>(DensityAttribute);
+	const float SourceDensityScale = DensityScale;
+	const float SourceDensityBias = DensityBias;
 	const FVector4f FallbackA = Source->GetFallbackValue(0);
 	const FVector4f FallbackB = Source->GetFallbackValue(1);
 
 	ENQUEUE_RENDER_COMMAND(SampleSVTDualContour)(
-		[Frame, SampleDims, NumSamples, NumBytes, UVScale, UVBias, AttributeIndex, DensityScale, DensityBias,
+		[Frame, SampleDims, NumSamples, NumBytes, UVScale, UVBias, AttributeIndex, SourceDensityScale, SourceDensityBias,
 			FallbackA, FallbackB, Readback, bResourcesValid](FRHICommandListImmediate& RHICmdList)
 		{
 			const UE::SVT::FTextureRenderResources* Resources = Frame->GetTextureRenderResources();
@@ -167,8 +164,8 @@ bool FSVTDualContourBuilder::Sample(const USVTDualContour& SVTDualContour,
 			Parameters->UVScale = UVScale;
 			Parameters->UVBias = UVBias;
 			Parameters->AttributeIndex = AttributeIndex;
-			Parameters->DensityScale = DensityScale;
-			Parameters->DensityBias = DensityBias;
+			Parameters->DensityScale = SourceDensityScale;
+			Parameters->DensityBias = SourceDensityBias;
 			Parameters->FallbackValueA = FallbackA;
 			Parameters->FallbackValueB = FallbackB;
 			Parameters->OutputDensities = GraphBuilder.CreateUAV(OutputBuffer);
@@ -209,23 +206,24 @@ bool FSVTDualContourBuilder::Sample(const USVTDualContour& SVTDualContour,
 	FlushRenderingCommands();
 
 	TRACE_CPUPROFILER_EVENT_SCOPE(SVTDualContour_PackDensityChunks);
-	OutRegion.SampleMin = FIntVector::ZeroValue;
-	OutRegion.SampleDimensions = SampleDims;
+	const FIntVector SampleMin = FIntVector::ZeroValue;
+	const FIntVector SampleDimensions = SampleDims;
 	const FIntVector ChunkDimensions(
 		FMath::DivideAndRoundUp(SampleDims.X, GDualContourChunkSize),
 		FMath::DivideAndRoundUp(SampleDims.Y, GDualContourChunkSize),
 		FMath::DivideAndRoundUp(SampleDims.Z, GDualContourChunkSize));
 	const int32 ChunkArea = ChunkDimensions.X * ChunkDimensions.Y;
 	const int32 ChunkCount = ChunkArea * ChunkDimensions.Z;
-	OutRegion.Chunks.SetNum(ChunkCount);
+	TArray<FDualContourSampledChunk> SampledChunks;
+	SampledChunks.SetNum(ChunkCount);
 	ParallelFor(TEXT("SVTDualContour.PackDensityChunks"), ChunkCount, 1,
-		[&OutRegion, ReadbackValues, SampleDims, ChunkDimensions, ChunkArea](int32 Index)
+		[&SampledChunks, ReadbackValues, SampleDims, ChunkDimensions, ChunkArea](int32 Index)
 		{
 			const int32 ChunkZ = Index / ChunkArea;
 			const int32 Remainder = Index - ChunkZ * ChunkArea;
 			const int32 ChunkY = Remainder / ChunkDimensions.X;
 			const int32 ChunkX = Remainder - ChunkY * ChunkDimensions.X;
-			FDualContourSampledChunk& SampledChunk = OutRegion.Chunks[Index];
+			FDualContourSampledChunk& SampledChunk = SampledChunks[Index];
 			SampledChunk.ChunkCoord = FIntVector(ChunkX, ChunkY, ChunkZ);
 
 			const FIntVector ChunkOrigin = DualContourUtils::ChunkOrigin(SampledChunk.ChunkCoord);
@@ -253,11 +251,11 @@ bool FSVTDualContourBuilder::Sample(const USVTDualContour& SVTDualContour,
 				SampledChunk.Density.TryCollapse();
 		}, EParallelForFlags::Unbalanced);
 
-	OutRegion.Chunks.RemoveAllSwap([](const FDualContourSampledChunk& Chunk)
+	SampledChunks.RemoveAllSwap([](const FDualContourSampledChunk& Chunk)
 	{
 		return Chunk.Density.IsUniform() && Chunk.Density.UniformValue == 0;
 	}, EAllowShrinking::No);
-	return true;
+	return ApplySampledDensity(SampleMin, SampleDimensions, MoveTemp(SampledChunks));
 }
 
 #endif

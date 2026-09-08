@@ -37,7 +37,6 @@ public:
 
 	virtual bool Prepare(FText& OutError) const override;
 
-protected:
 	virtual bool SupportsParallelSampling() const override;
 };
 

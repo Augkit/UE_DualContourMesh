@@ -20,12 +20,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF")
 	float DensityBias = 0.0f;
 
+	virtual bool Prepare(FText& OutError) const override;
+	virtual void Finish() const override;
+
+	virtual bool SupportsParallelSampling() const override { return true; }
+
 protected:
 	float SignedDistanceToDensity(float SignedDistance) const;
 	float SampleCachedTexture(const FVector& UVW) const;
-	virtual bool SupportsParallelSampling() const override { return true; }
 	virtual bool PrepareTexture(FText& OutError) const PURE_VIRTUAL(UTextureSDFSampler::PrepareTexture, return false;);
-	virtual void Finish() const override;
 
 	mutable FIntVector CachedResolution = FIntVector::ZeroValue;
 	mutable TArray<float> CachedSignedDistances;
@@ -40,8 +43,6 @@ class DUALCONTOURMESH_API UTex3DSDFSampler : public UTextureSDFSampler
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF")
 	TObjectPtr<UVolumeTexture> Texture;
-
-	virtual bool Prepare(FText& OutError) const override;
 
 protected:
 	virtual bool PrepareTexture(FText& OutError) const override;
@@ -60,8 +61,6 @@ public:
 	/** Original 3D export resolution. Z cannot be recovered from padded atlas dimensions. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "1"))
 	FIntVector VolumeResolution = FIntVector(64, 64, 64);
-
-	virtual bool Prepare(FText& OutError) const override;
 
 protected:
 	virtual bool PrepareTexture(FText& OutError) const override;

@@ -1,7 +1,6 @@
 #include "SVTDualContour.h"
 
 #if WITH_EDITOR
-#include "SVTDualContourBuilder.h"
 #endif
 
 #if WITH_EDITOR
@@ -10,17 +9,13 @@ bool USVTDualContour::SampleSource()
 	if (!SourceSparseVolumeTexture)
 		return false;
 
-	FDualContourSampledRegion SampledRegion;
+	Modify();
 	FText Error;
-	if (!FSVTDualContourBuilder::Sample(*this, SampledRegion, Error))
+	if (!Sample(Error))
 	{
 		UE_LOG(LogTemp, Error, TEXT("SVT dual-contour sampling failed for %s: %s"), *GetPathName(), *Error.ToString());
 		return false;
 	}
-
-	Modify();
-	if (!ReplaceDensityChunks(MoveTemp(SampledRegion)))
-		return false;
 
 	++GenerationRevision;
 	MarkPackageDirty();
