@@ -349,7 +349,7 @@ bool ADualContourMeshActor::LoadRuntimeDensityIncrement(const FString& SlotName,
 
 	TStrongObjectPtr<USaveGame> LoadedObject(UGameplayStatics::LoadGameFromSlot(SlotName, UserIndex));
 	const UDualContourRuntimeSaveGame* SaveGame = Cast<UDualContourRuntimeSaveGame>(LoadedObject.Get());
-	if (!SaveGame || (SaveGame->SaveVersion != 7 && SaveGame->SaveVersion != 8))
+	if (!SaveGame)
 	{
 		UE_LOG(LogDualContourMesh, Warning, TEXT("Runtime density load failed for %s: slot '%s' is missing or incompatible."),
 			*GetName(), *SlotName);
@@ -364,8 +364,7 @@ bool ADualContourMeshActor::LoadRuntimeDensityIncrement(const FString& SlotName,
 	}
 
 	TGuardValue<bool> RebuildingMeshGuard(bRebuildingMesh, true);
-	const FDualContourMaterialChunks* SavedMaterials = SaveGame->SaveVersion >= 8 ? &SaveGame->MaterialChunks : nullptr;
-	if (!DualContour->Initialize(InitialDualContour, &SaveGame->DensityChunks, SavedMaterials))
+	if (!DualContour->Initialize(InitialDualContour, &SaveGame->DensityChunks, &SaveGame->MaterialChunks))
 	{
 		RecreateMeshComponents();
 		UE_LOG(LogDualContourMesh, Error,

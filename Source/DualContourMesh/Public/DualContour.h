@@ -85,6 +85,7 @@ public:
 
 	/** Applies a validated chunk overlay to the current density grid and records it for subsequent saves. */
 	bool ApplyModifiedDensityChunks(const FDualContourDensityChunks& InModifiedDensityChunks);
+	bool ApplyModifiedMaterialChunks(const FDualContourMaterialChunks& InModifiedMaterialChunks);
 
 	/** Consumes both batches before notification. Observers must not mutate this grid during submission. */
 	bool ApplyPendingEdit(
@@ -94,7 +95,6 @@ public:
 	bool ApplyPendingMaterialBatch(FDualContourPendingMaterialBatch& Batch, FDualContourMaterialEditResult& OutResult);
 	bool ApplyMaterialEditDeltas(TConstArrayView<FDualContourMaterialSampleDelta> Deltas, bool bUseAfterValues,
 		FDualContourMaterialEditResult* OutResult = nullptr);
-	bool ApplyModifiedMaterialChunks(const FDualContourMaterialChunks& InModifiedMaterialChunks);
 
 	FIntVector GetSampleDimensions() const { return FIntVector(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }
 

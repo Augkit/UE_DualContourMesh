@@ -67,10 +67,10 @@ inline bool IsValidSampledChunks(const FIntVector& FullDimensions, const FIntVec
 
 	const FIntVector SampleMax = SampleMin + SampleDimensions;
 	const FIntVector ChunkMin(SampleMin.X / GDualContourChunkSize, SampleMin.Y / GDualContourChunkSize,
-	                          SampleMin.Z / GDualContourChunkSize);
+		SampleMin.Z / GDualContourChunkSize);
 	const FIntVector ChunkMaxExclusive(FMath::DivideAndRoundUp(SampleMax.X, GDualContourChunkSize),
-	                                   FMath::DivideAndRoundUp(SampleMax.Y, GDualContourChunkSize),
-	                                   FMath::DivideAndRoundUp(SampleMax.Z, GDualContourChunkSize));
+		FMath::DivideAndRoundUp(SampleMax.Y, GDualContourChunkSize),
+		FMath::DivideAndRoundUp(SampleMax.Z, GDualContourChunkSize));
 	TSet<FIntVector> UniqueChunkCoords;
 	UniqueChunkCoords.Reserve(Chunks.Num());
 	const int32 ExpandedChunkSize = GDualContourChunkSize * GDualContourChunkSize * GDualContourChunkSize;
