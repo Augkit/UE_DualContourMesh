@@ -143,7 +143,6 @@ private:
 	void WriteDirtyMaterialSample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 MaterialId, TSet<FIntVector>& DirtyChunks);
 	void CompactAllMaterialChunks();
 	void CompactMaterialChunks(const TSet<FIntVector>& ChunkCoords);
-	void BroadcastMaterialSampleRange(FIntVector SampleMin, FIntVector SampleMaxInclusive);
 
 	FVector CalculateCentralDifferenceNormal(const FVector& GridPosition) const;
 

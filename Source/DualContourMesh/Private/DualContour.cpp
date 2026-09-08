@@ -560,7 +560,14 @@ bool UDualContour::ApplyPendingEdit(FDualContourPendingDensityBatch& Batch, FDua
 	for (const FDualContourMaterialSampleDelta& Change : MaterialChanges)
 		OnMaterialChanged(Change.SampleCoord, Change.Before, Change.After);
 	if (!MaterialChanges.IsEmpty())
-		BroadcastMaterialSampleRange(SampleMin, SampleMax);
+	{
+		const FIntVector CellMin(FMath::Max(0, SampleMin.X - 1), FMath::Max(0, SampleMin.Y - 1),
+			FMath::Max(0, SampleMin.Z - 1));
+		const FIntVector CellMax(FMath::Min(CellCount.X, CellMin.X + 1), FMath::Min(CellCount.Y, CellMin.Y + 1),
+			FMath::Min(CellCount.Z, CellMin.Z + 1));
+		if (CellMin.X < CellMax.X && CellMin.Y < CellMax.Y && CellMin.Z < CellMax.Z)
+			OnMaterialsChanged.Broadcast(CellMin, CellMax);
+	}
 	if (bDensityChanged)
 		RebuildDirtyCellChunks(MoveTemp(ActuallyDirtyChunks), true);
 	return bDensityChanged || !MaterialChanges.IsEmpty();
@@ -642,15 +649,6 @@ void UDualContour::CompactMaterialChunks(const TSet<FIntVector>& ChunkCoords)
 		if (FMaterialIdChunk* Chunk = MaterialChunks.Find(ChunkCoord))
 			if (Chunk->TryCollapse() && Chunk->UniformId == 0)
 				MaterialChunks.Remove(ChunkCoord);
-}
-
-void UDualContour::BroadcastMaterialSampleRange(FIntVector SampleMin, FIntVector SampleMaxInclusive)
-{
-	const FIntVector CellMin(FMath::Max(0, SampleMin.X - 1), FMath::Max(0, SampleMin.Y - 1), FMath::Max(0, SampleMin.Z - 1));
-	const FIntVector CellMax(FMath::Min(CellCount.X, SampleMaxInclusive.X + 1),
-		FMath::Min(CellCount.Y, SampleMaxInclusive.Y + 1), FMath::Min(CellCount.Z, SampleMaxInclusive.Z + 1));
-	if (CellMin.X < CellMax.X && CellMin.Y < CellMax.Y && CellMin.Z < CellMax.Z)
-		OnMaterialsChanged.Broadcast(CellMin, CellMax);
 }
 
 float UDualContour::TrilinearDensity(const FVector& GridPos) const
