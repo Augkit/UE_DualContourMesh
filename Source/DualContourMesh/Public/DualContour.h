@@ -82,18 +82,12 @@ public:
 	/** Replaces density from sampled chunks; density outside the sampled range becomes zero. */
 	bool ReplaceDensityFromSampledChunks(TArray<FDualContourSampledChunk>&& SampledChunks, bool bBroadcastCellsRebuilt = true);
 
-	/** Applies a validated chunk overlay to the current density grid and records it for subsequent saves. */
-	bool ApplyModifiedDensityChunks(const FDualContourDensityChunks& InModifiedDensityChunks);
-	bool ApplyModifiedMaterialChunks(const FDualContourMaterialChunks& InModifiedMaterialChunks);
-
 	/** Consumes both batches before notification. Observers must not mutate this grid during submission. */
 	bool ApplyPendingEdit(FDualContourPendingDensityBatch& DensityBatch, FDualContourPendingMaterialBatch& MaterialBatch,
 		FDualContourDensityChangedCallback OnDensityChanged = {}, FDualContourMaterialChangedCallback OnMaterialChanged = {});
 	/** Consumes pending writes and rebuilds changed chunks. Callback receives actual encoded changes; it must not mutate this grid or batch. */
-	bool ApplyPendingDensityBatch(FDualContourPendingDensityBatch& Batch,
-		FDualContourDensityChangedCallback OnSampleChanged = {});
-	bool ApplyPendingMaterialBatch(FDualContourPendingMaterialBatch& Batch,
-		FDualContourMaterialChangedCallback OnSampleChanged = {});
+	bool ApplyPendingDensityBatch(FDualContourPendingDensityBatch& Batch, FDualContourDensityChangedCallback OnSampleChanged = {});
+	bool ApplyPendingMaterialBatch(FDualContourPendingMaterialBatch& Batch, FDualContourMaterialChangedCallback OnSampleChanged = {});
 
 	virtual void PostLoad() override;
 	virtual void PreSave(FObjectPreSaveContext SaveContext) override;
@@ -140,6 +134,10 @@ private:
 	void WriteDirtyMaterialSample(int32 SampleX, int32 SampleY, int32 SampleZ, uint8 MaterialId, TSet<FIntVector>& DirtyChunks);
 	void CompactAllMaterialChunks();
 	void CompactMaterialChunks(const TSet<FIntVector>& ChunkCoords);
+
+	/** Applies a validated chunk overlay to the current density grid and records it for subsequent saves. */
+	bool ApplyModifiedDensityChunks(const FDualContourDensityChunks& InModifiedDensityChunks);
+	bool ApplyModifiedMaterialChunks(const FDualContourMaterialChunks& InModifiedMaterialChunks);
 
 	FVector CalculateCentralDifferenceNormal(const FVector& GridPosition) const;
 

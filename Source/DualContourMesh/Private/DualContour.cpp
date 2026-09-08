@@ -676,16 +676,6 @@ void UDualContour::CompactMaterialChunks(const TSet<FIntVector>& ChunkCoords)
 				MaterialChunks.Remove(ChunkCoord);
 }
 
-FVector UDualContour::CalculateCentralDifferenceNormal(const FVector& GridPosition) const
-{
-	constexpr float Step = 0.125f;
-	return (-FVector(
-			GetTrilinearDensity(GridPosition + FVector(Step, 0, 0)) - GetTrilinearDensity(GridPosition - FVector(Step, 0, 0)),
-			GetTrilinearDensity(GridPosition + FVector(0, Step, 0)) - GetTrilinearDensity(GridPosition - FVector(0, Step, 0)),
-			GetTrilinearDensity(GridPosition + FVector(0, 0, Step)) - GetTrilinearDensity(GridPosition - FVector(0, 0, Step))))
-		.GetSafeNormal();
-}
-
 bool UDualContour::ApplyModifiedDensityChunks(const FDualContourDensityChunks& InModifiedDensityChunks)
 {
 	if (!HasCurrentGeneratedData())
@@ -752,6 +742,16 @@ bool UDualContour::ApplyModifiedMaterialChunks(const FDualContourMaterialChunks&
 	if (!InModifiedMaterialChunks.IsEmpty())
 		OnMaterialsChanged.Broadcast(FIntVector::ZeroValue, CellCount);
 	return true;
+}
+
+FVector UDualContour::CalculateCentralDifferenceNormal(const FVector& GridPosition) const
+{
+	constexpr float Step = 0.125f;
+	return (-FVector(
+			GetTrilinearDensity(GridPosition + FVector(Step, 0, 0)) - GetTrilinearDensity(GridPosition - FVector(Step, 0, 0)),
+			GetTrilinearDensity(GridPosition + FVector(0, Step, 0)) - GetTrilinearDensity(GridPosition - FVector(0, Step, 0)),
+			GetTrilinearDensity(GridPosition + FVector(0, 0, Step)) - GetTrilinearDensity(GridPosition - FVector(0, 0, Step))))
+		.GetSafeNormal();
 }
 
 FDualContourCell UDualContour::CreateNewCell(int32 CellX, int32 CellY, int32 CellZ) const
