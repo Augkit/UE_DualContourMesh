@@ -78,29 +78,21 @@ public:
 	/** Replaces density from sampled chunks; density outside the sampled range becomes zero. */
 	bool ReplaceDensityFromSampledChunks(TArray<FDualContourSampledChunk>&& SampledChunks, bool bBroadcastCellsRebuilt = true);
 
-	/** Consumes pending writes and rebuilds changed chunks. Callback receives actual encoded changes; it must not mutate this grid or batch. */
-	bool ApplyPendingBatch(FDualContourPendingBatch& Batch,
-		TFunctionRef<void(const FIntVector&, uint16, uint16)> OnSampleChanged = [](const FIntVector&, uint16, uint16) {});
-
 	/** Applies a validated chunk overlay to the current density grid and records it for subsequent saves. */
 	bool ApplyModifiedDensityChunks(const FDualContourDensityChunks& InModifiedDensityChunks);
 	bool ApplyModifiedMaterialChunks(const FDualContourMaterialChunks& InModifiedMaterialChunks);
 
 	/** Consumes both batches before notification. Observers must not mutate this grid during submission. */
-	bool ApplyPendingEdit(
-		FDualContourPendingBatch& DensityBatch, FDualContourPendingMaterialBatch& MaterialBatch, FDualContourMaterialEditResult& OutResult,
-		TFunctionRef<void(const FIntVector&, uint16, uint16)> OnDensityChanged = [](const FIntVector&, uint16, uint16) {});
-
+	bool ApplyPendingEdit(FDualContourPendingDensityBatch& DensityBatch, FDualContourPendingMaterialBatch& MaterialBatch,
+		FDualContourMaterialEditResult& OutResult, FDualContourDensityChangedCallback OnDensityChanged = [](const FIntVector&, uint16, uint16) {});
+	/** Consumes pending writes and rebuilds changed chunks. Callback receives actual encoded changes; it must not mutate this grid or batch. */
+	bool ApplyPendingDensityBatch(FDualContourPendingDensityBatch& Batch,
+		FDualContourDensityChangedCallback OnSampleChanged = [](const FIntVector&, uint16, uint16) {});
 	bool ApplyPendingMaterialBatch(FDualContourPendingMaterialBatch& Batch, FDualContourMaterialEditResult& OutResult);
-	bool ApplyMaterialEditDeltas(TConstArrayView<FDualContourMaterialSampleDelta> Deltas, bool bUseAfterValues,
-		FDualContourMaterialEditResult* OutResult = nullptr);
 
 	FIntVector GetSampleDimensions() const { return FIntVector(CellCount.X + 1, CellCount.Y + 1, CellCount.Z + 1); }
 
-	FVector GetSampleLocalPosition(int32 SampleX, int32 SampleY, int32 SampleZ) const
-	{
-		return FVector(static_cast<double>(SampleX), static_cast<double>(SampleY), static_cast<double>(SampleZ)) * CellSize;
-	}
+	FVector GetSampleLocalPosition(int32 SampleX, int32 SampleY, int32 SampleZ) const { return FVector(SampleX, SampleY, SampleZ) * CellSize; }
 
 	float TrilinearDensity(const FVector& GridPos) const;
 

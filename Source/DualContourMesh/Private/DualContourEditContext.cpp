@@ -278,7 +278,7 @@ bool FDualContourEditContext::ApplyMaterial(const UVolumeSampler& Sampler, uint8
 }
 
 bool FDualContourEditContext::Commit(FDualContourMaterialEditResult& MaterialResult,
-	TFunctionRef<void(const FIntVector&, uint16, uint16)> OnDensityChanged)
+	FDualContourDensityChangedCallback OnDensityChanged)
 {
 	check(IsInGameThread());
 	MaterialResult = FDualContourMaterialEditResult();

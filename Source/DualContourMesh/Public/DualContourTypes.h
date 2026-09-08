@@ -1,6 +1,10 @@
 #pragma once
 #include "CoreMinimal.h"
+#include "Templates/Function.h"
 #include "DualContourTypes.generated.h"
+
+using FDualContourDensityChangedCallback =
+TFunctionRef<void(const FIntVector&, uint16, uint16)>;
 
 inline constexpr float GDualContourMinLinearDensity = -32768.0f;
 inline constexpr float GDualContourLinearIsoValue = 0.0f;
@@ -246,7 +250,7 @@ struct FDualContourPendingSample
 };
 
 /** Pending density writes accumulated until the next submission. */
-struct DUALCONTOURMESH_API FDualContourPendingBatch
+struct DUALCONTOURMESH_API FDualContourPendingDensityBatch
 {
 	UDualContour* Owner = nullptr;
 	TMap<FIntVector, TMap<uint16, FDualContourPendingSample>> ChunkSamples;

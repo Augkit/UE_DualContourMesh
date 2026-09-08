@@ -535,10 +535,10 @@ void UDualContourBrushTool::FlushStroke(bool bFinalFlush)
 	ActiveEdit->Commit(Result,
 	                   [this](const FIntVector& Coord, uint16 Before, uint16 After)
 	                   {
-		                   if (FDualContourSampleDelta* Existing = StrokeDeltas.Find(Coord))
+		                   if (FDualContourDensitySampleDelta* Existing = StrokeDeltas.Find(Coord))
 			                   Existing->After = After;
 		                   else
-			                   StrokeDeltas.Add(Coord, FDualContourSampleDelta{Coord, Before, After});
+			                   StrokeDeltas.Add(Coord, FDualContourDensitySampleDelta{Coord, Before, After});
 	                   });
 	for (const FDualContourMaterialSampleDelta& Delta : Result.Deltas)
 	{
@@ -575,7 +575,7 @@ void UDualContourBrushTool::FinishStroke(bool bCancel)
 		MaterialStrokeDeltas.GenerateValueArray(Deltas);
 		Deltas.RemoveAllSwap([](const FDualContourMaterialSampleDelta& Delta) { return Delta.Before == Delta.After; });
 		if (Deltas.IsEmpty()) return;
-		if (bCancel) TargetActor->DualContour->ApplyMaterialEditDeltas(Deltas, false);
+		if (bCancel) DualContourEditing::ApplyMaterialDeltas(*TargetActor->DualContour, Deltas, false);
 		else
 		{
 			TUniquePtr<FDualContourMaterialEditChange> Change = MakeUnique<FDualContourMaterialEditChange>();
@@ -589,14 +589,14 @@ void UDualContourBrushTool::FinishStroke(bool bCancel)
 	}
 	if (StrokeDeltas.IsEmpty()) return;
 
-	TArray<FDualContourSampleDelta> Deltas;
+	TArray<FDualContourDensitySampleDelta> Deltas;
 	StrokeDeltas.GenerateValueArray(Deltas);
-	Deltas.RemoveAllSwap([](const FDualContourSampleDelta& Delta) { return Delta.Before == Delta.After; });
+	Deltas.RemoveAllSwap([](const FDualContourDensitySampleDelta& Delta) { return Delta.Before == Delta.After; });
 	if (Deltas.IsEmpty())
 		return;
 	if (bCancel)
 	{
-		DualContourEditing::ApplyDeltas(*TargetActor->DualContour, Deltas, false);
+		DualContourEditing::ApplyDensityDeltas(*TargetActor->DualContour, Deltas, false);
 	}
 	else
 	{

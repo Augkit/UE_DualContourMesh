@@ -89,7 +89,7 @@ private:
 	TObjectPtr<UMaterialInterface> BrushFalloffMaterial;
 
 	TUniquePtr<FDualContourEditContext> ActiveEdit;
-	TMap<FIntVector, FDualContourSampleDelta> StrokeDeltas;
+	TMap<FIntVector, FDualContourDensitySampleDelta> StrokeDeltas;
 	TMap<FIntVector, FDualContourMaterialSampleDelta> MaterialStrokeDeltas;
 	FVector HitPosition = FVector::ZeroVector;
 	FVector HitNormal = FVector::UpVector;

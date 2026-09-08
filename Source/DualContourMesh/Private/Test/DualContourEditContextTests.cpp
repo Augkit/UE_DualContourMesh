@@ -120,13 +120,13 @@ bool FDualContourPendingBatchEditTest::RunTest(const FString& Parameters)
 	Grid->GetCell(0, 0, 0);
 	auto ApplyDensity = [Grid = Grid.Get()](uint16 Density)
 	{
-		FDualContourPendingBatch Batch;
+		FDualContourPendingDensityBatch Batch;
 		Batch.Owner = Grid;
 		Batch.bOpen = true;
 		TMap<uint16, FDualContourPendingSample>& Chunk = Batch.ChunkSamples.FindOrAdd(FIntVector::ZeroValue);
 		Chunk.Add(DualContourUtils::ChunkLocalIndex(2, 2, 2),
 		          {Grid->GetDensity(2, 2, 2), FDensityChunk::DecodeLinearDensity(Density)});
-		return Grid->ApplyPendingBatch(Batch);
+		return Grid->ApplyPendingDensityBatch(Batch);
 	};
 	TestTrue(TEXT("Pending union"), ApplyDensity(FDensityChunk::EncodeDensity(100)));
 	TestEqual(TEXT("Union density"), Grid->GetLinearDensity(2, 2, 2), 100.0f);
