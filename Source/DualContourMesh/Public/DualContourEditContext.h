@@ -27,8 +27,8 @@ public:
 	bool ApplyDensity(EDualContourDensityOperation Operation, const UVolumeSampler& Sampler,
 		const FTransform& SampleTransform, float Strength = 1.0f);
 	bool ApplyMaterial(const UVolumeSampler& Sampler, uint8 MaterialId, float Threshold = 0.5f, bool bSolidOnly = true);
-	bool Commit(FDualContourDensityChangedCallback OnDensityChanged = [](const FIntVector&, uint16, uint16) {},
-		FDualContourMaterialChangedCallback OnMaterialChanged = [](const FIntVector&, uint8, uint8) {});
+	bool Commit(FDualContourDensityChangedCallback OnDensityChanged = {},
+		FDualContourMaterialChangedCallback OnMaterialChanged = {});
 
 private:
 	bool GetSampleBounds(const UVolumeSampler& Sampler, const FTransform* SampleTransform, FIntVector& Min, FIntVector& Max) const;

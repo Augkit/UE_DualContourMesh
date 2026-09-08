@@ -3,8 +3,8 @@
 #include "Templates/Function.h"
 #include "DualContourTypes.generated.h"
 
-using FDualContourDensityChangedCallback = TFunctionRef<void(const FIntVector&, uint16, uint16)>;
-using FDualContourMaterialChangedCallback = TFunctionRef<void(const FIntVector&, uint8, uint8)>;
+using FDualContourDensityChangedCallback = TFunction<void(const FIntVector&, uint16, uint16)>;
+using FDualContourMaterialChangedCallback = TFunction<void(const FIntVector&, uint8, uint8)>;
 
 inline constexpr float GDualContourMinLinearDensity = -32768.0f;
 inline constexpr float GDualContourLinearIsoValue = 0.0f;

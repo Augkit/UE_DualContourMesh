@@ -283,5 +283,5 @@ bool FDualContourEditContext::Commit(FDualContourDensityChangedCallback OnDensit
 	if (!IsOpen())
 		return false;
 	bOpen = false;
-	return Target->ApplyPendingEdit(DensityBatch, MaterialBatch, OnDensityChanged, OnMaterialChanged);
+	return Target->ApplyPendingEdit(DensityBatch, MaterialBatch, MoveTemp(OnDensityChanged), MoveTemp(OnMaterialChanged));
 }

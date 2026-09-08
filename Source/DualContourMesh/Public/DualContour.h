@@ -88,13 +88,12 @@ public:
 
 	/** Consumes both batches before notification. Observers must not mutate this grid during submission. */
 	bool ApplyPendingEdit(FDualContourPendingDensityBatch& DensityBatch, FDualContourPendingMaterialBatch& MaterialBatch,
-		FDualContourDensityChangedCallback OnDensityChanged = [](const FIntVector&, uint16, uint16) {},
-		FDualContourMaterialChangedCallback OnMaterialChanged = [](const FIntVector&, uint8, uint8) {});
+		FDualContourDensityChangedCallback OnDensityChanged = {}, FDualContourMaterialChangedCallback OnMaterialChanged = {});
 	/** Consumes pending writes and rebuilds changed chunks. Callback receives actual encoded changes; it must not mutate this grid or batch. */
 	bool ApplyPendingDensityBatch(FDualContourPendingDensityBatch& Batch,
-		FDualContourDensityChangedCallback OnSampleChanged = [](const FIntVector&, uint16, uint16) {});
+		FDualContourDensityChangedCallback OnSampleChanged = {});
 	bool ApplyPendingMaterialBatch(FDualContourPendingMaterialBatch& Batch,
-		FDualContourMaterialChangedCallback OnSampleChanged = [](const FIntVector&, uint8, uint8) {});
+		FDualContourMaterialChangedCallback OnSampleChanged = {});
 
 	virtual void PostLoad() override;
 	virtual void PreSave(FObjectPreSaveContext SaveContext) override;

@@ -540,12 +540,14 @@ bool UDualContour::ApplyPendingEdit(FDualContourPendingDensityBatch& Batch, FDua
 			if (Before == After)
 				continue;
 			WriteDirtyDensitySample(SampleCoord.X, SampleCoord.Y, SampleCoord.Z, After, ActuallyDirtyChunks);
-			DensityChanges.Add({SampleCoord, Before, After});
+			if (OnDensityChanged)
+				DensityChanges.Add({SampleCoord, Before, After});
 		}
 	}
 	Batch.ChunkSamples.Reset();
 	TSet<FIntVector> DirtyChunks;
 	TArray<FDualContourMaterialSampleDelta> MaterialChanges;
+	bool bMaterialChanged = false;
 	FIntVector SampleMin = GetSampleDimensions();
 	FIntVector SampleMax(-1, -1, -1);
 	for (const TPair<FIntVector, TMap<uint16, FDualContourPendingMaterialSample>>& ChunkPair : MaterialBatch.ChunkSamples)
@@ -560,10 +562,9 @@ bool UDualContour::ApplyPendingEdit(FDualContourPendingDensityBatch& Batch, FDua
 			if (Before == SamplePair.Value.WorkingId)
 				continue;
 			WriteDirtyMaterialSample(SampleCoord.X, SampleCoord.Y, SampleCoord.Z, SamplePair.Value.WorkingId, DirtyChunks);
-			FDualContourMaterialSampleDelta& Delta = MaterialChanges.AddDefaulted_GetRef();
-			Delta.SampleCoord = SampleCoord;
-			Delta.Before = Before;
-			Delta.After = SamplePair.Value.WorkingId;
+			bMaterialChanged = true;
+			if (OnMaterialChanged)
+				MaterialChanges.Add({SampleCoord, Before, SamplePair.Value.WorkingId});
 			SampleMin.X = FMath::Min(SampleMin.X, SampleCoord.X);
 			SampleMin.Y = FMath::Min(SampleMin.Y, SampleCoord.Y);
 			SampleMin.Z = FMath::Min(SampleMin.Z, SampleCoord.Z);
@@ -583,7 +584,7 @@ bool UDualContour::ApplyPendingEdit(FDualContourPendingDensityBatch& Batch, FDua
 		OnDensityChanged(Change.SampleCoord, Change.Before, Change.After);
 	for (const FDualContourMaterialSampleDelta& Change : MaterialChanges)
 		OnMaterialChanged(Change.SampleCoord, Change.Before, Change.After);
-	if (!MaterialChanges.IsEmpty())
+	if (bMaterialChanged)
 	{
 		const FIntVector CellMin(FMath::Max(0, SampleMin.X - 1), FMath::Max(0, SampleMin.Y - 1),
 			FMath::Max(0, SampleMin.Z - 1));
@@ -594,7 +595,7 @@ bool UDualContour::ApplyPendingEdit(FDualContourPendingDensityBatch& Batch, FDua
 	}
 	if (bDensityChanged)
 		RebuildDirtyCellChunks(MoveTemp(ActuallyDirtyChunks), true);
-	return bDensityChanged || !MaterialChanges.IsEmpty();
+	return bDensityChanged || bMaterialChanged;
 }
 
 bool UDualContour::ApplyPendingDensityBatch(FDualContourPendingDensityBatch& Batch, FDualContourDensityChangedCallback OnSampleChanged)
@@ -602,7 +603,7 @@ bool UDualContour::ApplyPendingDensityBatch(FDualContourPendingDensityBatch& Bat
 	FDualContourPendingMaterialBatch MaterialBatch;
 	MaterialBatch.Owner = this;
 	MaterialBatch.bOpen = true;
-	return ApplyPendingEdit(Batch, MaterialBatch, OnSampleChanged);
+	return ApplyPendingEdit(Batch, MaterialBatch, MoveTemp(OnSampleChanged));
 }
 
 bool UDualContour::ApplyPendingMaterialBatch(FDualContourPendingMaterialBatch& Batch, FDualContourMaterialChangedCallback OnSampleChanged)
@@ -610,7 +611,7 @@ bool UDualContour::ApplyPendingMaterialBatch(FDualContourPendingMaterialBatch& B
 	FDualContourPendingDensityBatch DensityBatch;
 	DensityBatch.Owner = this;
 	DensityBatch.bOpen = true;
-	return ApplyPendingEdit(DensityBatch, Batch, [](const FIntVector&, uint16, uint16) {}, OnSampleChanged);
+	return ApplyPendingEdit(DensityBatch, Batch, {}, MoveTemp(OnSampleChanged));
 }
 
 void UDualContour::WriteDirtyDensitySample(int32 SampleX, int32 SampleY, int32 SampleZ, uint16 Density, TSet<FIntVector>& DirtyChunks)
