@@ -40,45 +40,18 @@ bool Solve3x3(const double Matrix[3][3], const double RightHandSide[3], double S
 	return true;
 }
 
-inline bool IsValidSampleBounds(const FIntVector& FullDimensions, const FIntVector& SampleMin, const FIntVector& SampleDimensions)
+inline bool IsValidSampledChunks(const FIntVector& FullDimensions, const TArray<FDualContourSampledChunk>& Chunks)
 {
-	if (SampleMin.X < 0 || SampleMin.Y < 0 || SampleMin.Z < 0 || SampleDimensions.X < 0 || SampleDimensions.Y < 0 || SampleDimensions.Z < 0)
-		return false;
-
-	const bool bEmpty = SampleDimensions.X == 0 || SampleDimensions.Y == 0 || SampleDimensions.Z == 0;
-	if (bEmpty)
-	{
-		return SampleDimensions.X == 0 && SampleDimensions.Y == 0 && SampleDimensions.Z == 0 && SampleMin.X <= FullDimensions.X &&
-		       SampleMin.Y <= FullDimensions.Y && SampleMin.Z <= FullDimensions.Z;
-	}
-
-	return SampleMin.X < FullDimensions.X && SampleMin.Y < FullDimensions.Y && SampleMin.Z < FullDimensions.Z &&
-	       SampleDimensions.X <= FullDimensions.X - SampleMin.X && SampleDimensions.Y <= FullDimensions.Y - SampleMin.Y &&
-	       SampleDimensions.Z <= FullDimensions.Z - SampleMin.Z;
-}
-
-inline bool IsValidSampledChunks(const FIntVector& FullDimensions, const FIntVector& SampleMin,
-	const FIntVector& SampleDimensions, const TArray<FDualContourSampledChunk>& Chunks)
-{
-	if (!IsValidSampleBounds(FullDimensions, SampleMin, SampleDimensions))
-		return false;
-	if (SampleDimensions == FIntVector::ZeroValue)
-		return Chunks.IsEmpty();
-
-	const FIntVector SampleMax = SampleMin + SampleDimensions;
-	const FIntVector ChunkMin(SampleMin.X / GDualContourChunkSize, SampleMin.Y / GDualContourChunkSize,
-		SampleMin.Z / GDualContourChunkSize);
-	const FIntVector ChunkMaxExclusive(FMath::DivideAndRoundUp(SampleMax.X, GDualContourChunkSize),
-		FMath::DivideAndRoundUp(SampleMax.Y, GDualContourChunkSize),
-		FMath::DivideAndRoundUp(SampleMax.Z, GDualContourChunkSize));
 	TSet<FIntVector> UniqueChunkCoords;
 	UniqueChunkCoords.Reserve(Chunks.Num());
 	const int32 ExpandedChunkSize = GDualContourChunkSize * GDualContourChunkSize * GDualContourChunkSize;
+	const FIntVector ChunkCount(FMath::DivideAndRoundUp(FullDimensions.X, GDualContourChunkSize),
+		FMath::DivideAndRoundUp(FullDimensions.Y, GDualContourChunkSize), FMath::DivideAndRoundUp(FullDimensions.Z, GDualContourChunkSize));
 	for (const FDualContourSampledChunk& SampledChunk : Chunks)
 	{
 		const FIntVector& Coord = SampledChunk.ChunkCoord;
-		if (Coord.X < ChunkMin.X || Coord.Y < ChunkMin.Y || Coord.Z < ChunkMin.Z || Coord.X >= ChunkMaxExclusive.X ||
-		    Coord.Y >= ChunkMaxExclusive.Y || Coord.Z >= ChunkMaxExclusive.Z || UniqueChunkCoords.Contains(Coord) ||
+		if (Coord.X < 0 || Coord.Y < 0 || Coord.Z < 0 || Coord.X >= ChunkCount.X || Coord.Y >= ChunkCount.Y ||
+		    Coord.Z >= ChunkCount.Z || UniqueChunkCoords.Contains(Coord) ||
 		    (!SampledChunk.Density.IsUniform() && SampledChunk.Density.DensitySamples.Num() != ExpandedChunkSize))
 		{
 			return false;
@@ -355,8 +328,6 @@ bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& 
 	if (!Prepare(OutError))
 		return false;
 	ON_SCOPE_EXIT { Finish(); };
-	FIntVector SampleMin = FIntVector::ZeroValue;
-	FIntVector SampleDimensions = FIntVector::ZeroValue;
 	TArray<FDualContourSampledChunk> SampledChunks;
 
 	const FVector PivotPosition = Pivot * VolumeSize;
@@ -378,18 +349,18 @@ bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& 
 	const FVector TargetMax = FVector(Target->CellCount) * Target->CellSize;
 	if (TransformedBounds.Max.X < 0.0 || TransformedBounds.Max.Y < 0.0 || TransformedBounds.Max.Z < 0.0
 	    || TransformedBounds.Min.X > TargetMax.X || TransformedBounds.Min.Y > TargetMax.Y || TransformedBounds.Min.Z > TargetMax.Z)
-		return Target->ApplySampledDensity(SampleMin, SampleDimensions, MoveTemp(SampledChunks));
+		return Target->ReplaceDensityFromSampledChunks(MoveTemp(SampledChunks));
 	const FVector ClippedMin(FMath::Clamp(TransformedBounds.Min.X, 0.0, TargetMax.X),
 		FMath::Clamp(TransformedBounds.Min.Y, 0.0, TargetMax.Y), FMath::Clamp(TransformedBounds.Min.Z, 0.0, TargetMax.Z));
 	const FVector ClippedMax(FMath::Clamp(TransformedBounds.Max.X, 0.0, TargetMax.X),
 		FMath::Clamp(TransformedBounds.Max.Y, 0.0, TargetMax.Y), FMath::Clamp(TransformedBounds.Max.Z, 0.0, TargetMax.Z));
-	SampleMin = FIntVector(FMath::Clamp(FMath::FloorToInt(ClippedMin.X / Target->CellSize), 0, Target->CellCount.X),
+	const FIntVector SampleMin(FMath::Clamp(FMath::FloorToInt(ClippedMin.X / Target->CellSize), 0, Target->CellCount.X),
 		FMath::Clamp(FMath::FloorToInt(ClippedMin.Y / Target->CellSize), 0, Target->CellCount.Y),
 		FMath::Clamp(FMath::FloorToInt(ClippedMin.Z / Target->CellSize), 0, Target->CellCount.Z));
 	const FIntVector SampleMax(FMath::Clamp(FMath::CeilToInt(ClippedMax.X / Target->CellSize) + 1, 0, Target->CellCount.X + 1),
 		FMath::Clamp(FMath::CeilToInt(ClippedMax.Y / Target->CellSize) + 1, 0, Target->CellCount.Y + 1),
 		FMath::Clamp(FMath::CeilToInt(ClippedMax.Z / Target->CellSize) + 1, 0, Target->CellCount.Z + 1));
-	SampleDimensions = SampleMax - SampleMin;
+	const FIntVector SampleDimensions = SampleMax - SampleMin;
 
 	const FIntVector ChunkMin(SampleMin.X / GDualContourChunkSize, SampleMin.Y / GDualContourChunkSize,
 		SampleMin.Z / GDualContourChunkSize);
@@ -459,23 +430,21 @@ bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& 
 	{
 		return Chunk.Density.IsUniform() && Chunk.Density.UniformValue == 0;
 	}, EAllowShrinking::No);
-	return Target->ApplySampledDensity(SampleMin, SampleDimensions, MoveTemp(SampledChunks));
+	return Target->ReplaceDensityFromSampledChunks(MoveTemp(SampledChunks));
 }
 
-bool UDualContour::ApplySampledDensity(const FIntVector& SampleMin, const FIntVector& SampleDimensions,
-	TArray<FDualContourSampledChunk>&& SampledChunks, bool bBroadcastCellsRebuilt)
+bool UDualContour::ReplaceDensityFromSampledChunks(TArray<FDualContourSampledChunk>&& SampledChunks, bool bBroadcastCellsRebuilt)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_ApplySampledDensity);
 	EnsureRebuildComplete();
 	bRebuildRequired = true;
-	if (!ValidateGenerationSettings() || !IsValidSampledChunks(GetSampleDimensions(), SampleMin, SampleDimensions, SampledChunks))
+	if (!ValidateGenerationSettings() || !IsValidSampledChunks(GetSampleDimensions(), SampledChunks))
 	{
 		UE_LOG(LogDualContour, Error, TEXT("ApplySampledDensity aborted for %s because the sampled region is invalid."),
 			*GetNameSafe(GetOuter()));
 		return false;
 	}
 
-	const FIntVector SampleMax = SampleMin + SampleDimensions;
 	DensityChunks.Empty(SampledChunks.Num());
 	ModifiedDensityChunks.Reset();
 	MaterialChunks.Reset();
@@ -490,7 +459,19 @@ bool UDualContour::ApplySampledDensity(const FIntVector& SampleMin, const FIntVe
 	CellChunks.Reset();
 	LastBuiltCellCount = CellCount;
 	bRebuildRequired = false;
-	if (SampleDimensions == FIntVector::ZeroValue)
+	FIntVector SampleMin = GetSampleDimensions();
+	FIntVector SampleMax = FIntVector::ZeroValue;
+	for (const TPair<FIntVector, FDensityChunk>& Pair : DensityChunks)
+	{
+		const FIntVector ChunkOrigin = DualContourUtils::ChunkOrigin(Pair.Key);
+		SampleMin.X = FMath::Min(SampleMin.X, ChunkOrigin.X);
+		SampleMin.Y = FMath::Min(SampleMin.Y, ChunkOrigin.Y);
+		SampleMin.Z = FMath::Min(SampleMin.Z, ChunkOrigin.Z);
+		SampleMax.X = FMath::Max(SampleMax.X, FMath::Min(GetSampleDimensions().X, ChunkOrigin.X + GDualContourChunkSize));
+		SampleMax.Y = FMath::Max(SampleMax.Y, FMath::Min(GetSampleDimensions().Y, ChunkOrigin.Y + GDualContourChunkSize));
+		SampleMax.Z = FMath::Max(SampleMax.Z, FMath::Min(GetSampleDimensions().Z, ChunkOrigin.Z + GDualContourChunkSize));
+	}
+	if (DensityChunks.IsEmpty())
 	{
 		if (bBroadcastCellsRebuilt)
 			OnCellsRebuilt.Broadcast(FIntVector::ZeroValue, CellCount);

@@ -206,8 +206,6 @@ bool USVTDualContour::Sample(FText& OutError)
 	FlushRenderingCommands();
 
 	TRACE_CPUPROFILER_EVENT_SCOPE(SVTDualContour_PackDensityChunks);
-	const FIntVector SampleMin = FIntVector::ZeroValue;
-	const FIntVector SampleDimensions = SampleDims;
 	const FIntVector ChunkDimensions(
 		FMath::DivideAndRoundUp(SampleDims.X, GDualContourChunkSize),
 		FMath::DivideAndRoundUp(SampleDims.Y, GDualContourChunkSize),
@@ -255,7 +253,7 @@ bool USVTDualContour::Sample(FText& OutError)
 	{
 		return Chunk.Density.IsUniform() && Chunk.Density.UniformValue == 0;
 	}, EAllowShrinking::No);
-	return ApplySampledDensity(SampleMin, SampleDimensions, MoveTemp(SampledChunks));
+	return ReplaceDensityFromSampledChunks(MoveTemp(SampledChunks));
 }
 
 #endif

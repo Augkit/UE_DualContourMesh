@@ -76,8 +76,7 @@ public:
 
 	bool Rebuild();
 	/** Replaces density from sampled chunks; density outside the sampled range becomes zero. */
-	bool ApplySampledDensity(const FIntVector& SampleMin, const FIntVector& SampleDimensions,
-		TArray<FDualContourSampledChunk>&& SampledChunks, bool bBroadcastCellsRebuilt = true);
+	bool ReplaceDensityFromSampledChunks(TArray<FDualContourSampledChunk>&& SampledChunks, bool bBroadcastCellsRebuilt = true);
 
 	/** Consumes pending writes and rebuilds changed chunks. Callback receives actual encoded changes; it must not mutate this grid or batch. */
 	bool ApplyPendingBatch(FDualContourPendingBatch& Batch,
