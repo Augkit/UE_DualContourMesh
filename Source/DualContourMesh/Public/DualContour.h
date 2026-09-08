@@ -148,11 +148,11 @@ private:
 	FVector CalculateCentralDifferenceNormal(const FVector& GridPosition) const;
 
 	FDualContourCell CreateNewCell(int32 CellX, int32 CellY, int32 CellZ) const;
-	void AsyncRebuildCells(bool bBroadcastCellsRebuilt = true);
-	void RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax, bool bBroadcastCellsRebuilt = true);
-	void AsyncRebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax, bool bBroadcastCellsRebuilt = true);
-	void RebuildDirtyCellChunks(const TSet<FIntVector>& DirtyDensityChunks, bool bBroadcastCellsRebuilt = true);
-	void AsyncRebuildDirtyCellChunks(TSet<FIntVector>&& DirtyDensityChunks, bool bBroadcastCellsRebuilt = true);
+	void RebuildCells(bool bAsync, bool bBroadcastCellsRebuilt = true);
+	void RebuildCellsInRange(FIntVector RangeMin, FIntVector RangeMax, bool bAsync, bool bBroadcastCellsRebuilt = true);
+	void RebuildCellsInRangeInternal(FIntVector RangeMin, FIntVector RangeMax, bool bBroadcastCellsRebuilt = true);
+	void RebuildDirtyCellChunks(TSet<FIntVector>&& DirtyDensityChunks, bool bAsync, bool bBroadcastCellsRebuilt = true);
+	void RebuildDirtyCellChunksInternal(const TSet<FIntVector>& DirtyDensityChunks, bool bBroadcastCellsRebuilt = true);
 
 	void RecordModifiedDensityChunks(const TSet<FIntVector>& ChunkCoords);
 	void RecordModifiedMaterialChunks(const TSet<FIntVector>& ChunkCoords);
