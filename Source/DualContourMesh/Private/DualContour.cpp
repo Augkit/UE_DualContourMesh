@@ -353,6 +353,7 @@ bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& 
 	if (!Prepare(OutError))
 		return false;
 	ON_SCOPE_EXIT { Finish(); };
+	const FVolumeSamplerPlacement Placement = MakePlacement(&SamplerToTargetTransform);
 	TArray<FDualContourSampledChunk> SampledChunks;
 
 	const FVector PivotPosition = Pivot * VolumeSize;
@@ -362,16 +363,7 @@ bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& 
 		OutError = NSLOCTEXT("VolumeSampler", "InvalidBounds", "Sampler bounds are invalid.");
 		return false;
 	}
-	FBox TargetLocalBounds(ForceInit);
-	for (int32 Corner = 0; Corner < 8; ++Corner)
-	{
-		const FVector SamplerInputCorner(
-			(Corner & 1) ? SamplerInputBounds.Max.X : SamplerInputBounds.Min.X,
-			(Corner & 2) ? SamplerInputBounds.Max.Y : SamplerInputBounds.Min.Y,
-			(Corner & 4) ? SamplerInputBounds.Max.Z : SamplerInputBounds.Min.Z);
-		TargetLocalBounds += PivotPosition
-			+ SamplerToTargetTransform.TransformPosition(SamplerInputCorner - PivotPosition);
-	}
+	const FBox TargetLocalBounds = TransformBoxAroundPivot(SamplerInputBounds, SamplerToTargetTransform, PivotPosition);
 
 	const FVector TargetLocalMax = FVector(Target->CellCount) * Target->CellSize;
 	if (TargetLocalBounds.Max.X < 0.0 || TargetLocalBounds.Max.Y < 0.0 || TargetLocalBounds.Max.Z < 0.0
@@ -412,10 +404,9 @@ bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& 
 	const int32 ChunkCount = static_cast<int32>(ChunkArea * ChunkDimensions.Z);
 	SampledChunks.SetNum(ChunkCount);
 
-	const FVector SamplerToTargetTranslation = SamplerToTargetTransform.GetTranslation();
 	const float TargetCellSize = Target->CellSize;
 	const auto SampleChunk = [this, &SampledChunks, TargetSampleMin, SampleDimensions, ChunkMin, ChunkDimensions, ChunkArea, TargetCellSize,
-			PivotPosition, SamplerToTargetTransform, SamplerToTargetTranslation](int32 Index)
+			Placement](int32 Index)
 	{
 		const int32 ChunkZ = static_cast<int32>(Index / ChunkArea);
 		const int32 Remainder = static_cast<int32>(Index - static_cast<int64>(ChunkZ) * ChunkArea);
@@ -440,11 +431,8 @@ bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& 
 				{
 					const FVector TargetLocalPosition(static_cast<double>(X) * TargetCellSize, static_cast<double>(Y) * TargetCellSize,
 						static_cast<double>(Z) * TargetCellSize);
-					const FVector SamplerInputPosition = PivotPosition
-					                                     + SamplerToTargetTransform.InverseTransformVector(
-						                                     TargetLocalPosition - PivotPosition - SamplerToTargetTranslation);
 					float LinearDensity = GDualContourMinLinearDensity, Weight = 0.0f;
-					if (!Sample(SamplerInputPosition, LinearDensity, Weight) || !FMath::IsFinite(Weight) || Weight <= 0.0f)
+					if (!Sample(TargetLocalPosition, Placement, LinearDensity, Weight) || !FMath::IsFinite(Weight) || Weight <= 0.0f)
 						continue;
 					const uint16 Density = FDensityChunk::EncodeDensity(LinearDensity);
 					if (Density == 0)

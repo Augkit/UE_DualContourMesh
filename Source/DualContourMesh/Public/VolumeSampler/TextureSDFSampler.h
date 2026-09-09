@@ -10,7 +10,8 @@ class DUALCONTOURMESH_API UTextureSDFSampler : public UVolumeSampler
 	GENERATED_BODY()
 
 public:
-	virtual bool Sample(const FVector& SamplerInputPosition, float& Value, float& Weight) const override;
+	virtual bool Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
+		float& Value, float& Weight) const override;
 
 	/** Density units per signed-distance unit. Negative SDF values become solid density. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "0.0"))
@@ -27,11 +28,13 @@ public:
 
 protected:
 	float SignedDistanceToDensity(float SignedDistance) const;
-	float SampleCachedTexture(const FVector& NormalizedVolumePosition) const;
+	float SampleCachedTexture(const FVector& BaseVolumePosition) const;
 	virtual bool PrepareTexture(FText& OutError) const PURE_VIRTUAL(UTextureSDFSampler::PrepareTexture, return false;);
 
 	mutable FIntVector CachedResolution = FIntVector::ZeroValue;
 	mutable TArray<float> CachedSignedDistances;
+	/** Precomputed CachedResolution / VolumeSize so sampling only multiplies per axis. */
+	mutable FVector CachedVoxelsPerVolumeUnit = FVector::ZeroVector;
 };
 
 /** Samples a Texture3D/VolumeTexture exported by StaticMeshSDFExporter. */

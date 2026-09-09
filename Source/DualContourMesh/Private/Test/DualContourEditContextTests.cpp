@@ -4,6 +4,7 @@
 #include "DualContour.h"
 #include "DualContourUtils.h"
 #include "Misc/AutomationTest.h"
+#include "VolumeSampler/ProceduralVolumeSampler.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -109,9 +110,9 @@ bool FDualContourFieldSamplerTest::RunTest(const FString& Parameters)
 	auto& Volume = *VolumeOwner;
 	Volume.Initialize(*Grid, FTransform(FVector(10, 0, 0)));
 	float Value = 0, Weight = 0;
-	TestTrue(TEXT("Transformed volume sample"), Volume.Sample(FVector(12, 2, 2), Value, Weight));
+	TestTrue(TEXT("Transformed volume sample"), Volume.Sample(FVector(12, 2, 2), FVolumeSamplerPlacement(), Value, Weight));
 	TestEqual(TEXT("Volume value"), Value, 64.0f);
-	TestFalse(TEXT("Outside volume"), Volume.Sample(FVector(9, 2, 2), Value, Weight));
+	TestFalse(TEXT("Outside volume"), Volume.Sample(FVector(9, 2, 2), FVolumeSamplerPlacement(), Value, Weight));
 	FDualContourEditContext Difference(*Grid);
 	TStrongObjectPtr<UDualContourVolumeBrushSampler> IdentityVolumeOwner(NewObject<UDualContourVolumeBrushSampler>());
 	auto& IdentityVolume = *IdentityVolumeOwner;
@@ -167,10 +168,11 @@ bool FDualContourUnifiedVolumeTest::RunTest(const FString& Parameters)
 	Sphere->SamplingTransform = FTransform(FVector(2, 0, 0));
 	FText Error;
 	TestTrue(TEXT("Prepare existing SDF source"), static_cast<UVolumeSampler*>(Sphere.Get())->Prepare(Error));
+	const FVolumeSamplerPlacement Placement = static_cast<UVolumeSampler*>(Sphere.Get())->MakePlacement(nullptr);
 	float Value = 0, Weight = 0;
-	TestTrue(TEXT("Transformed center"), Sphere->Sample(FVector(4, 2, 2), Value, Weight));
+	TestTrue(TEXT("Transformed center"), Sphere->Sample(FVector(4, 2, 2), Placement, Value, Weight));
 	TestEqual(TEXT("Default influence"), Weight, 1.0f);
-	TestFalse(TEXT("Outside finite bounds"), Sphere->Sample(FVector(1, 2, 2), Value, Weight));
+	TestFalse(TEXT("Outside finite bounds"), Sphere->Sample(FVector(1, 2, 2), Placement, Value, Weight));
 	static_cast<UVolumeSampler*>(Sphere.Get())->Finish();
 
 	FDualContourEditContext Edit(*Grid);

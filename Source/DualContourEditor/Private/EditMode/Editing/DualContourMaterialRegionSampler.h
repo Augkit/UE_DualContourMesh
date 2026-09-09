@@ -10,5 +10,6 @@ public:
 	TWeakObjectPtr<ADualContourMaterialBrushVolume> Volume;
 	FTransform TargetLocalToWorldTransform;
 	virtual FBox GetBounds() const override;
-	virtual bool Sample(const FVector& TargetLocalPosition, float& Value, float& Weight) const override;
+	virtual bool Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
+		float& Value, float& Weight) const override;
 };

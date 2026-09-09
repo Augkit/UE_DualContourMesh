@@ -13,24 +13,27 @@ bool UDualContourSampler::Prepare(FText& OutError) const
 			"The source DualContour is missing or requires a rebuild.");
 		return false;
 	}
+	const FVector CellCountPerVolume = FVector(CachedDualContour->CellCount) / VolumeSize;
+	CachedGridPerVolumeUnit = CellCountPerVolume;
 	return true;
 }
 
 void UDualContourSampler::Finish() const
 {
 	CachedDualContour.Reset();
+	CachedGridPerVolumeUnit = FVector::ZeroVector;
 }
 
-bool UDualContourSampler::Sample(const FVector& SamplerInputPosition, float& Value, float& Weight) const
+bool UDualContourSampler::Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
+	float& Value, float& Weight) const
 {
-	FVector NormalizedVolumePosition;
-	if (!TryGetNormalizedVolumePosition(SamplerInputPosition, NormalizedVolumePosition))
+	FVector BaseVolumePosition;
+	if (!TryGetBaseVolumePosition(TargetLocalPosition, Placement, BaseVolumePosition))
 		return false;
 	Weight = 1.0f;
 	const UDualContour* SourceDualContour = CachedDualContour.Get();
 	Value = SourceDualContour
-		        ? SourceDualContour->GetTrilinearDensity(
-			        NormalizedVolumePosition * FVector(SourceDualContour->CellCount))
+		        ? SourceDualContour->GetTrilinearDensity(BaseVolumePosition * CachedGridPerVolumeUnit)
 		        : 0.0f;
 	return FMath::IsFinite(Value);
 }

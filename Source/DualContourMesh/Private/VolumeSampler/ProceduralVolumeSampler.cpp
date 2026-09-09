@@ -30,13 +30,15 @@ bool UProceduralVolumeSampler::Prepare(FText& OutError) const
 	return true;
 }
 
-bool UProceduralVolumeSampler::Sample(const FVector& SamplerInputPosition, float& Value, float& Weight) const
+bool UProceduralVolumeSampler::Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
+	float& Value, float& Weight) const
 {
-	FVector NormalizedVolumePosition;
-	if (!TryGetNormalizedVolumePosition(SamplerInputPosition, NormalizedVolumePosition))
+	FVector BaseVolumePosition;
+	if (!TryGetBaseVolumePosition(TargetLocalPosition, Placement, BaseVolumePosition))
 		return false;
 	Weight = 1.0f;
-	const FVector CenteredLocalPosition = (NormalizedVolumePosition - FVector(0.5)) * VolumeSize;
+	// (BaseVolumePosition / VolumeSize - 0.5) * VolumeSize 简化为 BaseVolumePosition - 0.5 * VolumeSize。
+	const FVector CenteredLocalPosition = BaseVolumePosition - 0.5 * VolumeSize;
 	const float SignedDistance = GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint)
 		                             ? GetSignedDistance(CenteredLocalPosition)
 		                             : GetSignedDistance_Implementation(CenteredLocalPosition);

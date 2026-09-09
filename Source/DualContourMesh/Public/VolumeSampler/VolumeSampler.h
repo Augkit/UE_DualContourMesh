@@ -10,6 +10,16 @@ DECLARE_MULTICAST_DELEGATE(FOnVolumeSamplerPropertyChanged);
 
 class UDualContour;
 
+/**
+ * Immutable mapping from target-local positions into the sampler's internal input space,
+ * combining the outer placement transform with SamplingTransform into a single affine.
+ * Build once per sampling pass with UVolumeSampler::MakePlacement.
+ */
+struct FVolumeSamplerPlacement
+{
+	FMatrix TargetToSamplerLocalMatrix = FMatrix::Identity;
+};
+
 /** Samples a finite volume into a DualContour density grid. */
 UCLASS(Abstract, BlueprintType, EditInlineNew, DefaultToInstanced, AutoExpandCategories = ("Volume"))
 class DUALCONTOURMESH_API UVolumeSampler : public UObject
@@ -17,14 +27,24 @@ class DUALCONTOURMESH_API UVolumeSampler : public UObject
 	GENERATED_BODY()
 
 public:
-	/** Maps base-volume coordinates into sampler-input coordinates about Pivot * VolumeSize. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volume")
-	FTransform SamplingTransform = FTransform::Identity;
-
 	/** Bounds are expressed in sampler-input coordinates after SamplingTransform. */
 	virtual FBox GetBounds() const;
-	/** Samples a continuous position measured in the target contour's local units. */
-	virtual bool Sample(const FVector& SamplerInputPosition, float& Value, float& Weight) const PURE_VIRTUAL(UVolumeSampler::Sample, return false;);
+
+	/**
+	 * Combines SamplerToTargetTransform with SamplingTransform (both rotate/scale about Pivot * VolumeSize)
+	 * into the single affine used by Sample. Pass nullptr when no outer placement transform is needed.
+	 */
+	FVolumeSamplerPlacement MakePlacement(const FTransform* SamplerToTargetTransform) const;
+
+	/** Transforms a box about PivotPosition by Transform (forward direction). */
+	static FBox TransformBoxAroundPivot(const FBox& Box, const FTransform& Transform, const FVector& PivotPosition);
+
+	/**
+	 * Samples a continuous position measured in the target contour's local units, through the placement
+	 * produced by MakePlacement for this pass. The sampler must have been Prepared beforehand.
+	 */
+	virtual bool Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
+		float& Value, float& Weight) const PURE_VIRTUAL(UVolumeSampler::Sample, return false;);
 	/** Samples this volume and applies its density directly to the target contour. */
 	bool ApplyToDualContour(UDualContour* Target, const FTransform& SamplerToTargetTransform, FText& OutError) const;
 
@@ -35,6 +55,10 @@ public:
 
 	/** True when Sample may be called concurrently while the game thread is blocked. */
 	virtual bool SupportsParallelSampling() const { return false; }
+
+	/** Maps base-volume coordinates into sampler-input coordinates about Pivot * VolumeSize. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volume")
+	FTransform SamplingTransform = FTransform::Identity;
 
 	/** Size of the base volume in target-local length units before placement transforms are applied. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volume", meta = (ClampMin = "0.0001"))
@@ -51,7 +75,11 @@ public:
 #endif
 
 protected:
-	/** Maps a sampler-input position into normalized base-volume coordinates; false outside [0, 1]. */
-	bool TryGetNormalizedVolumePosition(const FVector& SamplerInputPosition, FVector& OutNormalizedVolumePosition) const;
+	/**
+	 * Maps a target-local position through the placement into base-volume coordinates (UE units,
+	 * origin at the volume corner); false when the point lies outside [0, VolumeSize].
+	 */
+	bool TryGetBaseVolumePosition(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
+		FVector& OutBaseVolumePosition) const;
 
 };

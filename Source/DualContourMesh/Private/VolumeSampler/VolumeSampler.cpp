@@ -1,4 +1,5 @@
 #include "VolumeSampler/VolumeSampler.h"
+#include "Math/TranslationMatrix.h"
 
 FBox UVolumeSampler::GetBounds() const
 {
@@ -18,16 +19,49 @@ FBox UVolumeSampler::GetBounds() const
 	return Bounds;
 }
 
-bool UVolumeSampler::TryGetNormalizedVolumePosition(
-	const FVector& SamplerInputPosition, FVector& OutNormalizedVolumePosition) const
+FBox UVolumeSampler::TransformBoxAroundPivot(const FBox& Box, const FTransform& Transform, const FVector& PivotPosition)
 {
+	FBox Result(ForceInit);
+	for (int32 Corner = 0; Corner < 8; ++Corner)
+	{
+		const FVector InputCorner(
+			(Corner & 1) ? Box.Max.X : Box.Min.X,
+			(Corner & 2) ? Box.Max.Y : Box.Min.Y,
+			(Corner & 4) ? Box.Max.Z : Box.Min.Z);
+		Result += PivotPosition + Transform.TransformPosition(InputCorner - PivotPosition);
+	}
+	return Result;
+}
+
+FVolumeSamplerPlacement UVolumeSampler::MakePlacement(const FTransform* SamplerToTargetTransform) const
+{
+	FVolumeSamplerPlacement Placement;
 	const FVector PivotPosition = Pivot * VolumeSize;
-	const FVector BaseVolumePosition = PivotPosition
-	                                   + SamplingTransform.InverseTransformPosition(SamplerInputPosition - PivotPosition);
-	OutNormalizedVolumePosition = BaseVolumePosition / VolumeSize;
-	return !OutNormalizedVolumePosition.ContainsNaN()
-	       && OutNormalizedVolumePosition.GetMin() >= 0
-	       && OutNormalizedVolumePosition.GetMax() <= 1;
+	// SamplingTransform 与 SamplerToTargetTransform 都绕同一个 PivotPosition 映射（旋转/缩放），
+	// 逐级逆变换（调用方 S2T⁻¹ 每样本一次 + 采样器内部 ST⁻¹ 每样本一次）可以合成单个仿射的逆：
+	//   BaseVolumePosition = Pv + (ST * S2T)⁻¹(TargetLocalPosition - Pv)
+	// 采样时每样本只需应用一次 Placement.TargetToSamplerLocalMatrix。
+	const FMatrix SamplingMatrix = SamplingTransform.ToMatrixWithScale();
+	const FTransform SamplerToTarget = SamplerToTargetTransform ? *SamplerToTargetTransform : FTransform::Identity;
+	const FMatrix SamplerToTargetMatrix = SamplerToTarget.ToMatrixWithScale();
+	const FMatrix ShiftFromPivot = FTranslationMatrix(-PivotPosition);
+	const FMatrix ShiftToPivot = FTranslationMatrix(PivotPosition);
+	// FMatrix/FVector 在 Unreal 中按行向量语义组合：v * A * B 表示先应用 A，再应用 B。
+	// 正向：Base --ST--> SamplerInput --S2T--> TargetLocal，且两个变换都绕 PivotPosition 作用。
+	// 因此正向矩阵为 T(-Pivot) * ST * S2T * T(+Pivot)；采样时使用其逆矩阵。
+	Placement.TargetToSamplerLocalMatrix = (ShiftFromPivot * SamplingMatrix * SamplerToTargetMatrix * ShiftToPivot).Inverse();
+	return Placement;
+}
+
+bool UVolumeSampler::TryGetBaseVolumePosition(
+	const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
+	FVector& OutBaseVolumePosition) const
+{
+	const FVector BaseVolumePosition = Placement.TargetToSamplerLocalMatrix.TransformPosition(TargetLocalPosition);
+	OutBaseVolumePosition = BaseVolumePosition;
+	return !BaseVolumePosition.ContainsNaN()
+	       && BaseVolumePosition.X >= 0.0 && BaseVolumePosition.Y >= 0.0 && BaseVolumePosition.Z >= 0.0
+	       && BaseVolumePosition.X <= VolumeSize.X && BaseVolumePosition.Y <= VolumeSize.Y && BaseVolumePosition.Z <= VolumeSize.Z;
 }
 
 bool UVolumeSampler::Prepare(FText& OutError) const
@@ -36,6 +70,12 @@ bool UVolumeSampler::Prepare(FText& OutError) const
 	    VolumeSize.Z <= UE_SMALL_NUMBER)
 	{
 		OutError = NSLOCTEXT("VolumeSampler", "InvalidVolumeSize", "VolumeSize must be positive on every axis.");
+		return false;
+	}
+	if (SamplingTransform.ContainsNaN() || SamplingTransform.GetScale3D().GetAbs().GetMin() <= UE_SMALL_NUMBER)
+	{
+		OutError = NSLOCTEXT("VolumeSampler", "InvalidSamplingTransform",
+			"SamplingTransform must not contain NaN and must have a non-zero scale on every axis.");
 		return false;
 	}
 	return true;

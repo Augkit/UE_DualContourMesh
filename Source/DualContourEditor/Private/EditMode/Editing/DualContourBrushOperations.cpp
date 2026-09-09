@@ -129,7 +129,8 @@ FBox UDualContourMaterialRegionSampler::GetBounds() const
 		       : FBox(ForceInit);
 }
 
-bool UDualContourMaterialRegionSampler::Sample(const FVector& TargetLocalPosition, float& Value, float& Weight) const
+bool UDualContourMaterialRegionSampler::Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement&,
+	float& Value, float& Weight) const
 {
 	Value = 0;
 	Weight = 1;

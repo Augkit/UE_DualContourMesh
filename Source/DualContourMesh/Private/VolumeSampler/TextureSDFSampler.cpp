@@ -102,16 +102,16 @@ float UTextureSDFSampler::SignedDistanceToDensity(float SignedDistance) const
 	return (DensityBias - SignedDistance * DensityScale) * GDualContourLinearDensityFixedPointScale;
 }
 
-float UTextureSDFSampler::SampleCachedTexture(const FVector& NormalizedVolumePosition) const
+float UTextureSDFSampler::SampleCachedTexture(const FVector& BaseVolumePosition) const
 {
 	if (CachedSignedDistances.IsEmpty())
 		return 0.0f;
 
 	// Match clamped GPU texture sampling: voxel values live at (index + 0.5) / resolution.
 	const FVector TextureVoxelPosition(
-		FMath::Clamp(NormalizedVolumePosition.X * CachedResolution.X - 0.5, 0.0, static_cast<double>(CachedResolution.X - 1)),
-		FMath::Clamp(NormalizedVolumePosition.Y * CachedResolution.Y - 0.5, 0.0, static_cast<double>(CachedResolution.Y - 1)),
-		FMath::Clamp(NormalizedVolumePosition.Z * CachedResolution.Z - 0.5, 0.0, static_cast<double>(CachedResolution.Z - 1)));
+		FMath::Clamp(BaseVolumePosition.X * CachedVoxelsPerVolumeUnit.X - 0.5, 0.0, static_cast<double>(CachedResolution.X - 1)),
+		FMath::Clamp(BaseVolumePosition.Y * CachedVoxelsPerVolumeUnit.Y - 0.5, 0.0, static_cast<double>(CachedResolution.Y - 1)),
+		FMath::Clamp(BaseVolumePosition.Z * CachedVoxelsPerVolumeUnit.Z - 0.5, 0.0, static_cast<double>(CachedResolution.Z - 1)));
 	const int32 LowerX = FMath::FloorToInt(TextureVoxelPosition.X);
 	const int32 LowerY = FMath::FloorToInt(TextureVoxelPosition.Y);
 	const int32 LowerZ = FMath::FloorToInt(TextureVoxelPosition.Z);
@@ -136,13 +136,14 @@ float UTextureSDFSampler::SampleCachedTexture(const FVector& NormalizedVolumePos
 	return SignedDistanceToDensity(FMath::Lerp(LowerZInterpolatedValue, UpperZInterpolatedValue, FractionZ));
 }
 
-bool UTextureSDFSampler::Sample(const FVector& SamplerInputPosition, float& Value, float& Weight) const
+bool UTextureSDFSampler::Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
+	float& Value, float& Weight) const
 {
-	FVector NormalizedVolumePosition;
-	if (!TryGetNormalizedVolumePosition(SamplerInputPosition, NormalizedVolumePosition))
+	FVector BaseVolumePosition;
+	if (!TryGetBaseVolumePosition(TargetLocalPosition, Placement, BaseVolumePosition))
 		return false;
 	Weight = 1.0f;
-	Value = SampleCachedTexture(NormalizedVolumePosition);
+	Value = SampleCachedTexture(BaseVolumePosition);
 	return FMath::IsFinite(Value);
 }
 
@@ -150,11 +151,17 @@ void UTextureSDFSampler::Finish() const
 {
 	CachedResolution = FIntVector::ZeroValue;
 	CachedSignedDistances.Reset();
+	CachedVoxelsPerVolumeUnit = FVector::ZeroVector;
 }
 
 bool UTextureSDFSampler::Prepare(FText& OutError) const
 {
-	return Super::Prepare(OutError) && PrepareTexture(OutError);
+	if (!Super::Prepare(OutError) || !PrepareTexture(OutError))
+		return false;
+	CachedVoxelsPerVolumeUnit.X = static_cast<double>(CachedResolution.X) / VolumeSize.X;
+	CachedVoxelsPerVolumeUnit.Y = static_cast<double>(CachedResolution.Y) / VolumeSize.Y;
+	CachedVoxelsPerVolumeUnit.Z = static_cast<double>(CachedResolution.Z) / VolumeSize.Z;
+	return true;
 }
 
 bool UTex3DSDFSampler::PrepareTexture(FText& OutError) const

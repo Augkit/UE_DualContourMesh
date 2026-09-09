@@ -31,7 +31,8 @@ FBox UDualContourShapeVolumeSampler::GetBounds() const
 	return FBox(TargetLocalCenter - Extent, TargetLocalCenter + Extent);
 }
 
-bool UDualContourShapeVolumeSampler::Sample(const FVector& TargetLocalPosition, float& Value, float& Weight) const
+bool UDualContourShapeVolumeSampler::Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement&,
+	float& Value, float& Weight) const
 {
 	if (!FMath::IsFinite(Radius) || Radius <= UE_SMALL_NUMBER)
 		return false;
@@ -64,9 +65,10 @@ bool UDualContourShapeVolumeSampler::Sample(const FVector& TargetLocalPosition, 
 	return Weight > 0.0f;
 }
 
-bool UDualContourPlaneVolumeSampler::Sample(const FVector& TargetLocalPosition, float& Value, float& Weight) const
+bool UDualContourPlaneVolumeSampler::Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
+	float& Value, float& Weight) const
 {
-	if (!Mask || !Mask->Sample(TargetLocalPosition, Value, Weight))
+	if (!Mask || !Mask->Sample(TargetLocalPosition, Placement, Value, Weight))
 		return false;
 	Value = -FVector::DotProduct(TargetLocalPosition - TargetLocalOrigin, TargetLocalNormal) * DensityScale;
 	return true;
@@ -88,7 +90,8 @@ FBox UDualContourVolumeBrushSampler::GetBounds() const
 	return FBox(FVector::ZeroVector, SourceLocalExtent).TransformBy(SourceToTargetTransform);
 }
 
-bool UDualContourVolumeBrushSampler::Sample(const FVector& TargetLocalPosition, float& Value, float& Weight) const
+bool UDualContourVolumeBrushSampler::Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement&,
+	float& Value, float& Weight) const
 {
 	const UDualContour* SourceDualContour = Source.Get();
 	if (!SourceDualContour || !SourceDualContour->HasCurrentGeneratedData())
@@ -116,10 +119,11 @@ FBox UDualContourRestoreVolumeSampler::GetBounds() const
 	return Mask && Source.IsValid() && Source->HasCurrentGeneratedData() ? Mask->GetBounds() : FBox(ForceInit);
 }
 
-bool UDualContourRestoreVolumeSampler::Sample(const FVector& TargetLocalPosition, float& Value, float& Weight) const
+bool UDualContourRestoreVolumeSampler::Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
+	float& Value, float& Weight) const
 {
 	if (!Mask || !Source.IsValid() || !Source->HasCurrentGeneratedData()
-	    || !Mask->Sample(TargetLocalPosition, Value, Weight))
+	    || !Mask->Sample(TargetLocalPosition, Placement, Value, Weight))
 		return false;
 	const FVector SourceGridPosition = TargetLocalPosition / Source->CellSize;
 	Value = Source->GetLinearDensity(

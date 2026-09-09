@@ -17,7 +17,8 @@ class DUALCONTOURMESH_API UProceduralVolumeSampler : public UVolumeSampler
 	GENERATED_BODY()
 
 public:
-	virtual bool Sample(const FVector& SamplerInputPosition, float& Value, float& Weight) const override;
+	virtual bool Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
+		float& Value, float& Weight) const override;
 
 	/** Density units generated per sampler-local signed-distance unit. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volume", meta = (ClampMin = "0.0001"))

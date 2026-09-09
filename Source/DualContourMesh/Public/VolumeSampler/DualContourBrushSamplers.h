@@ -25,7 +25,8 @@ public:
 	bool bDirectional = false;
 	static float EvaluateFalloff(float Distance, float Falloff, EDualContourEditFalloff Type);
 	virtual FBox GetBounds() const override;
-	virtual bool Sample(const FVector& TargetLocalPosition, float& Value, float& Weight) const override;
+	virtual bool Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
+		float& Value, float& Weight) const override;
 };
 
 /** A plane density field restricted by another sampler's mask. */
@@ -48,7 +49,8 @@ public:
 		return Mask ? Mask->GetBounds() : FBox(ForceInit);
 	}
 
-	virtual bool Sample(const FVector& TargetLocalPosition, float& Value, float& Weight) const override;
+	virtual bool Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
+		float& Value, float& Weight) const override;
 
 	virtual bool Prepare(FText& OutError) const override
 	{
@@ -78,7 +80,8 @@ class DUALCONTOURMESH_API UDualContourVolumeBrushSampler : public UVolumeSampler
 public:
 	void Initialize(const UDualContour& InSource, const FTransform& InSourceToTargetTransform);
 	virtual FBox GetBounds() const override;
-	virtual bool Sample(const FVector& TargetLocalPosition, float& Value, float& Weight) const override;
+	virtual bool Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
+		float& Value, float& Weight) const override;
 
 	virtual bool SupportsParallelSampling() const override
 	{
@@ -99,7 +102,8 @@ class DUALCONTOURMESH_API UDualContourRestoreVolumeSampler : public UVolumeSampl
 public:
 	void Initialize(UVolumeSampler& InMask, const UDualContour& InSource);
 	virtual FBox GetBounds() const override;
-	virtual bool Sample(const FVector& TargetLocalPosition, float& Value, float& Weight) const override;
+	virtual bool Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
+		float& Value, float& Weight) const override;
 
 	virtual bool Prepare(FText& OutError) const override
 	{

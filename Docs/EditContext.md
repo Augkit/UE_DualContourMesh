@@ -25,18 +25,17 @@ All sampling sources now inherit `UVolumeSampler`. There is no separate F field-
 
 - `TargetLocalPosition` is a continuous position in the target `UDualContour` local space, measured in the same length units as `CellSize`.
 - `SamplerToTargetTransform` maps sampler-input coordinates into target-local coordinates around `Pivot * VolumeSize`.
-- `SamplerInputPosition` is the position passed to a resource sampler after undoing `SamplerToTargetTransform`. It equals `TargetLocalPosition` when the outer transform is identity.
-- `BaseVolumePosition` is the result of undoing the sampler's persistent `SamplingTransform`; its finite domain is `[0, VolumeSize]`.
-- `NormalizedVolumePosition` is `BaseVolumePosition / VolumeSize` and therefore lies in `[0, 1]` on every axis.
-- `CenteredLocalPosition` is `(NormalizedVolumePosition - 0.5) * VolumeSize`; analytic SDF implementations use this centered sampler-local space.
+- `Sample` takes a `TargetLocalPosition` and an `FVolumeSamplerPlacement`; `SamplerToTargetTransform` (when non-identity) is folded with the sampler's `SamplingTransform` into that single affine by `MakePlacement`, since both rotate/scale about the same pivot `Pivot * VolumeSize`.
+- `BaseVolumePosition` is the result of undoing that combined transform; its finite domain is `[0, VolumeSize]`.
+- `CenteredLocalPosition` is `BaseVolumePosition - 0.5 * VolumeSize`; analytic SDF implementations use this centered sampler-local space.
 - `SourceLocalPosition` and `SourceGridPosition` belong to a referenced source `UDualContour`; divide the former by the source `CellSize` to obtain the latter.
 
 ## Source contract
 
 - `GetBounds()` returns a finite sampler-input bounding box. With no outer placement transform, sampler-input coordinates are target-local coordinates.
-- `Sample(SamplerInputPosition, Value, Weight)` returns linear density and influence weight. False or zero weight excludes the position.
-- Procedural, texture and contour sources share `TryGetNormalizedVolumePosition`, which maps sampler-input coordinates through `SamplingTransform` into normalized base-volume coordinates. Brush sources work directly in target-local coordinates and provide their own influence weights.
-- `Prepare` / `Finish` wrap resource preparation/cleanup. Context and generation paths balance these even on early exits. Direct callers must do the same and keep the source alive.
+- `Sample(TargetLocalPosition, Value, Weight)` returns linear density and influence weight. False or zero weight excludes the position.
+- Procedural, texture and contour sources share `TryGetBaseVolumePosition`, which maps target-local coordinates through the combined placement/sampling affine into base-volume coordinates (UE units, corner origin). Brush sources work directly in target-local coordinates and provide their own influence weights.
+- `Prepare` / `Finish` wrap resource preparation/cleanup and are balanced by context and generation paths even on early exits. A pass builds one immutable `FVolumeSamplerPlacement` value and shares it across workers, which keeps `Sample` parallel-safe. Direct callers must do the same and keep the source alive.
 - `CanSampleInParallel` exposes the existing explicit thread-safety capability. Native procedural sources can run in parallel; Blueprint SDF dispatch remains on the game thread.
 
 Density strength is multiplied by source weight. Material painting compares weight to the threshold and optionally checks pending solid density. Chunk generation uses weight as a validity mask (positive weights retain sampled density); it does not interpolate against a previous grid. The transform-aware edit overload accepts a `SamplerToTargetTransform` outside the source's own `SamplingTransform`, around the volume pivot.
