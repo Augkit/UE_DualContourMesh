@@ -70,6 +70,8 @@ private:
 	EVisibility GetGenerationProgressVisibility() const;
 	TOptional<float> GetGenerationProgress() const;
 	void HandleFinishedChangingProperties(const FPropertyChangedEvent&);
+	void HandleUndoRedo();
+	void TryAutoGenerate();
 	ECheckBoxState GetAutoGenerateCheckState() const;
 	void HandleAutoGenerateCheckStateChanged(ECheckBoxState NewState);
 	TSharedRef<SWidget> MakePreviewTypeMenu();

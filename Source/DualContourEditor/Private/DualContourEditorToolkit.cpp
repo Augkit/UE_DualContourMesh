@@ -19,6 +19,7 @@
 #include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Containers/Ticker.h"
+#include "Editor.h"
 #include "Styling/AppStyle.h"
 #include "Materials/MaterialInterface.h"
 #include "Widgets/Docking/SDockTab.h"
@@ -45,12 +46,14 @@ FDualContourEditorToolkit::~FDualContourEditorToolkit()
 
 	if (Asset)
 		Asset->OnCellsRebuilt.RemoveAll(this);
+	FEditorDelegates::PostUndoRedo.RemoveAll(this);
 }
 
 void FDualContourEditorToolkit::InitEditor(EToolkitMode::Type Mode,
 	const TSharedPtr<IToolkitHost>& InToolkitHost, UDualContour* InAsset)
 {
 	Asset = InAsset;
+	FEditorDelegates::PostUndoRedo.AddSP(this, &FDualContourEditorToolkit::HandleUndoRedo);
 	if (Asset)
 	{
 		Asset->OnCellsRebuilt.AddSP(this, &FDualContourEditorToolkit::HandleCellsRebuilt);
@@ -503,6 +506,19 @@ TOptional<float> FDualContourEditorToolkit::GetGenerationProgress() const
 }
 
 void FDualContourEditorToolkit::HandleFinishedChangingProperties(const FPropertyChangedEvent&)
+{
+	TryAutoGenerate();
+}
+
+void FDualContourEditorToolkit::HandleUndoRedo()
+{
+	// DetailsView does not emit OnFinishedChangingProperties for an editor-wide
+	// undo/redo. Run the same Auto Generate check after the transaction has been
+	// fully applied, including the asset's PostEditUndo callbacks.
+	TryAutoGenerate();
+}
+
+void FDualContourEditorToolkit::TryAutoGenerate()
 {
 	const UVolumeSampledDualContour* VolumeSampledDualContour = GetVolumeSampledDualContour();
 	if (VolumeSampledDualContour && VolumeSampledDualContour->bAutoGenerate
