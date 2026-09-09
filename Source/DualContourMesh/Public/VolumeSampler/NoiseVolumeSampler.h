@@ -151,13 +151,13 @@ public:
 
 	/** Evaluates continuous 2D noise in sampler-local coordinate space. Output is nominally -1..1. */
 	UFUNCTION(BlueprintPure, Category = "Volume Sampling|Noise")
-	float SampleNoise2D(const FVector2D& LocalPosition) const;
+	float SampleNoise2D(const FVector2D& SamplerLocalPosition) const;
 
 	/** Evaluates continuous 3D noise in sampler-local coordinate space. Output is nominally -1..1. */
 	UFUNCTION(BlueprintPure, Category = "Volume Sampling|Noise")
-	float SampleNoise3D(const FVector& LocalPosition) const;
+	float SampleNoise3D(const FVector& SamplerLocalPosition) const;
 
-	virtual float GetSignedDistance_Implementation(const FVector& LocalPosition) const override;
+	virtual float GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const override;
 
 	virtual bool Prepare(FText& OutError) const override;
 	virtual void Finish() const override;

@@ -17,7 +17,7 @@ class DUALCONTOURMESH_API UProceduralVolumeSampler : public UVolumeSampler
 	GENERATED_BODY()
 
 public:
-	virtual bool Sample(const FVector& Position, float& Value, float& Weight) const override;
+	virtual bool Sample(const FVector& SamplerInputPosition, float& Value, float& Weight) const override;
 
 	/** Density units generated per sampler-local signed-distance unit. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volume", meta = (ClampMin = "0.0001"))
@@ -32,8 +32,8 @@ public:
 	 * Negative values are inside the solid, zero is on the surface, and positive values are outside.
 	 */
 	UFUNCTION(BlueprintNativeEvent, BlueprintPure, Category = "Volume Sampling|Procedural")
-	float GetSignedDistance(const FVector& LocalPosition) const;
-	virtual float GetSignedDistance_Implementation(const FVector& LocalPosition) const;
+	float GetSignedDistance(const FVector& CenteredLocalPosition) const;
+	virtual float GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const;
 
 	virtual bool Prepare(FText& OutError) const override;
 
@@ -50,7 +50,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sphere", meta = (ClampMin = "0.0001"))
 	float Radius = 256.0f;
 
-	virtual float GetSignedDistance_Implementation(const FVector& LocalPosition) const override;
+	virtual float GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const override;
 
 protected:
 	virtual bool Prepare(FText& OutError) const override;
@@ -69,7 +69,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Box", meta = (ClampMin = "0.0"))
 	float CornerRadius = 0.0f;
 
-	virtual float GetSignedDistance_Implementation(const FVector& LocalPosition) const override;
+	virtual float GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const override;
 
 	virtual bool Prepare(FText& OutError) const override;
 };
@@ -87,7 +87,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cylinder", meta = (ClampMin = "0.0001"))
 	float HalfHeight = 256.0f;
 
-	virtual float GetSignedDistance_Implementation(const FVector& LocalPosition) const override;
+	virtual float GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const override;
 
 	virtual bool Prepare(FText& OutError) const override;
 };
@@ -106,7 +106,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Capsule", meta = (ClampMin = "0.0"))
 	float SegmentHalfLength = 128.0f;
 
-	virtual float GetSignedDistance_Implementation(const FVector& LocalPosition) const override;
+	virtual float GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const override;
 
 	virtual bool Prepare(FText& OutError) const override;
 };
@@ -125,7 +125,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Torus", meta = (ClampMin = "0.0001"))
 	float MinorRadius = 64.0f;
 
-	virtual float GetSignedDistance_Implementation(const FVector& LocalPosition) const override;
+	virtual float GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const override;
 
 	virtual bool Prepare(FText& OutError) const override;
 };

@@ -21,15 +21,16 @@ void UDualContourSampler::Finish() const
 	CachedDualContour.Reset();
 }
 
-bool UDualContourSampler::Sample(const FVector& Position, float& Value, float& Weight) const
+bool UDualContourSampler::Sample(const FVector& SamplerInputPosition, float& Value, float& Weight) const
 {
-	FVector UVW;
-	if (!TryGetNormalizedPosition(Position, UVW))
+	FVector NormalizedVolumePosition;
+	if (!TryGetNormalizedVolumePosition(SamplerInputPosition, NormalizedVolumePosition))
 		return false;
 	Weight = 1.0f;
-	const UDualContour* Source = CachedDualContour.Get();
-	Value = Source
-		        ? Source->GetTrilinearDensity(UVW * FVector(Source->CellCount.X, Source->CellCount.Y, Source->CellCount.Z))
+	const UDualContour* SourceDualContour = CachedDualContour.Get();
+	Value = SourceDualContour
+		        ? SourceDualContour->GetTrilinearDensity(
+			        NormalizedVolumePosition * FVector(SourceDualContour->CellCount))
 		        : 0.0f;
 	return FMath::IsFinite(Value);
 }

@@ -40,11 +40,11 @@ struct DUALCONTOUREDITOR_API FDualContourBrushStamp
 	EDualContourDensityEditOperation Operation = EDualContourDensityEditOperation::Sculpt;
 	EDualContourBrushShape Shape = EDualContourBrushShape::Sphere;
 	EDualContourBrushFalloff FalloffType = EDualContourBrushFalloff::Smooth;
-	FVector LocalCenter = FVector::ZeroVector;
-	FVector LocalNormal = FVector::UpVector;
-	FVector ClayPlaneOrigin = FVector::ZeroVector;
-	FVector FlattenPlaneOrigin = FVector::ZeroVector;
-	FVector FlattenPlaneNormal = FVector::UpVector;
+	FVector TargetLocalCenter = FVector::ZeroVector;
+	FVector TargetLocalNormal = FVector::UpVector;
+	FVector TargetLocalClayPlaneOrigin = FVector::ZeroVector;
+	FVector TargetLocalFlattenPlaneOrigin = FVector::ZeroVector;
+	FVector TargetLocalFlattenPlaneNormal = FVector::UpVector;
 	float Radius = 100.0f;
 	float Falloff = 0.5f;
 	float Strength = 0.3f;
@@ -55,5 +55,5 @@ struct DUALCONTOUREDITOR_API FDualContourBrushStamp
 
 	/** Used only by StampUnion/StampDifference; maps source local positions into target local space. */
 	UVolumeSampledDualContour* VolumeBrush = nullptr;
-	FTransform VolumeToTarget = FTransform::Identity;
+	FTransform SourceToTargetTransform = FTransform::Identity;
 };

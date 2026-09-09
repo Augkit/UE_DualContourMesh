@@ -95,10 +95,10 @@ private:
 	FVector HitNormal = FVector::UpVector;
 	FVector LastStampPosition = FVector::ZeroVector;
 	FVector LastStampNormal = FVector::UpVector;
-	FVector ClayPlaneOrigin = FVector::ZeroVector;
-	FVector ClayPlaneNormal = FVector::UpVector;
-	FVector FlattenPlaneOrigin = FVector::ZeroVector;
-	FVector FlattenPlaneNormal = FVector::UpVector;
+	FVector TargetLocalClayPlaneOrigin = FVector::ZeroVector;
+	FVector TargetLocalClayPlaneNormal = FVector::UpVector;
+	FVector TargetLocalFlattenPlaneOrigin = FVector::ZeroVector;
+	FVector TargetLocalFlattenPlaneNormal = FVector::UpVector;
 	FVector ActiveRayOrigin = FVector::ZeroVector;
 	FVector ActiveRayDirection = FVector::ForwardVector;
 	FVector StrokeOrigin = FVector::ZeroVector;

@@ -32,7 +32,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heightmap", meta = (ClampMin = "0.0001", UIMin = "0.1"))
 	FVector2D Tiling = FVector2D(1.0, 1.0);
 
-	virtual float GetSignedDistance_Implementation(const FVector& LocalPosition) const override;
+	virtual float GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const override;
 
 #if WITH_EDITOR
 	virtual void PostEditChangeChainProperty(FPropertyChangedChainEvent& PropertyChangedEvent) override;
@@ -42,7 +42,7 @@ public:
 	virtual void Finish() const override;
 
 private:
-	float SampleHeight(const FVector2D& UV) const;
+	float SampleHeight(const FVector2D& NormalizedTexturePosition) const;
 
 #if WITH_EDITOR
 	void ClampHeightCurve();

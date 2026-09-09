@@ -196,35 +196,40 @@ void UHeightmapSampler::Finish() const
 	Super::Finish();
 }
 
-float UHeightmapSampler::SampleHeight(const FVector2D& UV) const
+float UHeightmapSampler::SampleHeight(const FVector2D& NormalizedTexturePosition) const
 {
 	if (CachedHeightValues.IsEmpty() || CachedHeightmapSize.X <= 0 || CachedHeightmapSize.Y <= 0)
 		return 0.5f;
 
-	const FVector2D WrappedUV(FMath::Frac(UV.X), FMath::Frac(UV.Y));
-	const double TexelX = WrappedUV.X * CachedHeightmapSize.X - 0.5;
-	const double TexelY = WrappedUV.Y * CachedHeightmapSize.Y - 0.5;
-	const int32 X0Unwrapped = FMath::FloorToInt(TexelX);
-	const int32 Y0Unwrapped = FMath::FloorToInt(TexelY);
-	const int32 X0 = (X0Unwrapped % CachedHeightmapSize.X + CachedHeightmapSize.X) % CachedHeightmapSize.X;
-	const int32 Y0 = (Y0Unwrapped % CachedHeightmapSize.Y + CachedHeightmapSize.Y) % CachedHeightmapSize.Y;
-	const int32 X1 = (X0 + 1) % CachedHeightmapSize.X;
-	const int32 Y1 = (Y0 + 1) % CachedHeightmapSize.Y;
-	const float FractionX = static_cast<float>(TexelX - X0Unwrapped);
-	const float FractionY = static_cast<float>(TexelY - Y0Unwrapped);
-	const auto Value = [this](int32 X, int32 Y)
+	const FVector2D WrappedTexturePosition(
+		FMath::Frac(NormalizedTexturePosition.X), FMath::Frac(NormalizedTexturePosition.Y));
+	const double TextureVoxelX = WrappedTexturePosition.X * CachedHeightmapSize.X - 0.5;
+	const double TextureVoxelY = WrappedTexturePosition.Y * CachedHeightmapSize.Y - 0.5;
+	const int32 UnwrappedLowerX = FMath::FloorToInt(TextureVoxelX);
+	const int32 UnwrappedLowerY = FMath::FloorToInt(TextureVoxelY);
+	const int32 LowerX = (UnwrappedLowerX % CachedHeightmapSize.X + CachedHeightmapSize.X) % CachedHeightmapSize.X;
+	const int32 LowerY = (UnwrappedLowerY % CachedHeightmapSize.Y + CachedHeightmapSize.Y) % CachedHeightmapSize.Y;
+	const int32 UpperX = (LowerX + 1) % CachedHeightmapSize.X;
+	const int32 UpperY = (LowerY + 1) % CachedHeightmapSize.Y;
+	const float FractionX = static_cast<float>(TextureVoxelX - UnwrappedLowerX);
+	const float FractionY = static_cast<float>(TextureVoxelY - UnwrappedLowerY);
+	const auto SampleTextureVoxel = [this](int32 X, int32 Y)
 	{
 		return CachedHeightValues[X + Y * CachedHeightmapSize.X];
 	};
-	return FMath::Lerp(FMath::Lerp(Value(X0, Y0), Value(X1, Y0), FractionX),
-		FMath::Lerp(Value(X0, Y1), Value(X1, Y1), FractionX), FractionY);
+	return FMath::Lerp(
+		FMath::Lerp(SampleTextureVoxel(LowerX, LowerY), SampleTextureVoxel(UpperX, LowerY), FractionX),
+		FMath::Lerp(SampleTextureVoxel(LowerX, UpperY), SampleTextureVoxel(UpperX, UpperY), FractionX),
+		FractionY);
 }
 
-float UHeightmapSampler::GetSignedDistance_Implementation(const FVector& LocalPosition) const
+float UHeightmapSampler::GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const
 {
-	const FVector2D UV(LocalPosition.X / VolumeSize.X + 0.5, LocalPosition.Y / VolumeSize.Y + 0.5);
+	const FVector2D NormalizedVolumePosition(
+		CenteredLocalPosition.X / VolumeSize.X + 0.5,
+		CenteredLocalPosition.Y / VolumeSize.Y + 0.5);
 	const float MappedHeight = FMath::Clamp(
-		HeightCurve.GetRichCurveConst()->Eval(SampleHeight(UV * Tiling)), 0.0f, 1.0f);
+		HeightCurve.GetRichCurveConst()->Eval(SampleHeight(NormalizedVolumePosition * Tiling)), 0.0f, 1.0f);
 	const float SurfaceZ = (MappedHeight + Bias - 1.0f) * VolumeSize.Z;
-	return static_cast<float>(LocalPosition.Z) - SurfaceZ;
+	return static_cast<float>(CenteredLocalPosition.Z) - SurfaceZ;
 }

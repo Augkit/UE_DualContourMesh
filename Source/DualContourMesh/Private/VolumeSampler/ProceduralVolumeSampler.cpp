@@ -30,23 +30,23 @@ bool UProceduralVolumeSampler::Prepare(FText& OutError) const
 	return true;
 }
 
-bool UProceduralVolumeSampler::Sample(const FVector& Position, float& Value, float& Weight) const
+bool UProceduralVolumeSampler::Sample(const FVector& SamplerInputPosition, float& Value, float& Weight) const
 {
-	FVector UVW;
-	if (!TryGetNormalizedPosition(Position, UVW))
+	FVector NormalizedVolumePosition;
+	if (!TryGetNormalizedVolumePosition(SamplerInputPosition, NormalizedVolumePosition))
 		return false;
 	Weight = 1.0f;
-	const FVector LocalPosition = (UVW - FVector(0.5)) * VolumeSize;
+	const FVector CenteredLocalPosition = (NormalizedVolumePosition - FVector(0.5)) * VolumeSize;
 	const float SignedDistance = GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint)
-		                             ? GetSignedDistance(LocalPosition)
-		                             : GetSignedDistance_Implementation(LocalPosition);
+		                             ? GetSignedDistance(CenteredLocalPosition)
+		                             : GetSignedDistance_Implementation(CenteredLocalPosition);
 	Value = FMath::IsFinite(SignedDistance)
 		        ? (DensityBias - SignedDistance * DensityScale) * GDualContourLinearDensityFixedPointScale
 		        : 0.0f;
 	return FMath::IsFinite(Value);
 }
 
-float UProceduralVolumeSampler::GetSignedDistance_Implementation(const FVector& LocalPosition) const
+float UProceduralVolumeSampler::GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const
 {
 	return 1.0e20f;
 }
@@ -70,9 +70,9 @@ bool USphereVolumeSampler::Prepare(FText& OutError) const
 	return true;
 }
 
-float USphereVolumeSampler::GetSignedDistance_Implementation(const FVector& LocalPosition) const
+float USphereVolumeSampler::GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const
 {
-	return LocalPosition.Length() - Radius;
+	return CenteredLocalPosition.Length() - Radius;
 }
 
 bool UBoxVolumeSampler::Prepare(FText& OutError) const
@@ -90,10 +90,10 @@ bool UBoxVolumeSampler::Prepare(FText& OutError) const
 	return true;
 }
 
-float UBoxVolumeSampler::GetSignedDistance_Implementation(const FVector& LocalPosition) const
+float UBoxVolumeSampler::GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const
 {
 	const FVector RoundedCore = HalfExtents - FVector(CornerRadius);
-	const FVector Distance = LocalPosition.GetAbs() - RoundedCore;
+	const FVector Distance = CenteredLocalPosition.GetAbs() - RoundedCore;
 	const FVector Outside(FMath::Max(Distance.X, 0.0), FMath::Max(Distance.Y, 0.0), FMath::Max(Distance.Z, 0.0));
 	return Outside.Length() + FMath::Min(FMath::Max3(Distance.X, Distance.Y, Distance.Z), 0.0) - CornerRadius;
 }
@@ -112,9 +112,9 @@ bool UCylinderVolumeSampler::Prepare(FText& OutError) const
 	return true;
 }
 
-float UCylinderVolumeSampler::GetSignedDistance_Implementation(const FVector& LocalPosition) const
+float UCylinderVolumeSampler::GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const
 {
-	return CappedCylinderSignedDistance(LocalPosition, Radius, HalfHeight);
+	return CappedCylinderSignedDistance(CenteredLocalPosition, Radius, HalfHeight);
 }
 
 bool UCapsuleVolumeSampler::Prepare(FText& OutError) const
@@ -131,10 +131,10 @@ bool UCapsuleVolumeSampler::Prepare(FText& OutError) const
 	return true;
 }
 
-float UCapsuleVolumeSampler::GetSignedDistance_Implementation(const FVector& LocalPosition) const
+float UCapsuleVolumeSampler::GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const
 {
-	FVector PositionToSegment = LocalPosition;
-	PositionToSegment.Z -= FMath::Clamp(LocalPosition.Z, -static_cast<double>(SegmentHalfLength),
+	FVector PositionToSegment = CenteredLocalPosition;
+	PositionToSegment.Z -= FMath::Clamp(CenteredLocalPosition.Z, -static_cast<double>(SegmentHalfLength),
 		static_cast<double>(SegmentHalfLength));
 	return PositionToSegment.Length() - Radius;
 }
@@ -153,8 +153,10 @@ bool UTorusVolumeSampler::Prepare(FText& OutError) const
 	return true;
 }
 
-float UTorusVolumeSampler::GetSignedDistance_Implementation(const FVector& LocalPosition) const
+float UTorusVolumeSampler::GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const
 {
-	const FVector2D TubePosition(FVector2D(LocalPosition.X, LocalPosition.Y).Length() - MajorRadius, LocalPosition.Z);
+	const FVector2D TubePosition(
+		FVector2D(CenteredLocalPosition.X, CenteredLocalPosition.Y).Length() - MajorRadius,
+		CenteredLocalPosition.Z);
 	return TubePosition.Length() - MinorRadius;
 }

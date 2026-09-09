@@ -10,7 +10,7 @@ class DUALCONTOURMESH_API UTextureSDFSampler : public UVolumeSampler
 	GENERATED_BODY()
 
 public:
-	virtual bool Sample(const FVector& Position, float& Value, float& Weight) const override;
+	virtual bool Sample(const FVector& SamplerInputPosition, float& Value, float& Weight) const override;
 
 	/** Density units per signed-distance unit. Negative SDF values become solid density. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "0.0"))
@@ -27,7 +27,7 @@ public:
 
 protected:
 	float SignedDistanceToDensity(float SignedDistance) const;
-	float SampleCachedTexture(const FVector& UVW) const;
+	float SampleCachedTexture(const FVector& NormalizedVolumePosition) const;
 	virtual bool PrepareTexture(FText& OutError) const PURE_VIRTUAL(UTextureSDFSampler::PrepareTexture, return false;);
 
 	mutable FIntVector CachedResolution = FIntVector::ZeroValue;

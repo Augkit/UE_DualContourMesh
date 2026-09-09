@@ -5,21 +5,29 @@ FBox UVolumeSampler::GetBounds() const
 	if (SamplingTransform.ContainsNaN() || SamplingTransform.GetScale3D().GetAbs().GetMin() <= UE_SMALL_NUMBER ||
 	    VolumeSize.ContainsNaN() || VolumeSize.GetMin() <= UE_SMALL_NUMBER || Pivot.ContainsNaN())
 		return FBox(ForceInit);
-	const FVector P = Pivot * VolumeSize;
+	const FVector PivotPosition = Pivot * VolumeSize;
 	FBox Bounds(ForceInit);
-	for (int32 Corner = 0; Corner < 8; ++Corner)
+	for (int32 CornerIndex = 0; CornerIndex < 8; ++CornerIndex)
 	{
-		const FVector C((Corner & 1) ? VolumeSize.X : 0, (Corner & 2) ? VolumeSize.Y : 0, (Corner & 4) ? VolumeSize.Z : 0);
-		Bounds += P + SamplingTransform.TransformPosition(C - P);
+		const FVector BaseVolumeCorner(
+			(CornerIndex & 1) ? VolumeSize.X : 0,
+			(CornerIndex & 2) ? VolumeSize.Y : 0,
+			(CornerIndex & 4) ? VolumeSize.Z : 0);
+		Bounds += PivotPosition + SamplingTransform.TransformPosition(BaseVolumeCorner - PivotPosition);
 	}
 	return Bounds;
 }
 
-bool UVolumeSampler::TryGetNormalizedPosition(const FVector& Position, FVector& OutUVW) const
+bool UVolumeSampler::TryGetNormalizedVolumePosition(
+	const FVector& SamplerInputPosition, FVector& OutNormalizedVolumePosition) const
 {
-	const FVector P = Pivot * VolumeSize;
-	OutUVW = (P + SamplingTransform.InverseTransformPosition(Position - P)) / VolumeSize;
-	return !OutUVW.ContainsNaN() && OutUVW.GetMin() >= 0 && OutUVW.GetMax() <= 1;
+	const FVector PivotPosition = Pivot * VolumeSize;
+	const FVector BaseVolumePosition = PivotPosition
+	                                   + SamplingTransform.InverseTransformPosition(SamplerInputPosition - PivotPosition);
+	OutNormalizedVolumePosition = BaseVolumePosition / VolumeSize;
+	return !OutNormalizedVolumePosition.ContainsNaN()
+	       && OutNormalizedVolumePosition.GetMin() >= 0
+	       && OutNormalizedVolumePosition.GetMax() <= 1;
 }
 
 bool UVolumeSampler::Prepare(FText& OutError) const

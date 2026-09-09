@@ -921,14 +921,14 @@ bool ADualContourMeshActor::ModifyDensityWithSampler(const FVector& WorldHitPos,
 		return false;
 	const FQuat SamplerRotation = FQuat::FindBetweenNormals(FVector::UpVector, LocalHitNormal);
 	const FVector SamplerPivotPosition = Sampler->Pivot * Sampler->VolumeSize;
-	const FTransform SamplerTransform(
+	const FTransform SamplerToTargetTransform(
 		SamplerRotation, LocalHitPosition - SamplerPivotPosition, FVector(UniformScale));
 
 	const EDualContourDensityOperation Operation = bExcavate
 		                                               ? EDualContourDensityOperation::Difference
 		                                               : EDualContourDensityOperation::Union;
 	FDualContourEditContext Edit(*DualContour);
-	if (!Edit.ApplyDensity(Operation, *Sampler, SamplerTransform))
+	if (!Edit.ApplyDensity(Operation, *Sampler, SamplerToTargetTransform))
 	{
 		UE_LOG(LogDualContourMesh, Warning, TEXT("Density edit failed for %s."), *GetName());
 		return false;

@@ -16,8 +16,8 @@ class DUALCONTOURMESH_API UDualContourShapeVolumeSampler : public UVolumeSampler
 	GENERATED_BODY()
 
 public:
-	FVector Center = FVector::ZeroVector;
-	FVector Normal = FVector::UpVector;
+	FVector TargetLocalCenter = FVector::ZeroVector;
+	FVector TargetLocalNormal = FVector::UpVector;
 	float Radius = 100.0f;
 	float Falloff = 0.5f;
 	EDualContourEditFalloff FalloffType = EDualContourEditFalloff::Smooth;
@@ -25,7 +25,7 @@ public:
 	bool bDirectional = false;
 	static float EvaluateFalloff(float Distance, float Falloff, EDualContourEditFalloff Type);
 	virtual FBox GetBounds() const override;
-	virtual bool Sample(const FVector& Position, float& Value, float& Weight) const override;
+	virtual bool Sample(const FVector& TargetLocalPosition, float& Value, float& Weight) const override;
 };
 
 /** A plane density field restricted by another sampler's mask. */
@@ -35,12 +35,12 @@ class DUALCONTOURMESH_API UDualContourPlaneVolumeSampler : public UVolumeSampler
 	GENERATED_BODY()
 
 public:
-	void Initialize(UVolumeSampler& InMask, FVector InOrigin, FVector InNormal, float InScale)
+	void Initialize(UVolumeSampler& InMask, FVector InTargetLocalOrigin, FVector InTargetLocalNormal, float InDensityScale)
 	{
 		Mask = &InMask;
-		Origin = InOrigin;
-		Normal = InNormal.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
-		Scale = InScale;
+		TargetLocalOrigin = InTargetLocalOrigin;
+		TargetLocalNormal = InTargetLocalNormal.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
+		DensityScale = InDensityScale;
 	}
 
 	virtual FBox GetBounds() const override
@@ -48,7 +48,7 @@ public:
 		return Mask ? Mask->GetBounds() : FBox(ForceInit);
 	}
 
-	virtual bool Sample(const FVector& Position, float& Value, float& Weight) const override;
+	virtual bool Sample(const FVector& TargetLocalPosition, float& Value, float& Weight) const override;
 
 	virtual bool Prepare(FText& OutError) const override
 	{
@@ -64,20 +64,21 @@ public:
 private:
 	UPROPERTY()
 	TObjectPtr<UVolumeSampler> Mask = nullptr;
-	FVector Origin = FVector::ZeroVector, Normal = FVector::UpVector;
-	float Scale = 1;
+	FVector TargetLocalOrigin = FVector::ZeroVector;
+	FVector TargetLocalNormal = FVector::UpVector;
+	float DensityScale = 1;
 };
 
-/** Independent volume brush; SourceToTarget maps contour-local coordinates into target-local space. */
+/** Independent volume brush; SourceToTargetTransform maps source-local coordinates into target-local space. */
 UCLASS(NotBlueprintable, EditInlineNew)
 class DUALCONTOURMESH_API UDualContourVolumeBrushSampler : public UVolumeSampler
 {
 	GENERATED_BODY()
 
 public:
-	void Initialize(const UDualContour& InSource, const FTransform& InSourceToTarget);
+	void Initialize(const UDualContour& InSource, const FTransform& InSourceToTargetTransform);
 	virtual FBox GetBounds() const override;
-	virtual bool Sample(const FVector& Position, float& Value, float& Weight) const override;
+	virtual bool Sample(const FVector& TargetLocalPosition, float& Value, float& Weight) const override;
 
 	virtual bool SupportsParallelSampling() const override
 	{
@@ -86,7 +87,7 @@ public:
 
 private:
 	TWeakObjectPtr<const UDualContour> Source;
-	FTransform SourceToTarget;
+	FTransform SourceToTargetTransform;
 };
 
 /** Restores matching grid samples through another sampler's mask. The caller validates source/target grid compatibility. */
@@ -98,7 +99,7 @@ class DUALCONTOURMESH_API UDualContourRestoreVolumeSampler : public UVolumeSampl
 public:
 	void Initialize(UVolumeSampler& InMask, const UDualContour& InSource);
 	virtual FBox GetBounds() const override;
-	virtual bool Sample(const FVector& Position, float& Value, float& Weight) const override;
+	virtual bool Sample(const FVector& TargetLocalPosition, float& Value, float& Weight) const override;
 
 	virtual bool Prepare(FText& OutError) const override
 	{

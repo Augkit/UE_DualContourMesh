@@ -164,43 +164,44 @@ void UNoiseVolumeSampler::Finish() const
 	Super::Finish();
 }
 
-float UNoiseVolumeSampler::SampleNoise2D(const FVector2D& LocalPosition) const
+float UNoiseVolumeSampler::SampleNoise2D(const FVector2D& SamplerLocalPosition) const
 {
 	if (CachedNoise)
 		return CachedNoise->GetNoise(
-			static_cast<float>(LocalPosition.X + CoordinateOffset.X),
-			static_cast<float>(LocalPosition.Y + CoordinateOffset.Y));
+			static_cast<float>(SamplerLocalPosition.X + CoordinateOffset.X),
+			static_cast<float>(SamplerLocalPosition.Y + CoordinateOffset.Y));
 
 	FastNoiseLite Noise;
 	ConfigureNoise(Noise);
 	return Noise.GetNoise(
-		static_cast<float>(LocalPosition.X + CoordinateOffset.X),
-		static_cast<float>(LocalPosition.Y + CoordinateOffset.Y));
+		static_cast<float>(SamplerLocalPosition.X + CoordinateOffset.X),
+		static_cast<float>(SamplerLocalPosition.Y + CoordinateOffset.Y));
 }
 
-float UNoiseVolumeSampler::SampleNoise3D(const FVector& LocalPosition) const
+float UNoiseVolumeSampler::SampleNoise3D(const FVector& SamplerLocalPosition) const
 {
 	if (CachedNoise)
 		return CachedNoise->GetNoise(
-			static_cast<float>(LocalPosition.X + CoordinateOffset.X),
-			static_cast<float>(LocalPosition.Y + CoordinateOffset.Y),
-			static_cast<float>(LocalPosition.Z + CoordinateOffset.Z));
+			static_cast<float>(SamplerLocalPosition.X + CoordinateOffset.X),
+			static_cast<float>(SamplerLocalPosition.Y + CoordinateOffset.Y),
+			static_cast<float>(SamplerLocalPosition.Z + CoordinateOffset.Z));
 
 	FastNoiseLite Noise;
 	ConfigureNoise(Noise);
 	return Noise.GetNoise(
-		static_cast<float>(LocalPosition.X + CoordinateOffset.X),
-		static_cast<float>(LocalPosition.Y + CoordinateOffset.Y),
-		static_cast<float>(LocalPosition.Z + CoordinateOffset.Z));
+		static_cast<float>(SamplerLocalPosition.X + CoordinateOffset.X),
+		static_cast<float>(SamplerLocalPosition.Y + CoordinateOffset.Y),
+		static_cast<float>(SamplerLocalPosition.Z + CoordinateOffset.Z));
 }
 
-float UNoiseVolumeSampler::GetSignedDistance_Implementation(const FVector& LocalPosition) const
+float UNoiseVolumeSampler::GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const
 {
 	if (Dimension == ENoiseSamplerDimension::HeightField2D)
 	{
-		const float SurfaceZ = HeightOffset + SampleNoise2D(FVector2D(LocalPosition.X, LocalPosition.Y)) * HeightAmplitude;
-		return static_cast<float>(LocalPosition.Z) - SurfaceZ;
+		const float SurfaceZ = HeightOffset
+		                       + SampleNoise2D(FVector2D(CenteredLocalPosition.X, CenteredLocalPosition.Y)) * HeightAmplitude;
+		return static_cast<float>(CenteredLocalPosition.Z) - SurfaceZ;
 	}
 
-	return (IsoLevel - SampleNoise3D(LocalPosition)) * NoiseDistanceScale;
+	return (IsoLevel - SampleNoise3D(CenteredLocalPosition)) * NoiseDistanceScale;
 }

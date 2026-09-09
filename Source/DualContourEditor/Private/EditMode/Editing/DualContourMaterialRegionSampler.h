@@ -8,7 +8,7 @@ class UDualContourMaterialRegionSampler : public UVolumeSampler
 	GENERATED_BODY()
 public:
 	TWeakObjectPtr<ADualContourMaterialBrushVolume> Volume;
-	FTransform TargetTransform;
+	FTransform TargetLocalToWorldTransform;
 	virtual FBox GetBounds() const override;
-	virtual bool Sample(const FVector& Position, float& Value, float& Weight) const override;
+	virtual bool Sample(const FVector& TargetLocalPosition, float& Value, float& Weight) const override;
 };

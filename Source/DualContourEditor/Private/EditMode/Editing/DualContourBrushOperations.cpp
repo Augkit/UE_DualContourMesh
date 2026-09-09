@@ -14,8 +14,8 @@ TStrongObjectPtr<UDualContourShapeVolumeSampler> MakeShapeSampler(const FDualCon
 {
 	TStrongObjectPtr<UDualContourShapeVolumeSampler> SamplerOwner(NewObject<UDualContourShapeVolumeSampler>());
 	auto& Sampler = *SamplerOwner;
-	Sampler.Center = Stamp.LocalCenter;
-	Sampler.Normal = Stamp.LocalNormal;
+	Sampler.TargetLocalCenter = Stamp.TargetLocalCenter;
+	Sampler.TargetLocalNormal = Stamp.TargetLocalNormal;
 	Sampler.Radius = Stamp.Radius;
 	Sampler.Falloff = Stamp.Falloff;
 	Sampler.FalloffType = static_cast<EDualContourEditFalloff>(Stamp.FalloffType);
@@ -58,7 +58,7 @@ bool DualContourBrushOperations::ApplyDensityStamp(FDualContourEditContext& Edit
 			return false;
 		TStrongObjectPtr<UDualContourVolumeBrushSampler> SamplerOwner(NewObject<UDualContourVolumeBrushSampler>());
 		auto& Sampler = *SamplerOwner;
-		Sampler.Initialize(*Stamp.VolumeBrush, Stamp.VolumeToTarget);
+		Sampler.Initialize(*Stamp.VolumeBrush, Stamp.SourceToTargetTransform);
 		return Edit.ApplyDensity(Stamp.Operation == EDualContourDensityEditOperation::StampUnion
 			                         ? EDualContourDensityOperation::Union
 			                         : EDualContourDensityOperation::Difference, Sampler);
@@ -81,14 +81,16 @@ bool DualContourBrushOperations::ApplyDensityStamp(FDualContourEditContext& Edit
 	{
 		TStrongObjectPtr<UDualContourPlaneVolumeSampler> SamplerOwner(NewObject<UDualContourPlaneVolumeSampler>());
 		auto& Sampler = *SamplerOwner;
-		Sampler.Initialize(Mask, Stamp.FlattenPlaneOrigin, Stamp.FlattenPlaneNormal, GDualContourLinearDensityFixedPointScale);
+		Sampler.Initialize(Mask, Stamp.TargetLocalFlattenPlaneOrigin, Stamp.TargetLocalFlattenPlaneNormal,
+			GDualContourLinearDensityFixedPointScale);
 		return Edit.ApplyDensity(EDualContourDensityOperation::Replace, Sampler, Strength);
 	}
 	if (bSculpt && Stamp.bUseClayBrush)
 	{
 		TStrongObjectPtr<UDualContourPlaneVolumeSampler> SamplerOwner(NewObject<UDualContourPlaneVolumeSampler>());
 		auto& Sampler = *SamplerOwner;
-		Sampler.Initialize(Mask, Stamp.ClayPlaneOrigin, Stamp.LocalNormal, GDualContourMaxLinearDensity / Edit.GetTarget()->CellSize);
+		Sampler.Initialize(Mask, Stamp.TargetLocalClayPlaneOrigin, Stamp.TargetLocalNormal,
+			GDualContourMaxLinearDensity / Edit.GetTarget()->CellSize);
 		return Edit.ApplyDensity(Stamp.Operation == EDualContourDensityEditOperation::Sculpt
 			                         ? EDualContourDensityOperation::Union
 			                         : EDualContourDensityOperation::Difference, Sampler, Strength);
@@ -115,19 +117,22 @@ void DualContourBrushOperations::ApplyMaterialVolumes(ADualContourMeshActor* Tar
 		TStrongObjectPtr<UDualContourMaterialRegionSampler> SamplerOwner(NewObject<UDualContourMaterialRegionSampler>());
 		auto& Sampler = *SamplerOwner;
 		Sampler.Volume = Volume;
-		Sampler.TargetTransform = TargetActor->GetActorTransform();
+		Sampler.TargetLocalToWorldTransform = TargetActor->GetActorTransform();
 		Edit.ApplyMaterial(Sampler, PaintId, 0.5f, true);
 	}
 }
 
 FBox UDualContourMaterialRegionSampler::GetBounds() const
 {
-	return Volume.IsValid() ? Volume->GetBrushWorldBounds().TransformBy(TargetTransform.Inverse()) : FBox(ForceInit);
+	return Volume.IsValid()
+		       ? Volume->GetBrushWorldBounds().TransformBy(TargetLocalToWorldTransform.Inverse())
+		       : FBox(ForceInit);
 }
 
-bool UDualContourMaterialRegionSampler::Sample(const FVector& Position, float& Value, float& Weight) const
+bool UDualContourMaterialRegionSampler::Sample(const FVector& TargetLocalPosition, float& Value, float& Weight) const
 {
 	Value = 0;
 	Weight = 1;
-	return Volume.IsValid() && Volume->EncompassesWorldPosition(TargetTransform.TransformPosition(Position));
+	const FVector WorldPosition = TargetLocalToWorldTransform.TransformPosition(TargetLocalPosition);
+	return Volume.IsValid() && Volume->EncompassesWorldPosition(WorldPosition);
 }

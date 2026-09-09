@@ -23,17 +23,18 @@ public:
 	bool SetDensity(FIntVector Coord, float Value);
 	bool SetMaterial(FIntVector Coord, uint8 Value);
 	bool ApplyDensity(EDualContourDensityOperation Operation, const UVolumeSampler& Sampler, float Strength = 1.0f);
-	/** Applies a source after an additional transform around the sampler pivot. */
+	/** Applies a source after mapping sampler-input coordinates into target-local coordinates around the sampler pivot. */
 	bool ApplyDensity(EDualContourDensityOperation Operation, const UVolumeSampler& Sampler,
-		const FTransform& SampleTransform, float Strength = 1.0f);
+		const FTransform& SamplerToTargetTransform, float Strength = 1.0f);
 	bool ApplyMaterial(const UVolumeSampler& Sampler, uint8 MaterialId, float Threshold = 0.5f, bool bSolidOnly = true);
 	bool Commit(FDualContourDensityChangedCallback OnDensityChanged = {},
 		FDualContourMaterialChangedCallback OnMaterialChanged = {});
 
 private:
-	bool GetSampleBounds(const UVolumeSampler& Sampler, const FTransform* SampleTransform, FIntVector& Min, FIntVector& Max) const;
+	bool GetSampleBounds(const UVolumeSampler& Sampler, const FTransform* SamplerToTargetTransform,
+		FIntVector& OutMinSampleCoord, FIntVector& OutMaxSampleCoord) const;
 	bool ApplyDensityInternal(EDualContourDensityOperation Operation, const UVolumeSampler& Sampler,
-		const FTransform* SampleTransform, float Strength);
+		const FTransform* SamplerToTargetTransform, float Strength);
 	TWeakObjectPtr<UDualContour> Target;
 	FDualContourPendingDensityBatch DensityBatch;
 	FDualContourPendingMaterialBatch MaterialBatch;

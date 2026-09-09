@@ -220,13 +220,14 @@ void UDualContourBrushTool::OnClickPress(const FInputDeviceRay& PressPos)
 	{
 		FlattenWorldHeight = HitPosition.Z;
 		const FTransform ActorTransform = TargetActor->GetActorTransform();
-		FlattenPlaneOrigin = ActorTransform.InverseTransformPosition(HitPosition);
-		FlattenPlaneNormal = ActorTransform.InverseTransformVectorNoScale(FVector::UpVector)
+		TargetLocalFlattenPlaneOrigin = ActorTransform.InverseTransformPosition(HitPosition);
+		TargetLocalFlattenPlaneNormal = ActorTransform.InverseTransformVectorNoScale(FVector::UpVector)
 		                                   .GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
 		HitNormal = FVector::UpVector;
 	}
-	ClayPlaneOrigin = TargetActor->GetActorTransform().InverseTransformPosition(HitPosition);
-	ClayPlaneNormal = TargetActor->GetActorTransform().InverseTransformVectorNoScale(HitNormal).GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
+	TargetLocalClayPlaneOrigin = TargetActor->GetActorTransform().InverseTransformPosition(HitPosition);
+	TargetLocalClayPlaneNormal = TargetActor->GetActorTransform().InverseTransformVectorNoScale(HitNormal)
+		.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
 	StrokeDeltas.Reset();
 	MaterialStrokeDeltas.Reset();
 	LastStampPosition = HitPosition;
@@ -482,13 +483,14 @@ FDualContourBrushStamp UDualContourBrushTool::MakeStamp(const FVector& WorldPosi
 	FDualContourBrushStamp Stamp;
 	const FTransform ActorTransform = TargetActor->GetActorTransform();
 	const float ActorScale = FMath::Abs(ActorTransform.GetScale3D().X);
-	Stamp.LocalCenter = ActorTransform.InverseTransformPosition(WorldPosition);
-	Stamp.LocalNormal = ActorTransform.InverseTransformVectorNoScale(WorldNormal).GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
-	Stamp.ClayPlaneOrigin = ClayPlaneOrigin;
-	Stamp.FlattenPlaneOrigin = FlattenPlaneOrigin;
-	Stamp.FlattenPlaneNormal = FlattenPlaneNormal;
+	Stamp.TargetLocalCenter = ActorTransform.InverseTransformPosition(WorldPosition);
+	Stamp.TargetLocalNormal = ActorTransform.InverseTransformVectorNoScale(WorldNormal)
+		.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
+	Stamp.TargetLocalClayPlaneOrigin = TargetLocalClayPlaneOrigin;
+	Stamp.TargetLocalFlattenPlaneOrigin = TargetLocalFlattenPlaneOrigin;
+	Stamp.TargetLocalFlattenPlaneNormal = TargetLocalFlattenPlaneNormal;
 	if (Settings->bUseClayBrush)
-		Stamp.LocalNormal = ClayPlaneNormal;
+		Stamp.TargetLocalNormal = TargetLocalClayPlaneNormal;
 	Stamp.Radius = Settings->BrushSize * 0.5f / FMath::Max(ActorScale, UE_SMALL_NUMBER);
 	Stamp.Falloff = Settings->BrushFalloff;
 	Stamp.FalloffType = Settings->BrushFalloffType;
@@ -517,10 +519,13 @@ FDualContourBrushStamp UDualContourBrushTool::MakeStamp(const FVector& WorldPosi
 					Stamp.VolumeBrush->CellCount.Y * Stamp.VolumeBrush->CellSize, Stamp.VolumeBrush->CellCount.Z * Stamp.VolumeBrush->CellSize);
 				const FVector SourcePivot = SourceSize * 0.5f;
 				const FQuat Rotation = Settings->bAlignVolumeBrushToSurface
-					                       ? FQuat::FindBetweenNormals(FVector::UpVector, Stamp.LocalNormal)
+					                       ? FQuat::FindBetweenNormals(FVector::UpVector, Stamp.TargetLocalNormal)
 					                       : FQuat::Identity;
 				const float LocalScale = Settings->VolumeBrushScale / FMath::Max(ActorScale, UE_SMALL_NUMBER);
-				Stamp.VolumeToTarget = FTransform(Rotation, Stamp.LocalCenter - Rotation.RotateVector(SourcePivot * LocalScale), FVector(LocalScale));
+				Stamp.SourceToTargetTransform = FTransform(
+					Rotation,
+					Stamp.TargetLocalCenter - Rotation.RotateVector(SourcePivot * LocalScale),
+					FVector(LocalScale));
 			}
 			break;
 		default:

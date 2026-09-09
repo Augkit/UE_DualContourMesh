@@ -102,39 +102,47 @@ float UTextureSDFSampler::SignedDistanceToDensity(float SignedDistance) const
 	return (DensityBias - SignedDistance * DensityScale) * GDualContourLinearDensityFixedPointScale;
 }
 
-float UTextureSDFSampler::SampleCachedTexture(const FVector& UVW) const
+float UTextureSDFSampler::SampleCachedTexture(const FVector& NormalizedVolumePosition) const
 {
 	if (CachedSignedDistances.IsEmpty())
 		return 0.0f;
 
 	// Match clamped GPU texture sampling: voxel values live at (index + 0.5) / resolution.
-	const FVector TexelPosition(
-		FMath::Clamp(UVW.X * CachedResolution.X - 0.5, 0.0, static_cast<double>(CachedResolution.X - 1)),
-		FMath::Clamp(UVW.Y * CachedResolution.Y - 0.5, 0.0, static_cast<double>(CachedResolution.Y - 1)),
-		FMath::Clamp(UVW.Z * CachedResolution.Z - 0.5, 0.0, static_cast<double>(CachedResolution.Z - 1)));
-	const int32 X0 = FMath::FloorToInt(TexelPosition.X), Y0 = FMath::FloorToInt(TexelPosition.Y), Z0 = FMath::FloorToInt(TexelPosition.Z);
-	const int32 X1 = FMath::Min(X0 + 1, CachedResolution.X - 1);
-	const int32 Y1 = FMath::Min(Y0 + 1, CachedResolution.Y - 1);
-	const int32 Z1 = FMath::Min(Z0 + 1, CachedResolution.Z - 1);
-	const float FX = TexelPosition.X - X0, FY = TexelPosition.Y - Y0, FZ = TexelPosition.Z - Z0;
-	const auto Value = [this](int32 X, int32 Y, int32 Z)
+	const FVector TextureVoxelPosition(
+		FMath::Clamp(NormalizedVolumePosition.X * CachedResolution.X - 0.5, 0.0, static_cast<double>(CachedResolution.X - 1)),
+		FMath::Clamp(NormalizedVolumePosition.Y * CachedResolution.Y - 0.5, 0.0, static_cast<double>(CachedResolution.Y - 1)),
+		FMath::Clamp(NormalizedVolumePosition.Z * CachedResolution.Z - 0.5, 0.0, static_cast<double>(CachedResolution.Z - 1)));
+	const int32 LowerX = FMath::FloorToInt(TextureVoxelPosition.X);
+	const int32 LowerY = FMath::FloorToInt(TextureVoxelPosition.Y);
+	const int32 LowerZ = FMath::FloorToInt(TextureVoxelPosition.Z);
+	const int32 UpperX = FMath::Min(LowerX + 1, CachedResolution.X - 1);
+	const int32 UpperY = FMath::Min(LowerY + 1, CachedResolution.Y - 1);
+	const int32 UpperZ = FMath::Min(LowerZ + 1, CachedResolution.Z - 1);
+	const float FractionX = TextureVoxelPosition.X - LowerX;
+	const float FractionY = TextureVoxelPosition.Y - LowerY;
+	const float FractionZ = TextureVoxelPosition.Z - LowerZ;
+	const auto SampleTextureVoxel = [this](int32 X, int32 Y, int32 Z)
 	{
 		return CachedSignedDistances[DualContourUtils::LinearIndex(CachedResolution, X, Y, Z)];
 	};
-	const float D0 = FMath::Lerp(FMath::Lerp(Value(X0, Y0, Z0), Value(X1, Y0, Z0), FX),
-		FMath::Lerp(Value(X0, Y1, Z0), Value(X1, Y1, Z0), FX), FY);
-	const float D1 = FMath::Lerp(FMath::Lerp(Value(X0, Y0, Z1), Value(X1, Y0, Z1), FX),
-		FMath::Lerp(Value(X0, Y1, Z1), Value(X1, Y1, Z1), FX), FY);
-	return SignedDistanceToDensity(FMath::Lerp(D0, D1, FZ));
+	const float LowerZInterpolatedValue = FMath::Lerp(
+		FMath::Lerp(SampleTextureVoxel(LowerX, LowerY, LowerZ), SampleTextureVoxel(UpperX, LowerY, LowerZ), FractionX),
+		FMath::Lerp(SampleTextureVoxel(LowerX, UpperY, LowerZ), SampleTextureVoxel(UpperX, UpperY, LowerZ), FractionX),
+		FractionY);
+	const float UpperZInterpolatedValue = FMath::Lerp(
+		FMath::Lerp(SampleTextureVoxel(LowerX, LowerY, UpperZ), SampleTextureVoxel(UpperX, LowerY, UpperZ), FractionX),
+		FMath::Lerp(SampleTextureVoxel(LowerX, UpperY, UpperZ), SampleTextureVoxel(UpperX, UpperY, UpperZ), FractionX),
+		FractionY);
+	return SignedDistanceToDensity(FMath::Lerp(LowerZInterpolatedValue, UpperZInterpolatedValue, FractionZ));
 }
 
-bool UTextureSDFSampler::Sample(const FVector& Position, float& Value, float& Weight) const
+bool UTextureSDFSampler::Sample(const FVector& SamplerInputPosition, float& Value, float& Weight) const
 {
-	FVector UVW;
-	if (!TryGetNormalizedPosition(Position, UVW))
+	FVector NormalizedVolumePosition;
+	if (!TryGetNormalizedVolumePosition(SamplerInputPosition, NormalizedVolumePosition))
 		return false;
 	Weight = 1.0f;
-	Value = SampleCachedTexture(UVW);
+	Value = SampleCachedTexture(NormalizedVolumePosition);
 	return FMath::IsFinite(Value);
 }
 

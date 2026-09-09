@@ -10,7 +10,7 @@ class DUALCONTOURMESH_API UDualContourSampler : public UVolumeSampler
 	GENERATED_BODY()
 
 public:
-	virtual bool Sample(const FVector& Position, float& Value, float& Weight) const override;
+	virtual bool Sample(const FVector& SamplerInputPosition, float& Value, float& Weight) const override;
 
 	virtual bool Prepare(FText& OutError) const override;
 	virtual void Finish() const override;

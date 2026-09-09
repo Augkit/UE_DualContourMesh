@@ -72,34 +72,38 @@ bool FDualContourEditContext::SetMaterial(FIntVector Coord, uint8 Value)
 	return true;
 }
 
-bool FDualContourEditContext::GetSampleBounds(const UVolumeSampler& Sampler, const FTransform* SampleTransform,
-	FIntVector& Min, FIntVector& Max) const
+bool FDualContourEditContext::GetSampleBounds(const UVolumeSampler& Sampler, const FTransform* SamplerToTargetTransform,
+	FIntVector& OutMinSampleCoord, FIntVector& OutMaxSampleCoord) const
 {
 	if (!IsOpen())
 		return false;
-	FBox Bounds = Sampler.GetBounds();
-	if (!Bounds.IsValid || Bounds.Min.ContainsNaN() || Bounds.Max.ContainsNaN())
+	FBox TargetLocalBounds = Sampler.GetBounds();
+	if (!TargetLocalBounds.IsValid || TargetLocalBounds.Min.ContainsNaN() || TargetLocalBounds.Max.ContainsNaN())
 		return false;
-	if (SampleTransform)
+	if (SamplerToTargetTransform)
 	{
 		const FVector PivotPosition = Sampler.Pivot * Sampler.VolumeSize;
-		FBox TransformedBounds(ForceInit);
+		FBox TransformedTargetLocalBounds(ForceInit);
 		for (int32 Corner = 0; Corner < 8; ++Corner)
 		{
-			const FVector CornerPosition((Corner & 1) ? Bounds.Max.X : Bounds.Min.X,
-				(Corner & 2) ? Bounds.Max.Y : Bounds.Min.Y,
-				(Corner & 4) ? Bounds.Max.Z : Bounds.Min.Z);
-			TransformedBounds += PivotPosition + SampleTransform->TransformPosition(CornerPosition - PivotPosition);
+			const FVector SamplerInputCorner(
+				(Corner & 1) ? TargetLocalBounds.Max.X : TargetLocalBounds.Min.X,
+				(Corner & 2) ? TargetLocalBounds.Max.Y : TargetLocalBounds.Min.Y,
+				(Corner & 4) ? TargetLocalBounds.Max.Z : TargetLocalBounds.Min.Z);
+			TransformedTargetLocalBounds += PivotPosition
+				+ SamplerToTargetTransform->TransformPosition(SamplerInputCorner - PivotPosition);
 		}
-		Bounds = TransformedBounds;
+		TargetLocalBounds = TransformedTargetLocalBounds;
 	}
-	const FVector GridMax = FVector(Target->CellCount) * Target->CellSize;
+	const FVector TargetLocalMax = FVector(Target->CellCount) * Target->CellSize;
 	for (int32 Axis = 0; Axis < 3; ++Axis)
 	{
-		if (Bounds.Max[Axis] < 0 || Bounds.Min[Axis] > GridMax[Axis])
+		if (TargetLocalBounds.Max[Axis] < 0 || TargetLocalBounds.Min[Axis] > TargetLocalMax[Axis])
 			return false;
-		Min[Axis] = FMath::FloorToInt(FMath::Clamp(Bounds.Min[Axis] / Target->CellSize, 0.0, double(Target->CellCount[Axis])));
-		Max[Axis] = FMath::CeilToInt(FMath::Clamp(Bounds.Max[Axis] / Target->CellSize, 0.0, double(Target->CellCount[Axis])));
+		OutMinSampleCoord[Axis] = FMath::FloorToInt(
+			FMath::Clamp(TargetLocalBounds.Min[Axis] / Target->CellSize, 0.0, double(Target->CellCount[Axis])));
+		OutMaxSampleCoord[Axis] = FMath::CeilToInt(
+			FMath::Clamp(TargetLocalBounds.Max[Axis] / Target->CellSize, 0.0, double(Target->CellCount[Axis])));
 	}
 	return true;
 }
@@ -110,13 +114,13 @@ bool FDualContourEditContext::ApplyDensity(EDualContourDensityOperation Operatio
 }
 
 bool FDualContourEditContext::ApplyDensity(EDualContourDensityOperation Operation, const UVolumeSampler& Sampler,
-	const FTransform& SampleTransform, float Strength)
+	const FTransform& SamplerToTargetTransform, float Strength)
 {
-	return ApplyDensityInternal(Operation, Sampler, &SampleTransform, Strength);
+	return ApplyDensityInternal(Operation, Sampler, &SamplerToTargetTransform, Strength);
 }
 
 bool FDualContourEditContext::ApplyDensityInternal(EDualContourDensityOperation Operation, const UVolumeSampler& Sampler,
-	const FTransform* SampleTransform, float Strength)
+	const FTransform* SamplerToTargetTransform, float Strength)
 {
 	check(IsInGameThread());
 	FText Error;
@@ -126,13 +130,14 @@ bool FDualContourEditContext::ApplyDensityInternal(EDualContourDensityOperation 
 	{
 		Sampler.Finish();
 	};
-	FIntVector Min, Max;
-	if (!FMath::IsFinite(Strength) || Strength <= 0 || !GetSampleBounds(Sampler, SampleTransform, Min, Max))
+	FIntVector MinSampleCoord, MaxSampleCoord;
+	if (!FMath::IsFinite(Strength) || Strength <= 0
+	    || !GetSampleBounds(Sampler, SamplerToTargetTransform, MinSampleCoord, MaxSampleCoord))
 		return false;
 	Strength = FMath::Min(Strength, 1.0f);
-	const FIntVector Dims = Max - Min + FIntVector(1);
-	const int64 Count = int64(Dims.X) * Dims.Y * Dims.Z;
-	if (Count <= 0 || Count > MAX_int32)
+	const FIntVector SampleDimensions = MaxSampleCoord - MinSampleCoord + FIntVector(1);
+	const int64 SampleCount = int64(SampleDimensions.X) * SampleDimensions.Y * SampleDimensions.Z;
+	if (SampleCount <= 0 || SampleCount > MAX_int32)
 		return false;
 	TArray<float> SmoothValues;
 	FIntVector SmoothMin = FIntVector::ZeroValue;
@@ -142,8 +147,8 @@ bool FDualContourEditContext::ApplyDensityInternal(EDualContourDensityOperation 
 		FIntVector SmoothMax;
 		for (int32 Axis = 0; Axis < 3; ++Axis)
 		{
-			SmoothMin[Axis] = FMath::Max(0, Min[Axis] - 1);
-			SmoothMax[Axis] = FMath::Min(Target->CellCount[Axis], Max[Axis] + 1);
+			SmoothMin[Axis] = FMath::Max(0, MinSampleCoord[Axis] - 1);
+			SmoothMax[Axis] = FMath::Min(Target->CellCount[Axis], MaxSampleCoord[Axis] + 1);
 		}
 		SmoothDims = SmoothMax - SmoothMin + FIntVector(1);
 		const int64 SmoothCount = int64(SmoothDims.X) * SmoothDims.Y * SmoothDims.Z;
@@ -183,22 +188,22 @@ bool FDualContourEditContext::ApplyDensityInternal(EDualContourDensityOperation 
 		bool bChanged = false;
 	};
 	TArray<FWrite> Writes;
-	Writes.SetNum(static_cast<int32>(Count));
+	Writes.SetNum(static_cast<int32>(SampleCount));
 	const auto Compute = [&](int32 Index)
 	{
-		const int32 X = Min.X + Index % Dims.X;
-		const int32 Y = Min.Y + (Index / Dims.X) % Dims.Y;
-		const int32 Z = Min.Z + Index / (Dims.X * Dims.Y);
+		const int32 X = MinSampleCoord.X + Index % SampleDimensions.X;
+		const int32 Y = MinSampleCoord.Y + (Index / SampleDimensions.X) % SampleDimensions.Y;
+		const int32 Z = MinSampleCoord.Z + Index / (SampleDimensions.X * SampleDimensions.Y);
 		const FIntVector Coord(X, Y, Z);
-		FVector SamplePosition = Target->GetSampleLocalPosition(X, Y, Z);
-		if (SampleTransform)
+		FVector SamplerInputPosition = Target->GetSampleLocalPosition(X, Y, Z);
+		if (SamplerToTargetTransform)
 		{
 			const FVector PivotPosition = Sampler.Pivot * Sampler.VolumeSize;
-			SamplePosition = PivotPosition + SampleTransform->InverseTransformVector(
-				                 SamplePosition - PivotPosition - SampleTransform->GetTranslation());
+			SamplerInputPosition = PivotPosition + SamplerToTargetTransform->InverseTransformVector(
+				                       SamplerInputPosition - PivotPosition - SamplerToTargetTransform->GetTranslation());
 		}
 		float Value = 0, Weight = 0;
-		if (!Sampler.Sample(SamplePosition, Value, Weight) || !FMath::IsFinite(Value) ||
+		if (!Sampler.Sample(SamplerInputPosition, Value, Weight) || !FMath::IsFinite(Value) ||
 		    !FMath::IsFinite(Weight) || Weight <= 0)
 			return;
 		const float Before = GetDensity(Coord);
@@ -256,14 +261,15 @@ bool FDualContourEditContext::ApplyMaterial(const UVolumeSampler& Sampler, uint8
 	{
 		Sampler.Finish();
 	};
-	FIntVector Min, Max;
-	if (!FMath::IsFinite(Threshold) || !GetSampleBounds(Sampler, nullptr, Min, Max))
+	FIntVector MinSampleCoord, MaxSampleCoord;
+	if (!FMath::IsFinite(Threshold)
+	    || !GetSampleBounds(Sampler, nullptr, MinSampleCoord, MaxSampleCoord))
 		return false;
 	Threshold = FMath::Clamp(Threshold, 0.0f, 1.0f);
 	bool bChanged = false;
-	for (int32 Z = Min.Z; Z <= Max.Z; ++Z)
-		for (int32 Y = Min.Y; Y <= Max.Y; ++Y)
-			for (int32 X = Min.X; X <= Max.X; ++X)
+	for (int32 Z = MinSampleCoord.Z; Z <= MaxSampleCoord.Z; ++Z)
+		for (int32 Y = MinSampleCoord.Y; Y <= MaxSampleCoord.Y; ++Y)
+			for (int32 X = MinSampleCoord.X; X <= MaxSampleCoord.X; ++X)
 			{
 				float Value = 0, Weight = 0;
 				if (!Sampler.Sample(Target->GetSampleLocalPosition(X, Y, Z), Value, Weight) || !FMath::IsFinite(Weight) || Weight <= 0 ||

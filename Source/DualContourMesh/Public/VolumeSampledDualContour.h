@@ -22,7 +22,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Source")
 	bool bAutoCalculateVolumeSize = true;
 
-	/** Translation, rotation and scale applied to VolumeSampler about its pivot. */
+	/** Sampler-input to target-local placement applied about VolumeSampler's pivot. */
 	UPROPERTY(EditAnywhere, Category = "Source")
 	FTransform SampleTransform = FTransform::Identity;
 

@@ -332,7 +332,7 @@ bool UDualContour::Rebuild()
 	return true;
 }
 
-bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& SampleTransform, FText& OutError) const
+bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& SamplerToTargetTransform, FText& OutError) const
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_ApplyToDualContour);
 	check(IsInGameThread());
@@ -343,10 +343,11 @@ bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& 
 		OutError = NSLOCTEXT("VolumeSampler", "InvalidTarget", "The target DualContour grid settings are invalid.");
 		return false;
 	}
-	const FVector TransformScale = SampleTransform.GetScale3D();
-	if (SampleTransform.ContainsNaN() || TransformScale.GetAbs().GetMin() <= UE_SMALL_NUMBER)
+	const FVector SamplerToTargetScale = SamplerToTargetTransform.GetScale3D();
+	if (SamplerToTargetTransform.ContainsNaN() || SamplerToTargetScale.GetAbs().GetMin() <= UE_SMALL_NUMBER)
 	{
-		OutError = NSLOCTEXT("VolumeSampler", "InvalidTransformScale", "SampleTransform scale must be non-zero on every axis.");
+		OutError = NSLOCTEXT("VolumeSampler", "InvalidTransformScale",
+			"SamplerToTargetTransform scale must be non-zero on every axis.");
 		return false;
 	}
 	if (!Prepare(OutError))
@@ -355,41 +356,51 @@ bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& 
 	TArray<FDualContourSampledChunk> SampledChunks;
 
 	const FVector PivotPosition = Pivot * VolumeSize;
-	const FBox SourceBounds = GetBounds();
-	if (!SourceBounds.IsValid)
+	const FBox SamplerInputBounds = GetBounds();
+	if (!SamplerInputBounds.IsValid)
 	{
 		OutError = NSLOCTEXT("VolumeSampler", "InvalidBounds", "Sampler bounds are invalid.");
 		return false;
 	}
-	FBox TransformedBounds(ForceInit);
+	FBox TargetLocalBounds(ForceInit);
 	for (int32 Corner = 0; Corner < 8; ++Corner)
 	{
-		const FVector C((Corner & 1) ? SourceBounds.Max.X : SourceBounds.Min.X,
-			(Corner & 2) ? SourceBounds.Max.Y : SourceBounds.Min.Y,
-			(Corner & 4) ? SourceBounds.Max.Z : SourceBounds.Min.Z);
-		TransformedBounds += PivotPosition + SampleTransform.TransformPosition(C - PivotPosition);
+		const FVector SamplerInputCorner(
+			(Corner & 1) ? SamplerInputBounds.Max.X : SamplerInputBounds.Min.X,
+			(Corner & 2) ? SamplerInputBounds.Max.Y : SamplerInputBounds.Min.Y,
+			(Corner & 4) ? SamplerInputBounds.Max.Z : SamplerInputBounds.Min.Z);
+		TargetLocalBounds += PivotPosition
+			+ SamplerToTargetTransform.TransformPosition(SamplerInputCorner - PivotPosition);
 	}
 
-	const FVector TargetMax = FVector(Target->CellCount) * Target->CellSize;
-	if (TransformedBounds.Max.X < 0.0 || TransformedBounds.Max.Y < 0.0 || TransformedBounds.Max.Z < 0.0
-	    || TransformedBounds.Min.X > TargetMax.X || TransformedBounds.Min.Y > TargetMax.Y || TransformedBounds.Min.Z > TargetMax.Z)
+	const FVector TargetLocalMax = FVector(Target->CellCount) * Target->CellSize;
+	if (TargetLocalBounds.Max.X < 0.0 || TargetLocalBounds.Max.Y < 0.0 || TargetLocalBounds.Max.Z < 0.0
+	    || TargetLocalBounds.Min.X > TargetLocalMax.X || TargetLocalBounds.Min.Y > TargetLocalMax.Y
+	    || TargetLocalBounds.Min.Z > TargetLocalMax.Z)
 		return Target->ReplaceDensityFromSampledChunks(MoveTemp(SampledChunks));
-	const FVector ClippedMin(FMath::Clamp(TransformedBounds.Min.X, 0.0, TargetMax.X),
-		FMath::Clamp(TransformedBounds.Min.Y, 0.0, TargetMax.Y), FMath::Clamp(TransformedBounds.Min.Z, 0.0, TargetMax.Z));
-	const FVector ClippedMax(FMath::Clamp(TransformedBounds.Max.X, 0.0, TargetMax.X),
-		FMath::Clamp(TransformedBounds.Max.Y, 0.0, TargetMax.Y), FMath::Clamp(TransformedBounds.Max.Z, 0.0, TargetMax.Z));
-	const FIntVector SampleMin(FMath::Clamp(FMath::FloorToInt(ClippedMin.X / Target->CellSize), 0, Target->CellCount.X),
-		FMath::Clamp(FMath::FloorToInt(ClippedMin.Y / Target->CellSize), 0, Target->CellCount.Y),
-		FMath::Clamp(FMath::FloorToInt(ClippedMin.Z / Target->CellSize), 0, Target->CellCount.Z));
-	const FIntVector SampleMax(FMath::Clamp(FMath::CeilToInt(ClippedMax.X / Target->CellSize) + 1, 0, Target->CellCount.X + 1),
-		FMath::Clamp(FMath::CeilToInt(ClippedMax.Y / Target->CellSize) + 1, 0, Target->CellCount.Y + 1),
-		FMath::Clamp(FMath::CeilToInt(ClippedMax.Z / Target->CellSize) + 1, 0, Target->CellCount.Z + 1));
-	const FIntVector SampleDimensions = SampleMax - SampleMin;
+	const FVector ClippedTargetLocalMin(
+		FMath::Clamp(TargetLocalBounds.Min.X, 0.0, TargetLocalMax.X),
+		FMath::Clamp(TargetLocalBounds.Min.Y, 0.0, TargetLocalMax.Y),
+		FMath::Clamp(TargetLocalBounds.Min.Z, 0.0, TargetLocalMax.Z));
+	const FVector ClippedTargetLocalMax(
+		FMath::Clamp(TargetLocalBounds.Max.X, 0.0, TargetLocalMax.X),
+		FMath::Clamp(TargetLocalBounds.Max.Y, 0.0, TargetLocalMax.Y),
+		FMath::Clamp(TargetLocalBounds.Max.Z, 0.0, TargetLocalMax.Z));
+	const FIntVector TargetSampleMin(
+		FMath::Clamp(FMath::FloorToInt(ClippedTargetLocalMin.X / Target->CellSize), 0, Target->CellCount.X),
+		FMath::Clamp(FMath::FloorToInt(ClippedTargetLocalMin.Y / Target->CellSize), 0, Target->CellCount.Y),
+		FMath::Clamp(FMath::FloorToInt(ClippedTargetLocalMin.Z / Target->CellSize), 0, Target->CellCount.Z));
+	const FIntVector TargetSampleMaxExclusive(
+		FMath::Clamp(FMath::CeilToInt(ClippedTargetLocalMax.X / Target->CellSize) + 1, 0, Target->CellCount.X + 1),
+		FMath::Clamp(FMath::CeilToInt(ClippedTargetLocalMax.Y / Target->CellSize) + 1, 0, Target->CellCount.Y + 1),
+		FMath::Clamp(FMath::CeilToInt(ClippedTargetLocalMax.Z / Target->CellSize) + 1, 0, Target->CellCount.Z + 1));
+	const FIntVector SampleDimensions = TargetSampleMaxExclusive - TargetSampleMin;
 
-	const FIntVector ChunkMin(SampleMin.X / GDualContourChunkSize, SampleMin.Y / GDualContourChunkSize,
-		SampleMin.Z / GDualContourChunkSize);
-	const FIntVector ChunkMaxExclusive(FMath::DivideAndRoundUp(SampleMax.X, GDualContourChunkSize),
-		FMath::DivideAndRoundUp(SampleMax.Y, GDualContourChunkSize), FMath::DivideAndRoundUp(SampleMax.Z, GDualContourChunkSize));
+	const FIntVector ChunkMin(TargetSampleMin.X / GDualContourChunkSize, TargetSampleMin.Y / GDualContourChunkSize,
+		TargetSampleMin.Z / GDualContourChunkSize);
+	const FIntVector ChunkMaxExclusive(FMath::DivideAndRoundUp(TargetSampleMaxExclusive.X, GDualContourChunkSize),
+		FMath::DivideAndRoundUp(TargetSampleMaxExclusive.Y, GDualContourChunkSize),
+		FMath::DivideAndRoundUp(TargetSampleMaxExclusive.Z, GDualContourChunkSize));
 	const FIntVector ChunkDimensions = ChunkMaxExclusive - ChunkMin;
 	const int64 ChunkArea = static_cast<int64>(ChunkDimensions.X) * ChunkDimensions.Y;
 	if (ChunkDimensions.X <= 0 || ChunkDimensions.Y <= 0 || ChunkDimensions.Z <= 0 || ChunkArea > MAX_int32
@@ -401,10 +412,10 @@ bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& 
 	const int32 ChunkCount = static_cast<int32>(ChunkArea * ChunkDimensions.Z);
 	SampledChunks.SetNum(ChunkCount);
 
-	const FVector Translation = SampleTransform.GetTranslation();
+	const FVector SamplerToTargetTranslation = SamplerToTargetTransform.GetTranslation();
 	const float TargetCellSize = Target->CellSize;
-	const auto SampleChunk = [this, &SampledChunks, SampleMin, SampleDimensions, ChunkMin, ChunkDimensions, ChunkArea, TargetCellSize,
-			PivotPosition, SampleTransform, Translation](int32 Index)
+	const auto SampleChunk = [this, &SampledChunks, TargetSampleMin, SampleDimensions, ChunkMin, ChunkDimensions, ChunkArea, TargetCellSize,
+			PivotPosition, SamplerToTargetTransform, SamplerToTargetTranslation](int32 Index)
 	{
 		const int32 ChunkZ = static_cast<int32>(Index / ChunkArea);
 		const int32 Remainder = static_cast<int32>(Index - static_cast<int64>(ChunkZ) * ChunkArea);
@@ -413,22 +424,27 @@ bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& 
 		FDualContourSampledChunk& SampledChunk = SampledChunks[Index];
 		SampledChunk.ChunkCoord = ChunkMin + FIntVector(ChunkX, ChunkY, ChunkZ);
 		const FIntVector ChunkOrigin = DualContourUtils::ChunkOrigin(SampledChunk.ChunkCoord);
-		const FIntVector SampleMax = SampleMin + SampleDimensions;
-		const FIntVector BuildMin(FMath::Max(SampleMin.X, ChunkOrigin.X), FMath::Max(SampleMin.Y, ChunkOrigin.Y),
-			FMath::Max(SampleMin.Z, ChunkOrigin.Z));
-		const FIntVector BuildMax(FMath::Min(SampleMax.X, ChunkOrigin.X + GDualContourChunkSize),
-			FMath::Min(SampleMax.Y, ChunkOrigin.Y + GDualContourChunkSize), FMath::Min(SampleMax.Z, ChunkOrigin.Z + GDualContourChunkSize));
+		const FIntVector TargetSampleMaxExclusive = TargetSampleMin + SampleDimensions;
+		const FIntVector ChunkSampleMin(
+			FMath::Max(TargetSampleMin.X, ChunkOrigin.X),
+			FMath::Max(TargetSampleMin.Y, ChunkOrigin.Y),
+			FMath::Max(TargetSampleMin.Z, ChunkOrigin.Z));
+		const FIntVector ChunkSampleMaxExclusive(
+			FMath::Min(TargetSampleMaxExclusive.X, ChunkOrigin.X + GDualContourChunkSize),
+			FMath::Min(TargetSampleMaxExclusive.Y, ChunkOrigin.Y + GDualContourChunkSize),
+			FMath::Min(TargetSampleMaxExclusive.Z, ChunkOrigin.Z + GDualContourChunkSize));
 		bool bExpanded = false;
-		for (int32 Z = BuildMin.Z; Z < BuildMax.Z; ++Z)
-			for (int32 Y = BuildMin.Y; Y < BuildMax.Y; ++Y)
-				for (int32 X = BuildMin.X; X < BuildMax.X; ++X)
+		for (int32 Z = ChunkSampleMin.Z; Z < ChunkSampleMaxExclusive.Z; ++Z)
+			for (int32 Y = ChunkSampleMin.Y; Y < ChunkSampleMaxExclusive.Y; ++Y)
+				for (int32 X = ChunkSampleMin.X; X < ChunkSampleMaxExclusive.X; ++X)
 				{
-					const FVector TargetPosition(static_cast<double>(X) * TargetCellSize, static_cast<double>(Y) * TargetCellSize,
+					const FVector TargetLocalPosition(static_cast<double>(X) * TargetCellSize, static_cast<double>(Y) * TargetCellSize,
 						static_cast<double>(Z) * TargetCellSize);
-					const FVector Untransformed = PivotPosition + SampleTransform.
-					                              InverseTransformVector(TargetPosition - PivotPosition - Translation);
+					const FVector SamplerInputPosition = PivotPosition
+					                                     + SamplerToTargetTransform.InverseTransformVector(
+						                                     TargetLocalPosition - PivotPosition - SamplerToTargetTranslation);
 					float LinearDensity = GDualContourMinLinearDensity, Weight = 0.0f;
-					if (!Sample(Untransformed, LinearDensity, Weight) || !FMath::IsFinite(Weight) || Weight <= 0.0f)
+					if (!Sample(SamplerInputPosition, LinearDensity, Weight) || !FMath::IsFinite(Weight) || Weight <= 0.0f)
 						continue;
 					const uint16 Density = FDensityChunk::EncodeDensity(LinearDensity);
 					if (Density == 0)
