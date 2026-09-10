@@ -1,11 +1,16 @@
 #include "Test/DualContourTestPlayerController.h"
 #include "DualContourMeshActor.h"
-#include "DualContourMeshComponent.h"
+#include "DualContourModifierComponent.h"
 #include "VolumeSampler/ProceduralVolumeSampler.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "InputCoreTypes.h"
+
+ADualContourTestPlayerController::ADualContourTestPlayerController()
+{
+	ModifierComponent = CreateDefaultSubobject<UDualContourModifierComponent>(TEXT("DualContourModifier"));
+}
 
 void ADualContourTestPlayerController::SetupInputComponent()
 {
@@ -22,8 +27,7 @@ void ADualContourTestPlayerController::SetupInputComponent()
 	InputComponent->BindKey(EKeys::K, IE_Pressed, this, &ADualContourTestPlayerController::SaveRuntimeDensityIncrement);
 	InputComponent->BindKey(EKeys::L, IE_Pressed, this, &ADualContourTestPlayerController::LoadRuntimeDensityIncrement);
 
-	if (!SelectedSampler)
-		SelectSphereSampler();
+	InitializeSamplers();
 }
 
 void ADualContourTestPlayerController::OnLeftClick()
@@ -36,45 +40,72 @@ void ADualContourTestPlayerController::OnRightClick()
 	ApplySelectedSampler(false);
 }
 
-void ADualContourTestPlayerController::SelectSampler(TSubclassOf<UProceduralVolumeSampler> SamplerClass)
+void ADualContourTestPlayerController::InitializeSamplers()
 {
-	if (SamplerClass)
-		SelectedSampler = NewObject<UProceduralVolumeSampler>(this, SamplerClass);
+	if (!ModifierComponent)
+		return;
+
+	// Preserve samplers configured on the component, including Blueprint subclasses.
+	if (ModifierComponent->Samplers.IsEmpty())
+	{
+		ModifierComponent->AddSampler(USphereVolumeSampler::StaticClass());
+		ModifierComponent->AddSampler(UBoxVolumeSampler::StaticClass());
+		ModifierComponent->AddSampler(UCylinderVolumeSampler::StaticClass());
+		ModifierComponent->AddSampler(UCapsuleVolumeSampler::StaticClass());
+		ModifierComponent->AddSampler(UTorusVolumeSampler::StaticClass());
+	}
+
+	for (const TObjectPtr<UVolumeSampler>& Sampler : AdditionalSamplers)
+		if (IsValid(Sampler))
+			ModifierComponent->Samplers.Add(Sampler);
+
+	if (!ModifierComponent->Samplers.IsEmpty())
+		SelectedSamplerIndex = FMath::Clamp(SelectedSamplerIndex, 0, ModifierComponent->Samplers.Num() - 1);
+}
+
+void ADualContourTestPlayerController::SetSelectedSamplerIndex(int32 SamplerIndex)
+{
+	if (ModifierComponent && ModifierComponent->Samplers.IsValidIndex(SamplerIndex))
+		SelectedSamplerIndex = SamplerIndex;
 }
 
 void ADualContourTestPlayerController::SelectSphereSampler()
 {
-	SelectSampler(USphereVolumeSampler::StaticClass());
+	SelectedSamplerIndex = 0;
 }
 
 void ADualContourTestPlayerController::SelectBoxSampler()
 {
-	SelectSampler(UBoxVolumeSampler::StaticClass());
+	SelectedSamplerIndex = 1;
 }
 
 void ADualContourTestPlayerController::SelectCylinderSampler()
 {
-	SelectSampler(UCylinderVolumeSampler::StaticClass());
+	SelectedSamplerIndex = 2;
 }
 
 void ADualContourTestPlayerController::SelectCapsuleSampler()
 {
-	SelectSampler(UCapsuleVolumeSampler::StaticClass());
+	SelectedSamplerIndex = 3;
 }
 
 void ADualContourTestPlayerController::SelectTorusSampler()
 {
-	SelectSampler(UTorusVolumeSampler::StaticClass());
+	SelectedSamplerIndex = 4;
 }
 
 void ADualContourTestPlayerController::DecreaseSamplerScale()
 {
-	SamplerScale = FMath::Max(0.01f, SamplerScale / FMath::Max(1.01f, SamplerScaleStep));
+	if (ModifierComponent)
+		ModifierComponent->SamplerScale = FMath::Max(0.01f,
+			ModifierComponent->SamplerScale / FMath::Max(1.01f, SamplerScaleStep));
 }
 
 void ADualContourTestPlayerController::IncreaseSamplerScale()
 {
-	SamplerScale = FMath::Min(10.0f, SamplerScale * FMath::Max(1.01f, SamplerScaleStep));
+	if (ModifierComponent)
+		ModifierComponent->SamplerScale = FMath::Min(10.0f,
+			ModifierComponent->SamplerScale * FMath::Max(1.01f, SamplerScaleStep));
 }
 
 void ADualContourTestPlayerController::SaveRuntimeDensityIncrement()
@@ -103,7 +134,7 @@ ADualContourMeshActor* ADualContourTestPlayerController::FindDualContourMeshActo
 void ADualContourTestPlayerController::ApplySelectedSampler(bool bExcavate)
 {
 	UWorld* World = GetWorld();
-	if (!World || !SelectedSampler)
+	if (!World || !ModifierComponent || !ModifierComponent->Samplers.IsValidIndex(SelectedSamplerIndex))
 		return;
 
 	UGameViewportClient* Viewport = World->GetGameViewport();
@@ -117,16 +148,5 @@ void ADualContourTestPlayerController::ApplySelectedSampler(bool bExcavate)
 	if (!DeprojectScreenPositionToWorld(ViewportSize.X * 0.5f, ViewportSize.Y * 0.5f, WorldOrigin, WorldDir))
 		return;
 
-	FHitResult HitResult;
-	if (!World->LineTraceSingleByChannel(HitResult, WorldOrigin, WorldOrigin + WorldDir * 100000.f, ECC_Visibility))
-		return;
-
-	if (!HitResult.GetComponent() || !HitResult.GetComponent()->IsA<UDualContourMeshComponent>())
-		return;
-
-	ADualContourMeshActor* MeshActor = Cast<ADualContourMeshActor>(HitResult.GetActor());
-	if (!MeshActor)
-		return;
-
-	MeshActor->ModifyDensityWithSampler(HitResult.ImpactPoint, HitResult.ImpactNormal, SelectedSampler, SamplerScale, bExcavate);
+	ModifierComponent->ModifyDualContourWithRay(WorldOrigin, WorldDir, SelectedSamplerIndex, MaterialId, bExcavate);
 }

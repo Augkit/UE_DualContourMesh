@@ -237,6 +237,18 @@ bool FDualContourEditContext::ApplyDensityInternal(EDualContourDensityOperation 
 
 bool FDualContourEditContext::ApplyMaterial(const UVolumeSampler& Sampler, uint8 MaterialId, float Threshold, bool bSolidOnly)
 {
+	return ApplyMaterialInternal(Sampler, MaterialId, nullptr, Threshold, bSolidOnly);
+}
+
+bool FDualContourEditContext::ApplyMaterial(const UVolumeSampler& Sampler, uint8 MaterialId,
+	const FTransform& SamplerToTargetTransform, float Threshold, bool bSolidOnly)
+{
+	return ApplyMaterialInternal(Sampler, MaterialId, &SamplerToTargetTransform, Threshold, bSolidOnly);
+}
+
+bool FDualContourEditContext::ApplyMaterialInternal(const UVolumeSampler& Sampler, uint8 MaterialId,
+	const FTransform* SamplerToTargetTransform, float Threshold, bool bSolidOnly)
+{
 	check(IsInGameThread());
 	FText Error;
 	if (!IsOpen() || !Sampler.Prepare(Error))
@@ -245,10 +257,10 @@ bool FDualContourEditContext::ApplyMaterial(const UVolumeSampler& Sampler, uint8
 	{
 		Sampler.Finish();
 	};
-	const FVolumeSamplerPlacement Placement = Sampler.MakePlacement(nullptr);
+	const FVolumeSamplerPlacement Placement = Sampler.MakePlacement(SamplerToTargetTransform);
 	FIntVector MinSampleCoord, MaxSampleCoord;
 	if (!FMath::IsFinite(Threshold)
-	    || !GetSampleBounds(Sampler, nullptr, MinSampleCoord, MaxSampleCoord))
+	    || !GetSampleBounds(Sampler, SamplerToTargetTransform, MinSampleCoord, MaxSampleCoord))
 		return false;
 	Threshold = FMath::Clamp(Threshold, 0.0f, 1.0f);
 	bool bChanged = false;
@@ -257,8 +269,9 @@ bool FDualContourEditContext::ApplyMaterial(const UVolumeSampler& Sampler, uint8
 			for (int32 X = MinSampleCoord.X; X <= MaxSampleCoord.X; ++X)
 			{
 				float Value = 0, Weight = 0;
-				if (!Sampler.Sample(Target->GetSampleLocalPosition(X, Y, Z), Placement, Value, Weight) || !FMath::IsFinite(Weight) || Weight <= 0 ||
-				    Weight < Threshold)
+				if (!Sampler.Sample(Target->GetSampleLocalPosition(X, Y, Z), Placement, Value, Weight)
+				    || !FMath::IsFinite(Value) || !FMath::IsFinite(Weight) || Weight <= 0
+				    || Weight < Threshold || Value < GDualContourLinearIsoValue)
 					continue;
 				const FIntVector Coord(X, Y, Z);
 				if (bSolidOnly && FDensityChunk::EncodeDensity(GetDensity(Coord)) < GDualContourIsoValue)

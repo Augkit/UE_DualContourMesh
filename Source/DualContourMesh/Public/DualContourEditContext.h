@@ -27,6 +27,8 @@ public:
 	bool ApplyDensity(EDualContourDensityOperation Operation, const UVolumeSampler& Sampler,
 		const FTransform& SamplerToTargetTransform, float Strength = 1.0f);
 	bool ApplyMaterial(const UVolumeSampler& Sampler, uint8 MaterialId, float Threshold = 0.5f, bool bSolidOnly = true);
+	bool ApplyMaterial(const UVolumeSampler& Sampler, uint8 MaterialId,
+		const FTransform& SamplerToTargetTransform, float Threshold = 0.5f, bool bSolidOnly = true);
 	bool Commit(FDualContourDensityChangedCallback OnDensityChanged = {},
 		FDualContourMaterialChangedCallback OnMaterialChanged = {});
 
@@ -35,6 +37,8 @@ private:
 		FIntVector& OutMinSampleCoord, FIntVector& OutMaxSampleCoord) const;
 	bool ApplyDensityInternal(EDualContourDensityOperation Operation, const UVolumeSampler& Sampler,
 		const FTransform* SamplerToTargetTransform, float Strength);
+	bool ApplyMaterialInternal(const UVolumeSampler& Sampler, uint8 MaterialId,
+		const FTransform* SamplerToTargetTransform, float Threshold, bool bSolidOnly);
 	TWeakObjectPtr<UDualContour> Target;
 	FDualContourPendingDensityBatch DensityBatch;
 	FDualContourPendingMaterialBatch MaterialBatch;

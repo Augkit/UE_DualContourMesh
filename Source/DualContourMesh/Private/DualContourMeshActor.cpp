@@ -899,7 +899,7 @@ void ADualContourMeshActor::UpdateMeshDivisions(const TSet<int32>& AffectedDivis
 }
 
 bool ADualContourMeshActor::ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal, UVolumeSampler* Sampler,
-	float UniformScale, bool bExcavate)
+	float UniformScale, bool bExcavate, const FVector& WorldEditDirection)
 {
 	if (!DualContour || !DualContour->HasCurrentGeneratedData())
 	{
@@ -919,7 +919,15 @@ bool ADualContourMeshActor::ModifyDensityWithSampler(const FVector& WorldHitPos,
 	const FVector LocalHitNormal = ActorTransform.InverseTransformVectorNoScale(WorldHitNormal).GetSafeNormal();
 	if (!HasValidDivisions() || LocalHitNormal.IsNearlyZero())
 		return false;
-	const FQuat SamplerRotation = FQuat::FindBetweenNormals(FVector::UpVector, LocalHitNormal);
+	FQuat SamplerRotation = FQuat::FindBetweenNormals(FVector::UpVector, LocalHitNormal);
+	const FVector LocalEditDirection = ActorTransform.InverseTransformVectorNoScale(WorldEditDirection).GetSafeNormal();
+	if (!LocalEditDirection.IsNearlyZero())
+	{
+		FVector LocalUp = LocalHitNormal;
+		if (FMath::Abs(FVector::DotProduct(LocalEditDirection, LocalUp)) > 0.999f)
+			LocalUp = FMath::Abs(LocalEditDirection.Z) < 0.999f ? FVector::UpVector : FVector::RightVector;
+		SamplerRotation = FRotationMatrix::MakeFromXZ(LocalEditDirection, LocalUp).ToQuat();
+	}
 	const FVector SamplerPivotPosition = Sampler->Pivot * Sampler->VolumeSize;
 	const FTransform SamplerToTargetTransform(
 		SamplerRotation, LocalHitPosition - SamplerPivotPosition, FVector(UniformScale));
@@ -933,6 +941,37 @@ bool ADualContourMeshActor::ModifyDensityWithSampler(const FVector& WorldHitPos,
 		UE_LOG(LogDualContourMesh, Warning, TEXT("Density edit failed for %s."), *GetName());
 		return false;
 	}
+	return Edit.Commit();
+}
+
+bool ADualContourMeshActor::ModifyMaterialWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal,
+	UVolumeSampler* Sampler, float UniformScale, uint8 MaterialId, const FVector& WorldEditDirection)
+{
+	if (!DualContour || !DualContour->HasCurrentGeneratedData() || !Sampler
+	    || !FMath::IsFinite(UniformScale) || UniformScale <= UE_SMALL_NUMBER)
+		return false;
+
+	const FTransform& ActorTransform = GetActorTransform();
+	const FVector LocalHitPosition = ActorTransform.InverseTransformPosition(WorldHitPos);
+	const FVector LocalHitNormal = ActorTransform.InverseTransformVectorNoScale(WorldHitNormal).GetSafeNormal();
+	if (!HasValidDivisions() || LocalHitNormal.IsNearlyZero())
+		return false;
+
+	FQuat SamplerRotation = FQuat::FindBetweenNormals(FVector::UpVector, LocalHitNormal);
+	const FVector LocalEditDirection = ActorTransform.InverseTransformVectorNoScale(WorldEditDirection).GetSafeNormal();
+	if (!LocalEditDirection.IsNearlyZero())
+	{
+		FVector LocalUp = LocalHitNormal;
+		if (FMath::Abs(FVector::DotProduct(LocalEditDirection, LocalUp)) > 0.999f)
+			LocalUp = FMath::Abs(LocalEditDirection.Z) < 0.999f ? FVector::UpVector : FVector::RightVector;
+		SamplerRotation = FRotationMatrix::MakeFromXZ(LocalEditDirection, LocalUp).ToQuat();
+	}
+	const FVector SamplerPivotPosition = Sampler->Pivot * Sampler->VolumeSize;
+	const FTransform SamplerToTargetTransform(SamplerRotation, LocalHitPosition - SamplerPivotPosition, FVector(UniformScale));
+
+	FDualContourEditContext Edit(*DualContour);
+	if (!Edit.ApplyMaterial(*Sampler, MaterialId, SamplerToTargetTransform))
+		return false;
 	return Edit.Commit();
 }
 
