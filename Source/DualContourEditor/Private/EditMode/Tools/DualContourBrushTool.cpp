@@ -542,19 +542,19 @@ void UDualContourBrushTool::FlushStroke(bool bFinalFlush)
 	if (!ActiveEdit)
 		return;
 	ActiveEdit->Commit(
-		[this](const FIntVector& Coord, uint8 Before, uint8 After)
-		{
-			if (FDualContourMaterialSampleDelta* Existing = MaterialStrokeDeltas.Find(Coord))
-				Existing->After = After;
-			else
-				MaterialStrokeDeltas.Add(Coord, FDualContourMaterialSampleDelta{Coord, Before, After});
-		},
 		[this](const FIntVector& Coord, uint16 Before, uint16 After)
 		{
 			if (FDualContourDensitySampleDelta* Existing = StrokeDeltas.Find(Coord))
 				Existing->After = After;
 			else
 				StrokeDeltas.Add(Coord, FDualContourDensitySampleDelta{Coord, Before, After});
+		},
+		[this](const FIntVector& Coord, uint8 Before, uint8 After)
+		{
+			if (FDualContourMaterialSampleDelta* Existing = MaterialStrokeDeltas.Find(Coord))
+				Existing->After = After;
+			else
+				MaterialStrokeDeltas.Add(Coord, FDualContourMaterialSampleDelta{Coord, Before, After});
 		});
 	ActiveEdit.Reset();
 	if (!bFinalFlush)
