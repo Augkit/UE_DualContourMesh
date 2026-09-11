@@ -5,7 +5,22 @@
 #include "DualContourEditorTypes.h"
 #include "DualContourEditModeSettings.generated.h"
 
-class UVolumeSampledDualContour;
+class UVolumeSampler;
+
+USTRUCT()
+struct FDualContourAxisLockMask
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere)
+	bool bX = false;
+
+	UPROPERTY(EditAnywhere)
+	bool bY = false;
+
+	UPROPERTY(EditAnywhere)
+	bool bZ = false;
+};
 
 UENUM()
 enum class EDualContourEditTool : uint8
@@ -83,15 +98,27 @@ public:
 	UPROPERTY(EditAnywhere, Config, Category = "Performance", meta = (ClampMin = "0.033", ClampMax = "0.5", UIMin = "0.033", UIMax = "0.2"))
 	float PreviewUpdateInterval = 0.08f;
 
-	UPROPERTY(EditAnywhere, Config, Category = "Brush Stamp",
+	UPROPERTY(EditAnywhere, Instanced, Category = "Brush Stamp",
 		meta = (EditCondition = "ActiveTool == EDualContourEditTool::Brush", EditConditionHides))
-	TSoftObjectPtr<UVolumeSampledDualContour> VolumeBrush;
+	TObjectPtr<UVolumeSampler> VolumeSampler;
 
 	UPROPERTY(EditAnywhere, Config, Category = "Brush Stamp",
 		meta = (EditCondition = "ActiveTool == EDualContourEditTool::Brush", EditConditionHides))
-	bool bAlignVolumeBrushToSurface = true;
+	bool bAlignVolumeSamplerToSurface = true;
+
+	/** Per-axis lock mask displayed as three inline checkboxes. */
+	UPROPERTY(EditAnywhere, Config, Category = "Brush Stamp",
+		meta = (DisplayName = "Lock Axes", EditCondition = "ActiveTool == EDualContourEditTool::Brush && bAlignVolumeSamplerToSurface",
+			EditConditionHides))
+	FDualContourAxisLockMask VolumeSamplerLockedAxes;
+
+	/** World-space direction used by a locked sampler Z axis. Defaults to world up. */
+	UPROPERTY(EditAnywhere, Config, Category = "Brush Stamp",
+		meta = (DisplayName = "Constraint World Direction",
+			EditCondition = "ActiveTool == EDualContourEditTool::Brush && bAlignVolumeSamplerToSurface"))
+	FVector VolumeSamplerConstraintWorldDirection = FVector::UpVector;
 
 	UPROPERTY(EditAnywhere, Config, Category = "Brush Stamp",
 		meta = (ClampMin = "0.001", EditCondition = "ActiveTool == EDualContourEditTool::Brush", EditConditionHides))
-	float VolumeBrushScale = 1.0f;
+	float VolumeSamplerScale = 1.0f;
 };

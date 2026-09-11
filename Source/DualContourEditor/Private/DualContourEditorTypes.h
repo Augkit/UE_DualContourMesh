@@ -31,7 +31,7 @@ enum class EDualContourBrushFalloff : uint8
 	Tip,
 };
 
-class UVolumeSampledDualContour;
+class UVolumeSampler;
 
 /** Editor input description, adapted into runtime samplers and operations by DualContourBrushOperations.
  * All positions and sizes are in the target DualContour's local space; this struct never owns pending writes. */
@@ -53,7 +53,7 @@ struct DUALCONTOUREDITOR_API FDualContourBrushStamp
 	/** Makes radial falloff define the axial profile of a stationary sculpt stamp. */
 	bool bUseDirectionalFalloff = false;
 
-	/** Used only by StampUnion/StampDifference; maps source local positions into target local space. */
-	UVolumeSampledDualContour* VolumeBrush = nullptr;
+	/** Used only by StampUnion/StampDifference; samples the selected volume source directly. */
+	UVolumeSampler* VolumeSampler = nullptr;
 	FTransform SourceToTargetTransform = FTransform::Identity;
 };

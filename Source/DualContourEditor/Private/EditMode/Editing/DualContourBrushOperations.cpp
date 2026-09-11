@@ -3,7 +3,6 @@
 #include "DualContourMeshActor.h"
 #include "DualContourMaterialBrushVolume.h"
 #include "EditMode/Editing/DualContourMaterialRegionSampler.h"
-#include "VolumeSampledDualContour.h"
 #include "DualContourEditContext.h"
 #include "VolumeSampler/DualContourBrushSamplers.h"
 #include "UObject/StrongObjectPtr.h"
@@ -54,14 +53,12 @@ bool DualContourBrushOperations::ApplyDensityStamp(FDualContourEditContext& Edit
 	if (Stamp.Operation == EDualContourDensityEditOperation::StampUnion ||
 	    Stamp.Operation == EDualContourDensityEditOperation::StampDifference)
 	{
-		if (!IsValid(Stamp.VolumeBrush))
+		if (!IsValid(Stamp.VolumeSampler))
 			return false;
-		TStrongObjectPtr<UDualContourVolumeBrushSampler> SamplerOwner(NewObject<UDualContourVolumeBrushSampler>());
-		auto& Sampler = *SamplerOwner;
-		Sampler.Initialize(*Stamp.VolumeBrush, Stamp.SourceToTargetTransform);
 		return Edit.ApplyDensity(Stamp.Operation == EDualContourDensityEditOperation::StampUnion
 			                         ? EDualContourDensityOperation::Union
-			                         : EDualContourDensityOperation::Difference, Sampler);
+			                         : EDualContourDensityOperation::Difference,
+			               *Stamp.VolumeSampler, Stamp.SourceToTargetTransform);
 	}
 	if (Stamp.Operation == EDualContourDensityEditOperation::Smooth)
 		return Edit.ApplyDensity(EDualContourDensityOperation::Smooth, Mask, Strength);

@@ -6,7 +6,7 @@
 #include "DualContourMeshActor.h"
 #include "DualContourMeshComponent.h"
 #include "EditMode/Editing/DualContourBrushOperations.h"
-#include "VolumeSampledDualContour.h"
+#include "VolumeSampler/VolumeSampler.h"
 #include "BaseBehaviors/ClickDragBehavior.h"
 #include "BaseBehaviors/MouseHoverBehavior.h"
 #include "InteractiveToolManager.h"
@@ -511,23 +511,34 @@ FDualContourBrushStamp UDualContourBrushTool::MakeStamp(const FVector& WorldPosi
 			Stamp.Operation = EDualContourDensityEditOperation::Flatten;
 			break;
 		case EDualContourEditTool::Brush:
+		{
 			Stamp.Operation = bShiftDown ? EDualContourDensityEditOperation::StampDifference : EDualContourDensityEditOperation::StampUnion;
-			Stamp.VolumeBrush = Settings->VolumeBrush.LoadSynchronous();
-			if (Stamp.VolumeBrush)
+			Stamp.VolumeSampler = Settings->VolumeSampler.Get();
+			if (Stamp.VolumeSampler)
 			{
-				const FVector SourceSize(Stamp.VolumeBrush->CellCount.X * Stamp.VolumeBrush->CellSize,
-					Stamp.VolumeBrush->CellCount.Y * Stamp.VolumeBrush->CellSize, Stamp.VolumeBrush->CellCount.Z * Stamp.VolumeBrush->CellSize);
-				const FVector SourcePivot = SourceSize * 0.5f;
-				const FQuat Rotation = Settings->bAlignVolumeBrushToSurface
-					                       ? FQuat::FindBetweenNormals(FVector::UpVector, Stamp.TargetLocalNormal)
+				const FVector SourcePivot = Stamp.VolumeSampler->Pivot * Stamp.VolumeSampler->VolumeSize;
+				FVector AlignmentNormal = Stamp.TargetLocalNormal;
+				const bool bLockZAxis = Settings->VolumeSamplerLockedAxes.bZ;
+				const FVector ConstraintLocalDirection = ActorTransform.InverseTransformVectorNoScale(
+					Settings->VolumeSamplerConstraintWorldDirection)
+					.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
+				if (Settings->VolumeSamplerLockedAxes.bX)
+					AlignmentNormal.X = 0.0f;
+				if (Settings->VolumeSamplerLockedAxes.bY)
+					AlignmentNormal.Y = 0.0f;
+				AlignmentNormal = AlignmentNormal.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
+				const FQuat Rotation = Settings->bAlignVolumeSamplerToSurface
+					                       ? FQuat::FindBetweenNormals(FVector::UpVector,
+						                       bLockZAxis ? ConstraintLocalDirection : AlignmentNormal)
 					                       : FQuat::Identity;
-				const float LocalScale = Settings->VolumeBrushScale / FMath::Max(ActorScale, UE_SMALL_NUMBER);
+				const float LocalScale = Settings->VolumeSamplerScale / FMath::Max(ActorScale, UE_SMALL_NUMBER);
 				Stamp.SourceToTargetTransform = FTransform(
 					Rotation,
-					Stamp.TargetLocalCenter - Rotation.RotateVector(SourcePivot * LocalScale),
+					Stamp.TargetLocalCenter - SourcePivot,
 					FVector(LocalScale));
 			}
 			break;
+		}
 		default:
 			Stamp.Operation = bShiftDown ? EDualContourDensityEditOperation::SculptSubtract : EDualContourDensityEditOperation::Sculpt;
 			break;

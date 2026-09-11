@@ -1,5 +1,6 @@
 #include "DualContourMeshActor.h"
 #include "DualContourMeshActorDetails.h"
+#include "DualContourAxisLockMaskCustomization.h"
 #include "NormalizedFloatCurveCustomization.h"
 #include "Modules/ModuleManager.h"
 #include "PropertyHandle.h"
@@ -28,6 +29,8 @@ public:
 		PropertyEditor.RegisterCustomPropertyTypeLayout(TEXT("RuntimeFloatCurve"),
 			FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNormalizedFloatCurveCustomization::MakeInstance),
 			NormalizedCurveIdentifier);
+		PropertyEditor.RegisterCustomPropertyTypeLayout(TEXT("DualContourAxisLockMask"),
+			FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FDualContourAxisLockMaskCustomization::MakeInstance));
 		PropertyEditor.RegisterCustomClassLayout(ADualContourMeshActor::StaticClass()->GetFName(),
 			FOnGetDetailCustomizationInstance::CreateStatic(&FDualContourMeshActorDetails::MakeInstance));
 		PropertyEditor.NotifyCustomizationModuleChanged();
@@ -42,6 +45,7 @@ public:
 			FPropertyEditorModule& PropertyEditor = FModuleManager::GetModuleChecked<FPropertyEditorModule>(TEXT("PropertyEditor"));
 			if (NormalizedCurveIdentifier.IsValid())
 				PropertyEditor.UnregisterCustomPropertyTypeLayout(TEXT("RuntimeFloatCurve"), NormalizedCurveIdentifier);
+			PropertyEditor.UnregisterCustomPropertyTypeLayout(TEXT("DualContourAxisLockMask"));
 			PropertyEditor.UnregisterCustomClassLayout(ADualContourMeshActor::StaticClass()->GetFName());
 			PropertyEditor.NotifyCustomizationModuleChanged();
 		}
