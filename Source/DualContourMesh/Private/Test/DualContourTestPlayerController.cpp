@@ -46,13 +46,27 @@ void ADualContourTestPlayerController::InitializeSamplers()
 		return;
 
 	// Preserve samplers configured on the component, including Blueprint subclasses.
+	// When AdditionalSamplers are supplied, they replace the built-in test samplers.
 	if (ModifierComponent->Samplers.IsEmpty())
 	{
-		ModifierComponent->AddSampler(USphereVolumeSampler::StaticClass());
-		ModifierComponent->AddSampler(UBoxVolumeSampler::StaticClass());
-		ModifierComponent->AddSampler(UCylinderVolumeSampler::StaticClass());
-		ModifierComponent->AddSampler(UCapsuleVolumeSampler::StaticClass());
-		ModifierComponent->AddSampler(UTorusVolumeSampler::StaticClass());
+		bool bHasAdditionalSampler = false;
+		for (const TObjectPtr<UVolumeSampler>& Sampler : AdditionalSamplers)
+		{
+			if (IsValid(Sampler))
+			{
+				bHasAdditionalSampler = true;
+				break;
+			}
+		}
+
+		if (!bHasAdditionalSampler)
+		{
+			ModifierComponent->AddSampler(USphereVolumeSampler::StaticClass());
+			ModifierComponent->AddSampler(UBoxVolumeSampler::StaticClass());
+			ModifierComponent->AddSampler(UCylinderVolumeSampler::StaticClass());
+			ModifierComponent->AddSampler(UCapsuleVolumeSampler::StaticClass());
+			ModifierComponent->AddSampler(UTorusVolumeSampler::StaticClass());
+		}
 	}
 
 	for (const TObjectPtr<UVolumeSampler>& Sampler : AdditionalSamplers)
