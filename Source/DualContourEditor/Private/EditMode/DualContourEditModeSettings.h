@@ -102,6 +102,11 @@ public:
 		meta = (EditCondition = "ActiveTool == EDualContourEditTool::Brush", EditConditionHides))
 	TObjectPtr<UVolumeSampler> VolumeSampler;
 
+	/** Additional sampler-to-target transform, applied like UVolumeSampledDualContour::SampleTransform. */
+	UPROPERTY(EditAnywhere, Config, Category = "Brush Stamp",
+		meta = (DisplayName = "Sampler Transform", EditCondition = "ActiveTool == EDualContourEditTool::Brush", EditConditionHides))
+	FTransform VolumeSamplerTransform = FTransform::Identity;
+
 	UPROPERTY(EditAnywhere, Config, Category = "Brush Stamp",
 		meta = (EditCondition = "ActiveTool == EDualContourEditTool::Brush", EditConditionHides))
 	bool bAlignVolumeSamplerToSurface = true;

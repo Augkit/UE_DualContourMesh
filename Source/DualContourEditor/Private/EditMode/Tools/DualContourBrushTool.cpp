@@ -529,13 +529,14 @@ FDualContourBrushStamp UDualContourBrushTool::MakeStamp(const FVector& WorldPosi
 				AlignmentNormal = AlignmentNormal.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
 				const FQuat Rotation = Settings->bAlignVolumeSamplerToSurface
 					                       ? FQuat::FindBetweenNormals(FVector::UpVector,
-						                       bLockZAxis ? ConstraintLocalDirection : AlignmentNormal)
+					                       bLockZAxis ? ConstraintLocalDirection : AlignmentNormal)
 					                       : FQuat::Identity;
 				const float LocalScale = Settings->VolumeSamplerScale / FMath::Max(ActorScale, UE_SMALL_NUMBER);
-				Stamp.SourceToTargetTransform = FTransform(
+				const FTransform ClickTransform(
 					Rotation,
 					Stamp.TargetLocalCenter - SourcePivot,
 					FVector(LocalScale));
+				Stamp.SourceToTargetTransform = Settings->VolumeSamplerTransform * ClickTransform;
 			}
 			break;
 		}
