@@ -179,12 +179,12 @@ bool FDualContourUnifiedVolumeTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Existing source feeds edit"), Edit.ApplyDensity(EDualContourDensityOperation::Replace, *Sphere));
 	Edit.Commit();
 	const uint16 Edited = Grid->GetDensity(4, 2, 2);
-	TestTrue(TEXT("Same source feeds generation"), Sphere->ApplyToDualContour(Grid.Get(), FTransform::Identity, Error));
+	TestTrue(TEXT("Same source feeds generation"), Grid->ApplySampler(*Sphere, FTransform::Identity, Error));
 	TestEqual(TEXT("Generation and edit agree"), Grid->GetDensity(4, 2, 2), Edited);
 	TStrongObjectPtr<UDualContourShapeVolumeSampler> Brush(NewObject<UDualContourShapeVolumeSampler>());
 	Brush->TargetLocalCenter = FVector(3);
 	Brush->Radius = 1.5f;
-	TestTrue(TEXT("New source feeds generation"), Brush->ApplyToDualContour(Grid.Get(), FTransform::Identity, Error));
+	TestTrue(TEXT("New source feeds generation"), Grid->ApplySampler(*Brush, FTransform::Identity, Error));
 	TestEqual(TEXT("New source center density"), Grid->GetDensity(3, 3, 3), FDensityChunk::EncodeDensity(GDualContourMaxLinearDensity));
 	Grid->GetCell(0, 0, 0);
 	return true;

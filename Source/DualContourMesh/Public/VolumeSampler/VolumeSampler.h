@@ -8,8 +8,6 @@
 DECLARE_MULTICAST_DELEGATE(FOnVolumeSamplerPropertyChanged);
 #endif
 
-class UDualContour;
-
 /**
  * Immutable mapping from target-local positions into the sampler's internal input space,
  * combining the outer placement transform with SamplingTransform into a single affine.
@@ -49,9 +47,6 @@ public:
 	 */
 	virtual bool Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
 		float& Value, float& Weight) const PURE_VIRTUAL(UVolumeSampler::Sample, return false;);
-	/** Samples this volume and applies its density directly to the target contour. */
-	bool ApplyToDualContour(UDualContour* Target, const FTransform& SamplerToTargetTransform, FText& OutError) const;
-
 	/** Prepares resources and validates the sampler for one sampling pass. */
 	virtual bool Prepare(FText& OutError) const;
 	/** Releases resources held for the current sampling pass. */

@@ -282,7 +282,7 @@ void ADualContourVisualSweepPlayerController::RunDualContourVisualSweep()
 		UBoxVolumeSampler* Ground = NewObject<UBoxVolumeSampler>(this);
 		Ground->VolumeSize = FVector(Extent);
 		Ground->HalfExtents = FVector(Extent * 0.48, Extent * 0.48, 20);
-		if (!Ground->ApplyToDualContour(MeshActor->DualContour, FTransform(FVector(0, 0, -200)), Error))
+		if (!MeshActor->DualContour->ApplySampler(*Ground, FTransform(FVector(0, 0, -200)), Error))
 		{
 			FinishVisualSweep(false);
 			return;
@@ -299,7 +299,7 @@ void ADualContourVisualSweepPlayerController::RunDualContourVisualSweep()
 			return;
 		}
 	}
-	else if (!Sampler->ApplyToDualContour(MeshActor->DualContour, FTransform::Identity, Error))
+	else if (!MeshActor->DualContour->ApplySampler(*Sampler, FTransform::Identity, Error))
 	{
 		UE_LOG(LogDualContourVisualSweep, Error, TEXT("Failed to build Noise: %s"), *Error.ToString());
 		FinishVisualSweep(false);

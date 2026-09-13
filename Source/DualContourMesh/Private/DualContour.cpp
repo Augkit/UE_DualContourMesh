@@ -376,13 +376,13 @@ bool UDualContour::Rebuild()
 	return true;
 }
 
-bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& SamplerToTargetTransform, FText& OutError) const
+bool UDualContour::ApplySampler(const UVolumeSampler& Sampler, const FTransform& SamplerToTargetTransform, FText& OutError)
 {
-	TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampler_ApplyToDualContour);
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_ApplySampler);
 	check(IsInGameThread());
-	if (!Target || Target->CellCount.X <= 0 || Target->CellCount.Y <= 0 || Target->CellCount.Z <= 0
-	    || Target->CellCount.X >= MAX_int32 || Target->CellCount.Y >= MAX_int32 || Target->CellCount.Z >= MAX_int32
-	    || Target->CellSize <= 0.0f)
+	if (CellCount.X <= 0 || CellCount.Y <= 0 || CellCount.Z <= 0
+	    || CellCount.X >= MAX_int32 || CellCount.Y >= MAX_int32 || CellCount.Z >= MAX_int32
+	    || CellSize <= 0.0f)
 	{
 		OutError = NSLOCTEXT("VolumeSampler", "InvalidTarget", "The target DualContour grid settings are invalid.");
 		return false;
@@ -394,26 +394,26 @@ bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& 
 			"SamplerToTargetTransform scale must be non-zero on every axis.");
 		return false;
 	}
-	if (!Prepare(OutError))
+	if (!Sampler.Prepare(OutError))
 		return false;
-	ON_SCOPE_EXIT { Finish(); };
-	FVolumeSamplerPlacement Placement = MakePlacement(&SamplerToTargetTransform, GDualContourMaxLinearDensity / (4.0f * Target->CellSize));
+	ON_SCOPE_EXIT { Sampler.Finish(); };
+	FVolumeSamplerPlacement Placement = Sampler.MakePlacement(&SamplerToTargetTransform, GDualContourMaxLinearDensity / (4.0f * CellSize));
 	TArray<FDualContourSampledChunk> SampledChunks;
 
-	const FVector PivotPosition = Pivot * VolumeSize;
-	const FBox SamplerInputBounds = GetBounds();
+	const FVector PivotPosition = Sampler.Pivot * Sampler.VolumeSize;
+	const FBox SamplerInputBounds = Sampler.GetBounds();
 	if (!SamplerInputBounds.IsValid)
 	{
 		OutError = NSLOCTEXT("VolumeSampler", "InvalidBounds", "Sampler bounds are invalid.");
 		return false;
 	}
-	const FBox TargetLocalBounds = TransformBoxAroundPivot(SamplerInputBounds, SamplerToTargetTransform, PivotPosition);
+	const FBox TargetLocalBounds = UVolumeSampler::TransformBoxAroundPivot(SamplerInputBounds, SamplerToTargetTransform, PivotPosition);
 
-	const FVector TargetLocalMax = FVector(Target->CellCount) * Target->CellSize;
+	const FVector TargetLocalMax = FVector(CellCount) * CellSize;
 	if (TargetLocalBounds.Max.X < 0.0 || TargetLocalBounds.Max.Y < 0.0 || TargetLocalBounds.Max.Z < 0.0
 	    || TargetLocalBounds.Min.X > TargetLocalMax.X || TargetLocalBounds.Min.Y > TargetLocalMax.Y
 	    || TargetLocalBounds.Min.Z > TargetLocalMax.Z)
-		return Target->ReplaceDensityFromSampledChunks(MoveTemp(SampledChunks));
+		return ReplaceDensityFromSampledChunks(MoveTemp(SampledChunks));
 	const FVector ClippedTargetLocalMin(
 		FMath::Clamp(TargetLocalBounds.Min.X, 0.0, TargetLocalMax.X),
 		FMath::Clamp(TargetLocalBounds.Min.Y, 0.0, TargetLocalMax.Y),
@@ -423,13 +423,13 @@ bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& 
 		FMath::Clamp(TargetLocalBounds.Max.Y, 0.0, TargetLocalMax.Y),
 		FMath::Clamp(TargetLocalBounds.Max.Z, 0.0, TargetLocalMax.Z));
 	const FIntVector TargetSampleMin(
-		FMath::Clamp(FMath::FloorToInt(ClippedTargetLocalMin.X / Target->CellSize), 0, Target->CellCount.X),
-		FMath::Clamp(FMath::FloorToInt(ClippedTargetLocalMin.Y / Target->CellSize), 0, Target->CellCount.Y),
-		FMath::Clamp(FMath::FloorToInt(ClippedTargetLocalMin.Z / Target->CellSize), 0, Target->CellCount.Z));
+		FMath::Clamp(FMath::FloorToInt(ClippedTargetLocalMin.X / CellSize), 0, CellCount.X),
+		FMath::Clamp(FMath::FloorToInt(ClippedTargetLocalMin.Y / CellSize), 0, CellCount.Y),
+		FMath::Clamp(FMath::FloorToInt(ClippedTargetLocalMin.Z / CellSize), 0, CellCount.Z));
 	const FIntVector TargetSampleMaxExclusive(
-		FMath::Clamp(FMath::CeilToInt(ClippedTargetLocalMax.X / Target->CellSize) + 1, 0, Target->CellCount.X + 1),
-		FMath::Clamp(FMath::CeilToInt(ClippedTargetLocalMax.Y / Target->CellSize) + 1, 0, Target->CellCount.Y + 1),
-		FMath::Clamp(FMath::CeilToInt(ClippedTargetLocalMax.Z / Target->CellSize) + 1, 0, Target->CellCount.Z + 1));
+		FMath::Clamp(FMath::CeilToInt(ClippedTargetLocalMax.X / CellSize) + 1, 0, CellCount.X + 1),
+		FMath::Clamp(FMath::CeilToInt(ClippedTargetLocalMax.Y / CellSize) + 1, 0, CellCount.Y + 1),
+		FMath::Clamp(FMath::CeilToInt(ClippedTargetLocalMax.Z / CellSize) + 1, 0, CellCount.Z + 1));
 	const FIntVector SampleDimensions = TargetSampleMaxExclusive - TargetSampleMin;
 
 	const FIntVector ChunkMin(TargetSampleMin.X / GDualContourChunkSize, TargetSampleMin.Y / GDualContourChunkSize,
@@ -448,8 +448,8 @@ bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& 
 	const int32 ChunkCount = static_cast<int32>(ChunkArea * ChunkDimensions.Z);
 	SampledChunks.SetNum(ChunkCount);
 
-	const float TargetCellSize = Target->CellSize;
-	const auto SampleChunk = [this, &SampledChunks, TargetSampleMin, SampleDimensions, ChunkMin, ChunkDimensions, ChunkArea, TargetCellSize,
+	const float TargetCellSize = CellSize;
+	const auto SampleChunk = [&Sampler, &SampledChunks, TargetSampleMin, SampleDimensions, ChunkMin, ChunkDimensions, ChunkArea, TargetCellSize,
 			Placement](int32 Index)
 	{
 		const int32 ChunkZ = static_cast<int32>(Index / ChunkArea);
@@ -476,7 +476,7 @@ bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& 
 					const FVector TargetLocalPosition(static_cast<double>(X) * TargetCellSize, static_cast<double>(Y) * TargetCellSize,
 						static_cast<double>(Z) * TargetCellSize);
 					float LinearDensity = GDualContourMinLinearDensity, Weight = 0.0f;
-					if (!Sample(TargetLocalPosition, Placement, LinearDensity, Weight) || !FMath::IsFinite(Weight) || Weight <= 0.0f)
+					if (!Sampler.Sample(TargetLocalPosition, Placement, LinearDensity, Weight) || !FMath::IsFinite(Weight) || Weight <= 0.0f)
 						continue;
 					const uint16 Density = FDensityChunk::EncodeDensity(LinearDensity);
 					if (Density == 0)
@@ -492,7 +492,7 @@ bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& 
 			SampledChunk.Density.TryCollapse();
 	};
 
-	if (SupportsParallelSampling())
+	if (Sampler.SupportsParallelSampling())
 		ParallelFor(TEXT("VolumeSampler.SampleDensityChunks"), ChunkCount, 1, SampleChunk, EParallelForFlags::Unbalanced);
 	else
 		for (int32 Index = 0; Index < ChunkCount; ++Index)
@@ -502,7 +502,7 @@ bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& 
 	{
 		return Chunk.Density.IsUniform() && Chunk.Density.UniformValue == 0;
 	}, EAllowShrinking::No);
-	return Target->ReplaceDensityFromSampledChunks(MoveTemp(SampledChunks));
+	return ReplaceDensityFromSampledChunks(MoveTemp(SampledChunks));
 }
 
 bool UDualContour::ReplaceDensityFromSampledChunks(TArray<FDualContourSampledChunk>&& SampledChunks, bool bBroadcastCellsRebuilt)

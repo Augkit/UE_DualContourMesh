@@ -19,7 +19,7 @@ bool UVolumeSampledDualContour::SampleSource()
 		TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampledDualContour_Modify);
 		Modify();
 	}
-	if (!VolumeSampler->ApplyToDualContour(this, SampleTransform, Error))
+	if (!ApplySampler(*VolumeSampler, SampleTransform, Error))
 	{
 		UE_LOG(LogVolumeSampledDualContour, Error, TEXT("Volume sampling failed for %s: %s"), *GetPathName(), *Error.ToString());
 		return false;
