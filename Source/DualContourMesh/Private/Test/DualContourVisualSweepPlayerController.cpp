@@ -6,6 +6,10 @@
 #include "Components/SkyLightComponent.h"
 #include "DualContourMeshActor.h"
 #include "DualContourMeshComponent.h"
+#include "DualContourEditContext.h"
+#include "Engine/VolumeTexture.h"
+#include "VolumeSampler/TextureSDFSampler.h"
+#include "VolumeSampler/ProceduralVolumeSampler.h"
 #include "Engine/DirectionalLight.h"
 #include "VolumeSampler/NoiseVolumeSampler.h"
 #include "Engine/GameViewportClient.h"
@@ -26,6 +30,14 @@ DEFINE_LOG_CATEGORY_STATIC(LogDualContourVisualSweep, Log, All);
 
 namespace
 {
+TAutoConsoleVariable<int32> CVarDualContourVisualTestMountain(
+	TEXT("dc.VisualTest.Mountain"), 0,
+	TEXT("0: procedural noise; 1: mountain on flat base; 2: mountain on /Game/NoiseVS."), ECVF_Default);
+
+TAutoConsoleVariable<int32> CVarDualContourVisualTestNormalMaterial(
+	TEXT("dc.VisualTest.NormalMaterial"), 0,
+	TEXT("Use /Game/M_Normal for geometry and normal inspection."), ECVF_Default);
+
 TAutoConsoleVariable<int32> CVarDualContourVisualTestResolution(
 	TEXT("dc.VisualTest.Resolution"), 128,
 	TEXT("Cell count on every axis for generated visual-test contours."), ECVF_Default);
@@ -135,7 +147,7 @@ void ADualContourVisualSweepPlayerController::RunDualContourVisualSweep()
 	VisualSweepViewIndex = 0;
 	VisualSweepSubjects.Reset();
 	VisualSweepSubjectNames.Reset();
-	const TArray<FVisualSweepView> AllVisualSweepViews = {
+	TArray<FVisualSweepView> AllVisualSweepViews = {
 		{TEXT("LowPosX"), FVector(1, 0, 0.3).GetSafeNormal()},
 		{TEXT("LowNegX"), FVector(-1, 0, 0.3).GetSafeNormal()},
 		{TEXT("LowPosY"), FVector(0, 1, 0.3).GetSafeNormal()},
@@ -146,6 +158,12 @@ void ADualContourVisualSweepPlayerController::RunDualContourVisualSweep()
 		{TEXT("IsoPNP"), FVector(1, -1, 1).GetSafeNormal()}
 	};
 	VisualSweepViews = AllVisualSweepViews;
+	if (CVarDualContourVisualTestMountain.GetValueOnGameThread())
+	{
+		AllVisualSweepViews.Add({TEXT("CloseRim"), FVector(1, 1, 0.2).GetSafeNormal(), FVector(60, 90, 90), 0.5});
+		AllVisualSweepViews.Add({TEXT("CloseFront"), FVector(1, -1, 0.15).GetSafeNormal(), FVector::ZeroVector, 0.5});
+		VisualSweepViews = AllVisualSweepViews;
+	}
 	// dc.VisualTest.Views lets callers capture a subset (e.g. "Top") instead of every view.
 	const FString ViewFilter = CVarDualContourVisualTestViews.GetValueOnGameThread().TrimStartAndEnd();
 	if (!ViewFilter.IsEmpty())
@@ -206,7 +224,8 @@ void ADualContourVisualSweepPlayerController::RunDualContourVisualSweep()
 	const float LinearDensityScale = FMath::Max(0.0001f, CVarDualContourVisualTestLinearDensityScale.GetValueOnGameThread());
 	// Place the generated height field over the Basic template stage while preserving
 	// every authored actor, light, sky and post-process volume in the scene.
-	VisualSweepCenter = FVector(0.0, 0.0, 100.0);
+	const bool bMountain = CVarDualContourVisualTestMountain.GetValueOnGameThread() != 0;
+	VisualSweepCenter = FVector(0.0, 0.0, bMountain ? 350.0 : 100.0);
 	const FVector SweepOrigin = VisualSweepCenter - FVector(Extent * 0.5);
 
 	ADualContourMeshActor* MeshActor = World->SpawnActor<ADualContourMeshActor>(SweepOrigin, FRotator::ZeroRotator);
@@ -220,8 +239,9 @@ void ADualContourVisualSweepPlayerController::RunDualContourVisualSweep()
 	MeshActor->MeshComponentsPerFrame = 64;
 	MeshActor->DualContour->CellCount = FIntVector(Resolution, Resolution, Resolution);
 	MeshActor->DualContour->CellSize = CellSize;
-	UMaterialInterface* NormalVisualizationMaterial = LoadObject<UMaterialInterface>(
-		nullptr, TEXT("/Game/M_Normal.M_Normal"));
+	const bool bUseNormalMaterial = CVarDualContourVisualTestNormalMaterial.GetValueOnGameThread() != 0 || !bMountain;
+	UMaterialInterface* NormalVisualizationMaterial = LoadObject<UMaterialInterface>(nullptr,
+		bUseNormalMaterial ? TEXT("/Game/M_Normal.M_Normal") : TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
 	if (!NormalVisualizationMaterial)
 	{
 		UE_LOG(LogDualContourVisualSweep, Error,
@@ -247,7 +267,39 @@ void ADualContourVisualSweepPlayerController::RunDualContourVisualSweep()
 	Sampler->HeightAmplitude = FMath::Max(0.0f, CVarDualContourVisualTestHeightAmplitude.GetValueOnGameThread());
 
 	FText Error;
-	if (!Sampler->ApplyToDualContour(MeshActor->DualContour, FTransform::Identity, Error))
+	if (bMountain)
+	{
+		if (CVarDualContourVisualTestMountain.GetValueOnGameThread() == 2)
+		{
+			MeshActor->InitialDualContour = LoadObject<UDualContour>(nullptr, TEXT("/Game/NoiseVS.NoiseVS"));
+			if (!MeshActor->InitialDualContour) { FinishVisualSweep(false); return; }
+			MeshActor->ResetDualContour();
+			UE_LOG(LogDualContourVisualSweep, Display, TEXT("NoiseVS initial: Cells=%s Size=%g Relaxation=%g"),
+				*MeshActor->DualContour->CellCount.ToString(), MeshActor->DualContour->CellSize, MeshActor->DualContour->VertexRelaxation);
+		}
+		else
+		{
+		UBoxVolumeSampler* Ground = NewObject<UBoxVolumeSampler>(this);
+		Ground->VolumeSize = FVector(Extent);
+		Ground->HalfExtents = FVector(Extent * 0.48, Extent * 0.48, 20);
+		if (!Ground->ApplyToDualContour(MeshActor->DualContour, FTransform(FVector(0, 0, -200)), Error))
+		{
+			FinishVisualSweep(false);
+			return;
+		}
+		}
+		UTex3DSDFSampler* Mountain = NewObject<UTex3DSDFSampler>(this);
+		Mountain->Texture = LoadObject<UVolumeTexture>(nullptr, TEXT("/Game/SDF_Mountain_2001.SDF_Mountain_2001"));
+		FDualContourEditContext Edit(*MeshActor->DualContour);
+		if (!Edit.ApplyDensity(EDualContourDensityOperation::Union, *Mountain,
+			FTransform(FVector(Extent * 0.5) - Mountain->Pivot * Mountain->VolumeSize)) || !Edit.Commit())
+		{
+			UE_LOG(LogDualContourVisualSweep, Error, TEXT("Failed to stamp mountain fixture."));
+			FinishVisualSweep(false);
+			return;
+		}
+	}
+	else if (!Sampler->ApplyToDualContour(MeshActor->DualContour, FTransform::Identity, Error))
 	{
 		UE_LOG(LogDualContourVisualSweep, Error, TEXT("Failed to build Noise: %s"), *Error.ToString());
 		FinishVisualSweep(false);
@@ -255,7 +307,7 @@ void ADualContourVisualSweepPlayerController::RunDualContourVisualSweep()
 	}
 	MeshActor->SetActorHiddenInGame(true);
 	VisualSweepSubjects.Add(MeshActor);
-	VisualSweepSubjectNames.Add(TEXT("Noise"));
+	VisualSweepSubjectNames.Add(bMountain ? TEXT("Mountain") : TEXT("Noise"));
 
 	VisualSweepCamera = World->SpawnActor<ACameraActor>(VisualSweepCenter, FRotator::ZeroRotator);
 	UCameraComponent* CameraComponent = VisualSweepCamera->GetCameraComponent();
@@ -269,7 +321,7 @@ void ADualContourVisualSweepPlayerController::RunDualContourVisualSweep()
 	CameraPostProcess.bOverride_AutoExposureApplyPhysicalCameraExposure = true;
 	CameraPostProcess.AutoExposureApplyPhysicalCameraExposure = false;
 	CameraPostProcess.bOverride_AutoExposureBias = true;
-	CameraPostProcess.AutoExposureBias = 0.0f;
+	CameraPostProcess.AutoExposureBias = bMountain ? -2.0f : 0.0f;
 	PreviousViewTarget = GetViewTarget();
 	SetViewTarget(VisualSweepCamera);
 
@@ -321,6 +373,9 @@ void ADualContourVisualSweepPlayerController::RunDualContourVisualSweep()
 		*ReadConsoleVariable(TEXT("dc.VisualTest.ShadowBias")),
 		*ReadConsoleVariable(TEXT("dc.VisualTest.SkyLightIntensity")),
 		*ReadConsoleVariable(TEXT("dc.VisualTest.CastShadows")));
+	if (bMountain)
+		Manifest = FString::Printf(TEXT("Subject=/Game/SDF_Mountain_2001\nSampler=Tex3DSDFSampler defaults\nYaw=0\nResolution=%d\nCellSize=10\nOperation=Union stamp onto flat ground\nViews=%s\nCastShadows=%s\nShadowBias=%s\n"),
+			Resolution, *CapturedViewNames, *ReadConsoleVariable(TEXT("dc.VisualTest.CastShadows")), *ReadConsoleVariable(TEXT("dc.VisualTest.ShadowBias")));
 	FFileHelper::SaveStringToFile(Manifest, *FPaths::Combine(VisualSweepOutputDirectory, TEXT("manifest.txt")));
 
 	ScreenshotProcessedHandle = FScreenshotRequest::OnScreenshotRequestProcessed().AddUObject(
@@ -364,9 +419,11 @@ void ADualContourVisualSweepPlayerController::CaptureNextVisualSweepView()
 	const FVisualSweepView& View = VisualSweepViews[VisualSweepViewIndex];
 	const float GridExtent = FMath::Clamp(CVarDualContourVisualTestResolution.GetValueOnGameThread(), 16, 128) * 10.0f;
 	// Use tighter framing for the low-angle diagnostic views and extra room for diagonals.
-	const double CameraDistance = GridExtent * (View.Name.StartsWith(TEXT("Iso")) ? 2.4 : 1.8);
-	const FVector CameraLocation = VisualSweepCenter + View.Direction * CameraDistance;
-	VisualSweepCamera->SetActorLocationAndRotation(CameraLocation, (VisualSweepCenter - CameraLocation).Rotation());
+	const double Framing = CVarDualContourVisualTestMountain.GetValueOnGameThread() ? 0.48 : 1.0;
+	const double CameraDistance = GridExtent * (View.Name.StartsWith(TEXT("Iso")) ? 2.4 : 1.8) * Framing;
+	const FVector LookAt = VisualSweepCenter + View.TargetOffset;
+	const FVector CameraLocation = LookAt + View.Direction * CameraDistance * View.DistanceScale;
+	VisualSweepCamera->SetActorLocationAndRotation(CameraLocation, (LookAt - CameraLocation).Rotation());
 	// Each axis change is a teleport. Reset temporal AA/Lumen view history so the
 	// previous silhouette cannot appear as a bright or dark ghost in this capture.
 	if (PlayerCameraManager)

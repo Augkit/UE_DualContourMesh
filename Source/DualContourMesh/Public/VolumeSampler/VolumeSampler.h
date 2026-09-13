@@ -18,6 +18,8 @@ class UDualContour;
 struct FVolumeSamplerPlacement
 {
 	FMatrix TargetToSamplerLocalMatrix = FMatrix::Identity;
+	/** Optional encoded-density slope limit supplied by the destination grid. Zero keeps authored density units. */
+	float MaxTargetDensitySlope = 0.0f;
 };
 
 /** Samples a finite volume into a DualContour density grid. */
@@ -33,8 +35,10 @@ public:
 	/**
 	 * Combines SamplerToTargetTransform with SamplingTransform (both rotate/scale about Pivot * VolumeSize)
 	 * into the single affine used by Sample. Pass nullptr when no outer placement transform is needed.
+	 * MaxTargetDensitySlope is an optional target-grid density-gradient limit; zero disables it.
 	 */
-	FVolumeSamplerPlacement MakePlacement(const FTransform* SamplerToTargetTransform) const;
+	FVolumeSamplerPlacement MakePlacement(const FTransform* SamplerToTargetTransform,
+		float MaxTargetDensitySlope = 0.0f) const;
 
 	/** Transforms a box about PivotPosition by Transform (forward direction). */
 	static FBox TransformBoxAroundPivot(const FBox& Box, const FTransform& Transform, const FVector& PivotPosition);

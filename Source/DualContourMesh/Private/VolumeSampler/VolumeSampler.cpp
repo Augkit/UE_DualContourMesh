@@ -33,9 +33,10 @@ FBox UVolumeSampler::TransformBoxAroundPivot(const FBox& Box, const FTransform& 
 	return Result;
 }
 
-FVolumeSamplerPlacement UVolumeSampler::MakePlacement(const FTransform* SamplerToTargetTransform) const
+FVolumeSamplerPlacement UVolumeSampler::MakePlacement(const FTransform* SamplerToTargetTransform, float MaxTargetDensitySlope) const
 {
 	FVolumeSamplerPlacement Placement;
+	Placement.MaxTargetDensitySlope = MaxTargetDensitySlope;
 	const FVector PivotPosition = Pivot * VolumeSize;
 	// SamplingTransform 与 SamplerToTargetTransform 都绕同一个 PivotPosition 映射（旋转/缩放），
 	// 逐级逆变换（调用方 S2T⁻¹ 每样本一次 + 采样器内部 ST⁻¹ 每样本一次）可以合成单个仿射的逆：

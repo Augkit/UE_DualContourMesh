@@ -23,6 +23,8 @@ private:
 	{
 		FString Name;
 		FVector Direction = FVector::ForwardVector;
+		FVector TargetOffset = FVector::ZeroVector;
+		double DistanceScale = 1.0;
 	};
 
 	void CaptureNextVisualSweepView();

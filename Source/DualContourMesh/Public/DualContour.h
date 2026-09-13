@@ -25,9 +25,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour")
 	float CellSize = 10.f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour")
-	EDualContourVertexSolveMode VertexSolveMode = EDualContourVertexSolveMode::HermiteIntersectionCentroid;
-
 	/** Tangent-plane smoothing strength. Set to zero to disable the relaxation pass. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Relaxation", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float VertexRelaxation = 0.25f;

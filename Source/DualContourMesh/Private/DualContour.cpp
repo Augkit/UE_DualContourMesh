@@ -1,4 +1,5 @@
 #include "DualContour.h"
+#include "DualContourPlaneFit.h"
 #include "DualContourEditContext.h"
 #include "DualContourUtils.h"
 #include "Async/Async.h"
@@ -38,6 +39,51 @@ bool Solve3x3(const double Matrix[3][3], const double RightHandSide[3], double S
 	Solution[1] = InverseDeterminant * (C01 * RightHandSide[0] + C11 * RightHandSide[1] + C21 * RightHandSide[2]);
 	Solution[2] = InverseDeterminant * (C02 * RightHandSide[0] + C12 * RightHandSide[1] + C22 * RightHandSide[2]);
 	return true;
+}
+
+// Minimize the regularized QEF over the unit cell. Clamping an unconstrained
+// solution component-wise is not a constrained least-squares solve: at a slanted
+// plane it moves the vertex off the plane. Check the faces, edges and corners
+// only when the unconstrained minimum is outside the cell.
+FVector SolveCellQEF(const double Matrix[3][3], const double RightHandSide[3], const FVector& MassPoint)
+{
+	double BestError = TNumericLimits<double>::Max();
+	FVector BestPosition = MassPoint;
+	for (int32 State = 0; State < 27; ++State)
+	{
+		int32 Constraints[3] = {State % 3, (State / 3) % 3, State / 9};
+		double Reduced[3][3], RHS[3], Position[3];
+		for (int32 Row = 0; Row < 3; ++Row)
+		{
+			RHS[Row] = Constraints[Row] ? double(Constraints[Row] - 1) : RightHandSide[Row];
+			for (int32 Col = 0; Col < 3; ++Col)
+			{
+				Reduced[Row][Col] = (Constraints[Row] || Constraints[Col]) ? double(Row == Col) : Matrix[Row][Col];
+				if (!Constraints[Row] && Constraints[Col])
+					RHS[Row] -= Matrix[Row][Col] * double(Constraints[Col] - 1);
+			}
+		}
+		if (!Solve3x3(Reduced, RHS, Position))
+			continue;
+		const FVector Candidate(Position[0], Position[1], Position[2]);
+		if (Candidate.ContainsNaN() || Candidate.GetMin() < 0.0 || Candidate.GetMax() > 1.0)
+			continue;
+		if (State == 0)
+			return Candidate;
+		double Error = 0.0;
+		for (int32 Row = 0; Row < 3; ++Row)
+		{
+			Error -= 2.0 * Position[Row] * RightHandSide[Row];
+			for (int32 Col = 0; Col < 3; ++Col)
+				Error += Position[Row] * Matrix[Row][Col] * Position[Col];
+		}
+		if (Error < BestError)
+		{
+			BestError = Error;
+			BestPosition = Candidate;
+		}
+	}
+	return BestPosition;
 }
 
 inline bool IsValidSampledChunks(const FIntVector& FullDimensions, const TArray<FDualContourSampledChunk>& Chunks)
@@ -113,7 +159,6 @@ void UDualContour::PostEditChangeProperty(FPropertyChangedEvent& PropertyChanged
 		                                 : NAME_None;
 	if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, CellCount)
 	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, CellSize)
-	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, VertexSolveMode)
 	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, VertexRelaxation)
 	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, RelaxationNormalCosine))
 	{
@@ -300,7 +345,6 @@ bool UDualContour::CopyFrom(const UDualContour* Source, bool bBroadcastCellsRebu
 	Modify();
 	CellCount = Source->CellCount;
 	CellSize = Source->CellSize;
-	VertexSolveMode = Source->VertexSolveMode;
 	VertexRelaxation = Source->VertexRelaxation;
 	RelaxationNormalCosine = Source->RelaxationNormalCosine;
 	UVMode = Source->UVMode;
@@ -353,7 +397,7 @@ bool UVolumeSampler::ApplyToDualContour(UDualContour* Target, const FTransform& 
 	if (!Prepare(OutError))
 		return false;
 	ON_SCOPE_EXIT { Finish(); };
-	const FVolumeSamplerPlacement Placement = MakePlacement(&SamplerToTargetTransform);
+	FVolumeSamplerPlacement Placement = MakePlacement(&SamplerToTargetTransform, GDualContourMaxLinearDensity / (4.0f * Target->CellSize));
 	TArray<FDualContourSampledChunk> SampledChunks;
 
 	const FVector PivotPosition = Pivot * VolumeSize;
@@ -767,23 +811,25 @@ FDualContourCell UDualContour::CreateNewCell(int32 CellX, int32 CellY, int32 Cel
 	Cell.Center = CellCenter;
 
 	bool bHasInside = false, bHasOutside = false;
+	double CornerDensity[8];
 	for (int32 Z = 0; Z <= 1; ++Z)
 		for (int32 Y = 0; Y <= 1; ++Y)
 			for (int32 X = 0; X <= 1; ++X)
-				(GetDensity(CellX + X, CellY + Y, CellZ + Z) >= GDualContourIsoValue
+			{
+				CornerDensity[X + 2 * Y + 4 * Z] = GetLinearDensity(CellX + X, CellY + Y, CellZ + Z);
+				(CornerDensity[X + 2 * Y + 4 * Z] >= GDualContourLinearIsoValue
 					 ? bHasInside
 					 : bHasOutside) = true;
+			}
 	Cell.bActive = bHasInside && bHasOutside;
 	if (!Cell.bActive)
 		return Cell;
 
-	const bool bUseQEF = VertexSolveMode == EDualContourVertexSolveMode::QEF;
-	constexpr double Lambda = 0.1;
 	double Matrix[3][3] = {};
 	double Vector[3] = {};
-	FVector IntersectionSum = FVector::ZeroVector;
-	double IntersectionWeightSum = 0.0;
+	FVector QEFMassPoint = FVector::ZeroVector;
 	int32 NumIntersections = 0;
+	FVector EdgePositions[12], EdgeNormals[12];
 	for (int32 EdgeIndex = 0; EdgeIndex < 12; ++EdgeIndex)
 	{
 		const int32* A = EdgeCorners[EdgeIndex][0];
@@ -799,64 +845,93 @@ FDualContourCell UDualContour::CreateNewCell(int32 CellX, int32 CellY, int32 Cel
 
 		const float Alpha = (GDualContourLinearIsoValue - LinearDensityA) / (LinearDensityB - LinearDensityA);
 		const FVector GridPosition = FVector(AX, AY, AZ) + Alpha * (FVector(BX, BY, BZ) - FVector(AX, AY, AZ));
-		const FVector WorldPosition = GridPosition * CellSize;
 		const FVector Normal = CalculateCentralDifferenceNormal(GridPosition);
+		EdgePositions[EdgeIndex] = GridPosition - FVector(CellX, CellY, CellZ);
+		EdgeNormals[EdgeIndex] = Normal;
 		if (Normal.IsNearlyZero())
 			continue;
-		const double IntersectionWeight = FMath::Pow(FMath::Max(FMath::Abs(LinearDensityB - LinearDensityA), UE_SMALL_NUMBER), 4.0f);
-
-		if (bUseQEF)
-		{
-			const double NX = Normal.X, NY = Normal.Y, NZ = Normal.Z;
-			const double Distance = FVector::DotProduct(Normal, WorldPosition);
-			Matrix[0][0] += NX * NX;
-			Matrix[0][1] += NX * NY;
-			Matrix[0][2] += NX * NZ;
-			Matrix[1][0] += NY * NX;
-			Matrix[1][1] += NY * NY;
-			Matrix[1][2] += NY * NZ;
-			Matrix[2][0] += NZ * NX;
-			Matrix[2][1] += NZ * NY;
-			Matrix[2][2] += NZ * NZ;
-			Vector[0] += NX * Distance;
-			Vector[1] += NY * Distance;
-			Vector[2] += NZ * Distance;
-		}
-		else
-		{
-			IntersectionSum += WorldPosition * IntersectionWeight;
-			IntersectionWeightSum += IntersectionWeight;
-		}
+		const double NX = Normal.X, NY = Normal.Y, NZ = Normal.Z;
+		// Cell-relative units keep conditioning independent of cell size/location.
+		const FVector LocalPosition = GridPosition - FVector(CellX, CellY, CellZ);
+		QEFMassPoint += LocalPosition;
+		const double Distance = FVector::DotProduct(Normal, LocalPosition);
+		Matrix[0][0] += NX * NX;
+		Matrix[0][1] += NX * NY;
+		Matrix[0][2] += NX * NZ;
+		Matrix[1][0] += NY * NX;
+		Matrix[1][1] += NY * NY;
+		Matrix[1][2] += NY * NZ;
+		Matrix[2][0] += NZ * NX;
+		Matrix[2][1] += NZ * NY;
+		Matrix[2][2] += NZ * NZ;
+		Vector[0] += NX * Distance;
+		Vector[1] += NY * Distance;
+		Vector[2] += NZ * Distance;
 		++NumIntersections;
 	}
 
 	if (NumIntersections > 0)
 	{
-		if (bUseQEF)
-		{
-			Matrix[0][0] += Lambda;
-			Matrix[1][1] += Lambda;
-			Matrix[2][2] += Lambda;
-			Vector[0] += Lambda * CellCenter.X;
-			Vector[1] += Lambda * CellCenter.Y;
-			Vector[2] += Lambda * CellCenter.Z;
-			double Position[3];
-			if (Solve3x3(Matrix, Vector, Position))
-			{
-				Cell.Center.X = FMath::Clamp(Position[0], CellMin.X, CellMax.X);
-				Cell.Center.Y = FMath::Clamp(Position[1], CellMin.Y, CellMax.Y);
-				Cell.Center.Z = FMath::Clamp(Position[2], CellMin.Z, CellMax.Z);
-			}
-		}
-		else
-		{
-			Cell.Center = IntersectionWeightSum > UE_SMALL_NUMBER
-				              ? IntersectionSum / IntersectionWeightSum
-				              : CellCenter;
-		}
-		Cell.Normal = CalculateCentralDifferenceNormal(Cell.Center / CellSize);
+		QEFMassPoint /= NumIntersections;
+		FVector PlaneNormal = FVector::ZeroVector;
+		const bool bPlanar = DualContourPlaneFit::Fit(*this, FIntVector(CellX, CellY, CellZ),
+			Matrix, Vector, NumIntersections, PlaneNormal, Cell.bSharpFeature);
+		// Nearly parallel, quantized Hermite normals must not amplify a weak
+		// tangential constraint into a jump to the cell boundary. Regularize about
+		// the edge-intersection centroid in cell units, normalized by sample count.
+		// Verified high-precision planes retain their weak sharp-feature bias.
+		const double Lambda = (bPlanar ? 1.e-4 : 0.05) * NumIntersections;
+		Matrix[0][0] += Lambda;
+		Matrix[1][1] += Lambda;
+		Matrix[2][2] += Lambda;
+		Vector[0] += Lambda * QEFMassPoint.X;
+		Vector[1] += Lambda * QEFMassPoint.Y;
+		Vector[2] += Lambda * QEFMassPoint.Z;
+		Cell.Center = CellMin + SolveCellQEF(Matrix, Vector, QEFMassPoint) * CellSize;
+		Cell.Normal = bPlanar ? PlaneNormal : CalculateCentralDifferenceNormal(Cell.Center / CellSize);
 		if (Cell.Normal.IsNearlyZero())
 			Cell.Normal = FVector::UpVector;
+	}
+	const auto Patches = DualContourUtils::FindCellSurfacePatches(CornerDensity);
+	if (Patches.Num() > 1)
+	{
+		for (const uint16 Mask : Patches)
+		{
+			double PatchMatrix[3][3] = {}, PatchVector[3] = {};
+			FVector MassPoint = FVector::ZeroVector;
+			int32 Count = 0;
+			for (int32 Edge = 0; Edge < 12; ++Edge)
+			{
+				if (!(Mask & (1u << Edge)) || EdgeNormals[Edge].IsNearlyZero())
+					continue;
+				const FVector& N = EdgeNormals[Edge];
+				MassPoint += EdgePositions[Edge];
+				const double Distance = FVector::DotProduct(N, EdgePositions[Edge]);
+				for (int32 I = 0; I < 3; ++I)
+				{
+					PatchVector[I] += N[I] * Distance;
+					for (int32 J = 0; J < 3; ++J)
+						PatchMatrix[I][J] += N[I] * N[J];
+				}
+				++Count;
+			}
+			FDualContourCellPatch& Patch = Cell.Patches.AddDefaulted_GetRef();
+			Patch.EdgeMask = Mask;
+			Patch.Center = Cell.Center;
+			Patch.Normal = Cell.Normal;
+			if (Count == 0)
+				continue;
+			MassPoint /= Count;
+			for (int32 I = 0; I < 3; ++I)
+			{
+				PatchMatrix[I][I] += 0.05 * Count;
+				PatchVector[I] += 0.05 * Count * MassPoint[I];
+			}
+			Patch.Center = CellMin + SolveCellQEF(PatchMatrix, PatchVector, MassPoint) * CellSize;
+			Patch.Normal = CalculateCentralDifferenceNormal(Patch.Center / CellSize);
+			if (Patch.Normal.IsNearlyZero())
+				Patch.Normal = Cell.Normal;
+		}
 	}
 	return Cell;
 }
@@ -980,6 +1055,8 @@ void UDualContour::RebuildCellsInRangeInternal(FIntVector RangeMin, FIntVector R
 			for (const TPair<uint16, FDualContourCell>& CellPair : ChunkPair.Value.ActiveCells)
 			{
 				const FIntVector CellCoord = ChunkOrigin + DualContourUtils::ChunkLocalCoord(CellPair.Key);
+				if (CellPair.Value.bSharpFeature || !CellPair.Value.Patches.IsEmpty())
+					continue;
 				FVector Sum = FVector::ZeroVector;
 				int32 Count = 0;
 				for (const FIntVector& Offset : {FIntVector(1, 0, 0), FIntVector(-1, 0, 0), FIntVector(0, 1, 0),
@@ -987,6 +1064,9 @@ void UDualContour::RebuildCellsInRangeInternal(FIntVector RangeMin, FIntVector R
 				{
 					if (const FDualContourCell* Neighbor = GetCell(CellCoord.X + Offset.X, CellCoord.Y + Offset.Y, CellCoord.Z + Offset.Z))
 					{
+						// A multi-sheet cell has no single neighbouring surface position.
+						if (!Neighbor->Patches.IsEmpty())
+							continue;
 						if (FVector::DotProduct(CellPair.Value.Normal, Neighbor->Normal) < MinimumNormalCosine)
 							continue;
 						Sum += Neighbor->Center;
@@ -1051,7 +1131,11 @@ void UDualContour::RebuildDirtyCellChunksInternal(const TSet<FIntVector>& DirtyD
 		const FIntVector SampleMin = DualContourUtils::ChunkOrigin(DensityChunk);
 		const FIntVector SampleMax(FMath::Min(CellCount.X, SampleMin.X + GDualContourChunkSize),
 			FMath::Min(CellCount.Y, SampleMin.Y + GDualContourChunkSize), FMath::Min(CellCount.Z, SampleMin.Z + GDualContourChunkSize));
-		const FIntVector CellMin(FMath::Max(0, SampleMin.X - 2), FMath::Max(0, SampleMin.Y - 2), FMath::Max(0, SampleMin.Z - 2));
+		// QEF plane stencils can read up to Cell + 3, in addition to the
+		// Cell - 2 samples used by both the gradient and plane reconstruction.
+		constexpr int32 NegativeHalo = 3;
+		const FIntVector CellMin(FMath::Max(0, SampleMin.X - NegativeHalo), FMath::Max(0, SampleMin.Y - NegativeHalo),
+			FMath::Max(0, SampleMin.Z - NegativeHalo));
 		const FIntVector CellMax(FMath::Min(CellCount.X, SampleMax.X + 2), FMath::Min(CellCount.Y, SampleMax.Y + 2),
 			FMath::Min(CellCount.Z, SampleMax.Z + 2));
 		for (int32 ChunkZ = CellMin.Z / GDualContourChunkSize; ChunkZ <= (CellMax.Z - 1) / GDualContourChunkSize; ++ChunkZ)

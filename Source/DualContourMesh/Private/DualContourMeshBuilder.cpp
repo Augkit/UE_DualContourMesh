@@ -26,6 +26,16 @@ struct FDualContourCellRef
 {
 	const FDualContourCell* Cell = nullptr;
 	FIntVector Coord = FIntVector::ZeroValue;
+	int32 PatchIndex = INDEX_NONE;
+	const FVector& Position() const { return PatchIndex == INDEX_NONE ? Cell->Center : Cell->Patches[PatchIndex].Center; }
+	const FVector& Normal() const { return PatchIndex == INDEX_NONE ? Cell->Normal : Cell->Patches[PatchIndex].Normal; }
+
+	FIntVector VertexKey() const
+	{
+		// At most twelve edge components; keep distinct sheets out of each
+		// other's normal and material caches, including division halo faces.
+		return FIntVector(Coord.X * 13 + PatchIndex + 1, Coord.Y, Coord.Z);
+	}
 };
 
 FColor PackChannels(const TStaticArray<uint8, 4>& Values)
@@ -55,23 +65,54 @@ public:
 	FDualContourMeshBuildContext(const UDualContour& InDualContour, FDualContourMeshData& InMeshData)
 		: DualContour(InDualContour), MeshData(InMeshData) {}
 
-	void GenerateQuadsForCell(int32 CellX, int32 CellY, int32 CellZ)
+	void GenerateQuadsForCell(int32 CellX, int32 CellY, int32 CellZ, bool bEmit = true)
 	{
 		const FIntVector& CellCounts = DualContour.CellCount;
-		const auto GetCell = [this, &CellCounts](int32 QueryCellX, int32 QueryCellY, int32 QueryCellZ) -> FDualContourCellRef
+		const auto GetCell = [this, &CellCounts](int32 QueryCellX, int32 QueryCellY, int32 QueryCellZ,
+			int32 Axis, const FIntVector& EdgeStart) -> FDualContourCellRef
 		{
 			if (!DualContourUtils::IsValidCoordinate(CellCounts, QueryCellX, QueryCellY, QueryCellZ))
 				return {};
-			return {DualContour.GetCell(QueryCellX, QueryCellY, QueryCellZ), FIntVector(QueryCellX, QueryCellY, QueryCellZ)};
+			FDualContourCellRef Ref{DualContour.GetCell(QueryCellX, QueryCellY, QueryCellZ), FIntVector(QueryCellX, QueryCellY, QueryCellZ)};
+			if (Ref.Cell && !Ref.Cell->Patches.IsEmpty())
+			{
+				const uint16 EdgeMask = 1u << DualContourUtils::CellEdgeIndex(Axis, EdgeStart - Ref.Coord);
+				for (int32 I = 0; I < Ref.Cell->Patches.Num(); ++I)
+					if (Ref.Cell->Patches[I].EdgeMask & EdgeMask)
+					{
+						Ref.PatchIndex = I;
+						break;
+					}
+			}
+			return Ref;
 		};
 
 		// Reversed winding, (0,2,1) + (0,3,2), makes faces visible from the outward side in UE.
-		const auto AddQuad = [this](FDualContourCellRef Cell0, FVector2f UV0, FDualContourCellRef Cell1, FVector2f UV1,
+		const auto AddQuad = [this, bEmit](FDualContourCellRef Cell0, FVector2f UV0, FDualContourCellRef Cell1, FVector2f UV1,
 			FDualContourCellRef Cell2, FVector2f UV2, FDualContourCellRef Cell3, FVector2f UV3)
 		{
 			if (!Cell0.Cell || !Cell1.Cell || !Cell2.Cell || !Cell3.Cell)
 				return;
 			const TStaticArray<FDualContourCellRef, 4> Cells{Cell0, Cell1, Cell2, Cell3};
+			// One area-weighted normal per quad avoids weighting a corner twice
+			// merely because it lies on the triangulation diagonal.
+			FVector AreaNormal = FVector::CrossProduct(Cell2.Position() - Cell0.Position(),
+				                     Cell1.Position() - Cell0.Position())
+			                     + FVector::CrossProduct(Cell3.Position() - Cell0.Position(), Cell2.Position() - Cell0.Position());
+			const FVector Reference = Cell0.Normal() + Cell1.Normal() + Cell2.Normal() + Cell3.Normal();
+			if (FVector::DotProduct(AreaNormal, Reference) < 0.0)
+				AreaNormal *= -1.0;
+			if (!AreaNormal.IsNearlyZero())
+				for (const FDualContourCellRef& Cell : Cells)
+					IncidentQuadNormals.FindOrAdd(Cell.VertexKey()).Add(AreaNormal);
+			if (bEmit)
+			{
+				OutputQuadNormals.Add(AreaNormal.GetSafeNormal());
+				for (const FDualContourCellRef& Cell : Cells)
+					OutputCellCoords.Add(Cell.VertexKey());
+			}
+			if (!bEmit)
+				return;
 			TStaticArray<FDualContourMaterialBlend, 4> Blends;
 			for (int32 Index = 0; Index < 4; ++Index)
 				Blends[Index] = EvaluateCellMaterialBlend(Cells[Index]);
@@ -123,23 +164,30 @@ public:
 			}
 
 			const uint32 BaseVertexIndex = static_cast<uint32>(MeshData.Positions.Num());
-			MeshData.Positions.Append({Cell0.Cell->Center, Cell1.Cell->Center, Cell2.Cell->Center, Cell3.Cell->Center});
-			MeshData.Normals.Append({Cell0.Cell->Normal, Cell1.Cell->Normal, Cell2.Cell->Normal, Cell3.Cell->Normal});
+			MeshData.Positions.Append({Cell0.Position(), Cell1.Position(), Cell2.Position(), Cell3.Position()});
+			MeshData.Normals.Append({Cell0.Normal(), Cell1.Normal(), Cell2.Normal(), Cell3.Normal()});
 			if (DualContour.UVMode == EDualContourUVMode::WorldAlignedBox)
 			{
-				const FVector QuadNormal = (Cell0.Cell->Normal + Cell1.Cell->Normal + Cell2.Cell->Normal + Cell3.Cell->Normal).GetSafeNormal();
+				const FVector QuadNormal = (Cell0.Normal() + Cell1.Normal() + Cell2.Normal() + Cell3.Normal()).GetSafeNormal();
 				const float WorldSize = FMath::Max(DualContour.UVWorldSize, 1.0f);
-				MeshData.UVs.Append({ProjectBoxUV(Cell0.Cell->Center, QuadNormal, WorldSize),
-				                     ProjectBoxUV(Cell1.Cell->Center, QuadNormal, WorldSize),
-				                     ProjectBoxUV(Cell2.Cell->Center, QuadNormal, WorldSize),
-				                     ProjectBoxUV(Cell3.Cell->Center, QuadNormal, WorldSize)});
+				MeshData.UVs.Append({ProjectBoxUV(Cell0.Position(), QuadNormal, WorldSize),
+				                     ProjectBoxUV(Cell1.Position(), QuadNormal, WorldSize),
+				                     ProjectBoxUV(Cell2.Position(), QuadNormal, WorldSize),
+				                     ProjectBoxUV(Cell3.Position(), QuadNormal, WorldSize)});
 			}
 			else
 			{
 				MeshData.UVs.Append({UV0, UV1, UV2, UV3});
 			}
-			MeshData.Indices.Append(
-				{BaseVertexIndex, BaseVertexIndex + 2, BaseVertexIndex + 1, BaseVertexIndex, BaseVertexIndex + 3, BaseVertexIndex + 2});
+			// QEF quads need not be convex or planar. A fixed diagonal can turn
+			// a concave corner into overlapping triangles with opposite normals.
+			if (DualContourUtils::UseAlternateQuadDiagonal(Cell0.Position(), Cell1.Position(),
+				Cell2.Position(), Cell3.Position()))
+				MeshData.Indices.Append({BaseVertexIndex, BaseVertexIndex + 3, BaseVertexIndex + 1,
+				                         BaseVertexIndex + 1, BaseVertexIndex + 3, BaseVertexIndex + 2});
+			else
+				MeshData.Indices.Append({BaseVertexIndex, BaseVertexIndex + 2, BaseVertexIndex + 1,
+				                         BaseVertexIndex, BaseVertexIndex + 3, BaseVertexIndex + 2});
 			check(MeshData.Positions.Num() == MeshData.Normals.Num()
 				&& MeshData.Positions.Num() == MeshData.UVs.Num()
 				&& MeshData.Positions.Num() == MeshData.MaterialWeights.Num()
@@ -153,10 +201,10 @@ public:
 			const uint16 DensityB = DualContour.GetDensity(CellX + 1, CellY + 1, CellZ + 1);
 			if ((DensityA < GDualContourIsoValue) != (DensityB < GDualContourIsoValue))
 			{
-				const FDualContourCellRef C00 = GetCell(CellX, CellY, CellZ);
-				const FDualContourCellRef C10 = GetCell(CellX, CellY + 1, CellZ);
-				const FDualContourCellRef C11 = GetCell(CellX, CellY + 1, CellZ + 1);
-				const FDualContourCellRef C01 = GetCell(CellX, CellY, CellZ + 1);
+				const FDualContourCellRef C00 = GetCell(CellX, CellY, CellZ, 0, FIntVector(CellX, CellY + 1, CellZ + 1));
+				const FDualContourCellRef C10 = GetCell(CellX, CellY + 1, CellZ, 0, FIntVector(CellX, CellY + 1, CellZ + 1));
+				const FDualContourCellRef C11 = GetCell(CellX, CellY + 1, CellZ + 1, 0, FIntVector(CellX, CellY + 1, CellZ + 1));
+				const FDualContourCellRef C01 = GetCell(CellX, CellY, CellZ + 1, 0, FIntVector(CellX, CellY + 1, CellZ + 1));
 				if (DensityA >= GDualContourIsoValue)
 					AddQuad(C00, {0, 0}, C10, {1, 0}, C11, {1, 1}, C01, {0, 1});
 				else
@@ -171,10 +219,10 @@ public:
 			const uint16 DensityB = DualContour.GetDensity(CellX + 1, CellY + 1, CellZ + 1);
 			if ((DensityA < GDualContourIsoValue) != (DensityB < GDualContourIsoValue))
 			{
-				const FDualContourCellRef C00 = GetCell(CellX, CellY, CellZ);
-				const FDualContourCellRef C10 = GetCell(CellX + 1, CellY, CellZ);
-				const FDualContourCellRef C11 = GetCell(CellX + 1, CellY, CellZ + 1);
-				const FDualContourCellRef C01 = GetCell(CellX, CellY, CellZ + 1);
+				const FDualContourCellRef C00 = GetCell(CellX, CellY, CellZ, 1, FIntVector(CellX + 1, CellY, CellZ + 1));
+				const FDualContourCellRef C10 = GetCell(CellX + 1, CellY, CellZ, 1, FIntVector(CellX + 1, CellY, CellZ + 1));
+				const FDualContourCellRef C11 = GetCell(CellX + 1, CellY, CellZ + 1, 1, FIntVector(CellX + 1, CellY, CellZ + 1));
+				const FDualContourCellRef C01 = GetCell(CellX, CellY, CellZ + 1, 1, FIntVector(CellX + 1, CellY, CellZ + 1));
 				if (DensityA >= GDualContourIsoValue)
 					AddQuad(C00, {0, 0}, C01, {0, 1}, C11, {1, 1}, C10, {1, 0});
 				else
@@ -189,10 +237,10 @@ public:
 			const uint16 DensityB = DualContour.GetDensity(CellX + 1, CellY + 1, CellZ + 1);
 			if ((DensityA < GDualContourIsoValue) != (DensityB < GDualContourIsoValue))
 			{
-				const FDualContourCellRef C00 = GetCell(CellX, CellY, CellZ);
-				const FDualContourCellRef C10 = GetCell(CellX + 1, CellY, CellZ);
-				const FDualContourCellRef C11 = GetCell(CellX + 1, CellY + 1, CellZ);
-				const FDualContourCellRef C01 = GetCell(CellX, CellY + 1, CellZ);
+				const FDualContourCellRef C00 = GetCell(CellX, CellY, CellZ, 2, FIntVector(CellX + 1, CellY + 1, CellZ));
+				const FDualContourCellRef C10 = GetCell(CellX + 1, CellY, CellZ, 2, FIntVector(CellX + 1, CellY + 1, CellZ));
+				const FDualContourCellRef C11 = GetCell(CellX + 1, CellY + 1, CellZ, 2, FIntVector(CellX + 1, CellY + 1, CellZ));
+				const FDualContourCellRef C01 = GetCell(CellX, CellY + 1, CellZ, 2, FIntVector(CellX + 1, CellY + 1, CellZ));
 				if (DensityA >= GDualContourIsoValue)
 					AddQuad(C00, {0, 0}, C10, {1, 0}, C11, {1, 1}, C01, {0, 1});
 				else
@@ -203,15 +251,34 @@ public:
 
 	int32 GetTruncatedQuadCount() const { return TruncatedQuadCount; }
 
+	void ApplyQEFNormals()
+	{
+		// Quad corners are already separate render vertices. Smooth only with faces
+		// within 45 degrees of this face, retaining distinct normals across a crease.
+		constexpr double SmoothCosine = 0.7071067811865476;
+		for (int32 Index = 0; Index < MeshData.Normals.Num(); ++Index)
+		{
+			const FVector Reference = OutputQuadNormals[Index / 4];
+			if (Reference.IsNearlyZero())
+				continue;
+			FVector Sum = FVector::ZeroVector;
+			if (const TArray<FVector>* Incident = IncidentQuadNormals.Find(OutputCellCoords[Index]))
+				for (const FVector& AreaNormal : *Incident)
+					if (FVector::DotProduct(Reference, AreaNormal.GetSafeNormal()) >= SmoothCosine)
+						Sum += AreaNormal;
+			MeshData.Normals[Index] = Sum.IsNearlyZero() ? Reference : Sum.GetSafeNormal();
+		}
+	}
+
 private:
 	FDualContourMaterialBlend EvaluateCellMaterialBlend(const FDualContourCellRef& CellRef)
 	{
-		if (const FDualContourMaterialBlend* Cached = CellMaterialCache.Find(CellRef.Coord))
+		if (const FDualContourMaterialBlend* Cached = CellMaterialCache.Find(CellRef.VertexKey()))
 			return *Cached;
 		FDualContourMaterialBlend Result;
 		TStaticArray<float, 256> Scores(InPlace, 0.0f);
 		const FVector CellMin = FVector(CellRef.Coord) * DualContour.CellSize;
-		const FVector UnclampedLocal = (CellRef.Cell->Center - CellMin) / FMath::Max(DualContour.CellSize, UE_SMALL_NUMBER);
+		const FVector UnclampedLocal = (CellRef.Position() - CellMin) / FMath::Max(DualContour.CellSize, UE_SMALL_NUMBER);
 		const FVector Local(FMath::Clamp(UnclampedLocal.X, 0.0, 1.0), FMath::Clamp(UnclampedLocal.Y, 0.0, 1.0),
 			FMath::Clamp(UnclampedLocal.Z, 0.0, 1.0));
 		for (int32 Z = 0; Z <= 1; ++Z)
@@ -246,13 +313,16 @@ private:
 		if (Total > UE_SMALL_NUMBER)
 			for (int32 Layer = 0; Layer < 4; ++Layer)
 				Result.Weights[Layer] /= Total;
-		CellMaterialCache.Add(CellRef.Coord, Result);
+		CellMaterialCache.Add(CellRef.VertexKey(), Result);
 		return Result;
 	}
 
 	const UDualContour& DualContour;
 	FDualContourMeshData& MeshData;
 	TMap<FIntVector, FDualContourMaterialBlend> CellMaterialCache;
+	TMap<FIntVector, TArray<FVector>> IncidentQuadNormals;
+	TArray<FVector> OutputQuadNormals;
+	TArray<FIntVector> OutputCellCoords;
 	int32 TruncatedQuadCount = 0;
 };
 }
@@ -269,10 +339,15 @@ void FDualContourMeshBuilder::Build(const UDualContour& DualContour, FIntVector 
 	}
 
 	FDualContourMeshBuildContext Context(DualContour, OutMeshData);
-	for (int32 CellZ = CellRangeMin.Z; CellZ < CellRangeMax.Z; ++CellZ)
-		for (int32 CellY = CellRangeMin.Y; CellY < CellRangeMax.Y; ++CellY)
-			for (int32 CellX = CellRangeMin.X; CellX < CellRangeMax.X; ++CellX)
-				Context.GenerateQuadsForCell(CellX, CellY, CellZ);
+	// Include every face incident to emitted vertices even on division boundaries.
+	// Halo faces contribute normals only, never triangles/materials/bounds.
+	constexpr int32 Halo = 1;
+	for (int32 CellZ = FMath::Max(0, CellRangeMin.Z - Halo); CellZ < FMath::Min(DualContour.CellCount.Z, CellRangeMax.Z + Halo); ++CellZ)
+		for (int32 CellY = FMath::Max(0, CellRangeMin.Y - Halo); CellY < FMath::Min(DualContour.CellCount.Y, CellRangeMax.Y + Halo); ++CellY)
+			for (int32 CellX = FMath::Max(0, CellRangeMin.X - Halo); CellX < FMath::Min(DualContour.CellCount.X, CellRangeMax.X + Halo); ++CellX)
+				Context.GenerateQuadsForCell(CellX, CellY, CellZ,
+					CellX >= CellRangeMin.X && CellX < CellRangeMax.X && CellY >= CellRangeMin.Y && CellY < CellRangeMax.Y
+					&& CellZ >= CellRangeMin.Z && CellZ < CellRangeMax.Z);
 	if (Context.GetTruncatedQuadCount() > 0)
 	{
 		UE_LOG(LogDualContourMeshBuilder, Warning,
@@ -280,41 +355,7 @@ void FDualContourMeshBuilder::Build(const UDualContour& DualContour, FIntVector 
 			Context.GetTruncatedQuadCount());
 	}
 
-	// Weld duplicated quad corners by position and accumulate unnormalized triangle
-	// normals so each face contributes in proportion to area. Blending a small amount
-	// of this geometric normal into the field normal removes triangulation-aligned
-	// shading without hiding the sampled surface shape.
-	TMap<FVector, FVector> PositionNormalSums;
-	for (int32 TriangleIndex = 0; TriangleIndex + 2 < OutMeshData.Indices.Num(); TriangleIndex += 3)
-	{
-		const uint32 Index0 = OutMeshData.Indices[TriangleIndex];
-		const uint32 Index1 = OutMeshData.Indices[TriangleIndex + 1];
-		const uint32 Index2 = OutMeshData.Indices[TriangleIndex + 2];
-		FVector FaceNormal = FVector::CrossProduct(
-			OutMeshData.Positions[Index1] - OutMeshData.Positions[Index0],
-			OutMeshData.Positions[Index2] - OutMeshData.Positions[Index0]);
-		if (FaceNormal.IsNearlyZero())
-			continue;
-		const FVector ReferenceNormal = (OutMeshData.Normals[Index0] + OutMeshData.Normals[Index1]
-		                                 + OutMeshData.Normals[Index2]).GetSafeNormal();
-		if (!ReferenceNormal.IsNearlyZero() && FVector::DotProduct(FaceNormal, ReferenceNormal) < 0.0)
-			FaceNormal *= -1.0;
-		PositionNormalSums.FindOrAdd(OutMeshData.Positions[Index0]) += FaceNormal;
-		PositionNormalSums.FindOrAdd(OutMeshData.Positions[Index1]) += FaceNormal;
-		PositionNormalSums.FindOrAdd(OutMeshData.Positions[Index2]) += FaceNormal;
-	}
-
-	constexpr float GeometricNormalBlend = 0.25f;
-	for (int32 VertexIndex = 0; VertexIndex < OutMeshData.Positions.Num(); ++VertexIndex)
-	{
-		const FVector GeometricNormal = PositionNormalSums.FindRef(OutMeshData.Positions[VertexIndex]).GetSafeNormal();
-		if (!GeometricNormal.IsNearlyZero())
-		{
-			OutMeshData.Normals[VertexIndex] =
-				FMath::Lerp(OutMeshData.Normals[VertexIndex].GetSafeNormal(), GeometricNormal, GeometricNormalBlend).GetSafeNormal();
-		}
-	}
-
+	Context.ApplyQEFNormals();
 	// Bounds include every emitted vertex, including centers read from the positive-axis neighbor ring.
 	for (const FVector& Position : OutMeshData.Positions)
 		OutMeshData.LocalBounds += Position;

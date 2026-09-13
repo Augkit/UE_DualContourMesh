@@ -120,7 +120,9 @@ bool FDualContourEditContext::ApplyDensityInternal(EDualContourDensityOperation 
 	{
 		Sampler.Finish();
 	};
-	const FVolumeSamplerPlacement Placement = Sampler.MakePlacement(SamplerToTargetTransform);
+	// Keep a usable distance band on both sides of a stamped surface, even when
+	// the target grid is coarse. Procedural SDF samplers honor this optional limit.
+	FVolumeSamplerPlacement Placement = Sampler.MakePlacement(SamplerToTargetTransform, GDualContourMaxLinearDensity / (4.0f * Target->CellSize));
 	FIntVector MinSampleCoord, MaxSampleCoord;
 	if (!FMath::IsFinite(Strength) || Strength <= 0
 	    || !GetSampleBounds(Sampler, SamplerToTargetTransform, MinSampleCoord, MaxSampleCoord))
@@ -203,7 +205,9 @@ bool FDualContourEditContext::ApplyDensityInternal(EDualContourDensityOperation 
 				Value = FMath::Max(Before, Value);
 				break;
 			case EDualContourDensityOperation::Difference:
-				Value = FMath::Min(Before, Value >= GDualContourLinearIsoValue ? -Value : GDualContourMaxLinearDensity);
+				// Preserve the outside distance as well as the inside sign. Replacing
+				// it with saturation moves edge intersections toward the solid samples.
+				Value = FMath::Min(Before, -Value);
 				break;
 			case EDualContourDensityOperation::Replace:
 				break;

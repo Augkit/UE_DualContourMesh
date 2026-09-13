@@ -1,4 +1,5 @@
 ﻿#include "VolumeSampler/ProceduralVolumeSampler.h"
+#include "DualContourTypes.h"
 
 namespace
 {
@@ -45,6 +46,19 @@ bool UProceduralVolumeSampler::Sample(const FVector& TargetLocalPosition, const 
 	Value = FMath::IsFinite(SignedDistance)
 		        ? (DensityBias - SignedDistance * DensityScale) * GDualContourLinearDensityFixedPointScale
 		        : 0.0f;
+	if (Placement.MaxTargetDensitySlope > 0.0f)
+	{
+		// Bound the gradient under the full affine placement, including nonuniform
+		// scales. Rescale the whole field (including bias), preserving its zero set.
+		// The Frobenius norm is a conservative bound on the inverse transform norm.
+		const double TransformBound = FMath::Sqrt(
+			Placement.TargetToSamplerLocalMatrix.TransformVector(FVector::ForwardVector).SizeSquared()
+			+ Placement.TargetToSamplerLocalMatrix.TransformVector(FVector::RightVector).SizeSquared()
+			+ Placement.TargetToSamplerLocalMatrix.TransformVector(FVector::UpVector).SizeSquared());
+		const double SlopeBound = DensityScale * GDualContourLinearDensityFixedPointScale * TransformBound;
+		if (SlopeBound > Placement.MaxTargetDensitySlope)
+			Value *= Placement.MaxTargetDensitySlope / SlopeBound;
+	}
 	return FMath::IsFinite(Value);
 }
 

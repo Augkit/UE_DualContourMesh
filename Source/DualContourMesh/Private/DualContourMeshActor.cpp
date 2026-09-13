@@ -816,17 +816,16 @@ void ADualContourMeshActor::PartialUpdateComponents(FIntVector AffectedCellMin, 
 	{
 		TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_CollectAffectedDivisions);
 
-		// A division owns [CellMin, CellMax), but mesh generation reads the positive-axis
-		// neighbor ring. Expanding the changed range by one cell toward the negative axes
-		// finds every possible owner without scanning every affected cell.
+		// QEF normals also read incident quads across division boundaries.
+		constexpr int32 NormalHalo = 1;
 		const FIntVector OwnerCellMin(
-			FMath::Max(0, AffectedCellMin.X - 1),
-			FMath::Max(0, AffectedCellMin.Y - 1),
-			FMath::Max(0, AffectedCellMin.Z - 1));
+			FMath::Max(0, AffectedCellMin.X - 1 - NormalHalo),
+			FMath::Max(0, AffectedCellMin.Y - 1 - NormalHalo),
+			FMath::Max(0, AffectedCellMin.Z - 1 - NormalHalo));
 		const FIntVector LastAffectedCell(
-			AffectedCellMax.X - 1,
-			AffectedCellMax.Y - 1,
-			AffectedCellMax.Z - 1);
+			FMath::Min(DualContour->CellCount.X - 1, AffectedCellMax.X - 1 + NormalHalo),
+			FMath::Min(DualContour->CellCount.Y - 1, AffectedCellMax.Y - 1 + NormalHalo),
+			FMath::Min(DualContour->CellCount.Z - 1, AffectedCellMax.Z - 1 + NormalHalo));
 		const FIntVector DivisionMin = DivisionFromCell(OwnerCellMin.X, OwnerCellMin.Y, OwnerCellMin.Z);
 		const FIntVector DivisionMax = DivisionFromCell(LastAffectedCell.X, LastAffectedCell.Y, LastAffectedCell.Z);
 		const int64 CandidateDivisionCount = static_cast<int64>(DivisionMax.X - DivisionMin.X + 1)

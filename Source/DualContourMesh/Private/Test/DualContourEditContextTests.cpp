@@ -33,16 +33,16 @@ bool FDualContourEditContextTest::RunTest(const FString& Parameters)
 	bool bDensityObservedBoth = false;
 	TArray<FDualContourMaterialSampleDelta> MaterialDeltas;
 	TestTrue(TEXT("Mixed commit"), Edit.Commit(
+		[&](const FIntVector& Coord, uint16 Before, uint16 After)
+		{
+			bDensityObservedBoth = Grid->GetMaterialId(Coord.X, Coord.Y, Coord.Z) == 7 && Before == 0 &&
+			                       After == FDensityChunk::EncodeDensity(100.0f);
+		},
 		[&](const FIntVector& Coord, uint8 Before, uint8 After)
 		{
 			MaterialDeltas.Add({Coord, Before, After});
 			bMaterialObservedBoth = Grid->GetDensity(Coord.X, Coord.Y, Coord.Z) ==
 			                        FDensityChunk::EncodeDensity(100.0f);
-		},
-		[&](const FIntVector& Coord, uint16 Before, uint16 After)
-		{
-			bDensityObservedBoth = Grid->GetMaterialId(Coord.X, Coord.Y, Coord.Z) == 7 && Before == 0 &&
-			                       After == FDensityChunk::EncodeDensity(100.0f);
 		}));
 	TestTrue(TEXT("Material callback sees both final stores"), bMaterialObservedBoth);
 	TestTrue(TEXT("Density callback sees both final stores"), bDensityObservedBoth);

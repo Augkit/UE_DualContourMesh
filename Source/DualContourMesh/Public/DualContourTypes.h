@@ -24,13 +24,6 @@ enum class EDualContourDensityOperation : uint8
 	Smooth,
 };
 
-UENUM(BlueprintType)
-enum class EDualContourVertexSolveMode : uint8
-{
-	HermiteIntersectionCentroid UMETA(DisplayName = "Hermite Intersection Centroid"),
-	QEF UMETA(DisplayName = "Regularized QEF"),
-};
-
 /** Coordinate generation used by the generated render mesh. */
 UENUM(BlueprintType)
 enum class EDualContourUVMode : uint8
@@ -39,6 +32,14 @@ enum class EDualContourUVMode : uint8
 	WorldAlignedBox UMETA(DisplayName = "World Aligned Box Projection"),
 	/** The original per-quad [0,1] coordinates. Kept for backwards comparison. */
 	QuadLocalLegacy UMETA(DisplayName = "Per-Quad Legacy"),
+};
+
+/** Derived geometry for disconnected surface sheets inside one grid cell. */
+struct FDualContourCellPatch
+{
+	FVector Center = FVector::ZeroVector;
+	FVector Normal = FVector::UpVector;
+	uint16 EdgeMask = 0;
 };
 
 USTRUCT(BlueprintType)
@@ -54,6 +55,12 @@ struct DUALCONTOURMESH_API FDualContourCell
 
 	UPROPERTY(BlueprintReadOnly)
 	FVector Normal = FVector::UpVector;
+
+	/** Derived feature classification; prevents relaxation from bending recovered creases. */
+	bool bSharpFeature = false;
+
+	// Empty for the common single-sheet case. Recomputed from density, never saved.
+	TArray<FDualContourCellPatch> Patches;
 };
 
 // Sparse density chunk. Empty DensitySamples means the whole chunk has UniformValue.
