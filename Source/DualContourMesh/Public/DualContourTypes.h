@@ -34,14 +34,6 @@ enum class EDualContourUVMode : uint8
 	QuadLocalLegacy UMETA(DisplayName = "Per-Quad Legacy"),
 };
 
-/** Derived geometry for disconnected surface sheets inside one grid cell. */
-struct FDualContourCellPatch
-{
-	FVector Center = FVector::ZeroVector;
-	FVector Normal = FVector::UpVector;
-	uint16 EdgeMask = 0;
-};
-
 USTRUCT(BlueprintType)
 struct DUALCONTOURMESH_API FDualContourCell
 {
@@ -58,9 +50,6 @@ struct DUALCONTOURMESH_API FDualContourCell
 
 	/** Derived feature classification; prevents relaxation from bending recovered creases. */
 	bool bSharpFeature = false;
-
-	// Empty for the common single-sheet case. Recomputed from density, never saved.
-	TArray<FDualContourCellPatch> Patches;
 };
 
 // Sparse density chunk. Empty DensitySamples means the whole chunk has UniformValue.

@@ -26,16 +26,9 @@ struct FDualContourCellRef
 {
 	const FDualContourCell* Cell = nullptr;
 	FIntVector Coord = FIntVector::ZeroValue;
-	int32 PatchIndex = INDEX_NONE;
-	const FVector& Position() const { return PatchIndex == INDEX_NONE ? Cell->Center : Cell->Patches[PatchIndex].Center; }
-	const FVector& Normal() const { return PatchIndex == INDEX_NONE ? Cell->Normal : Cell->Patches[PatchIndex].Normal; }
-
-	FIntVector VertexKey() const
-	{
-		// At most twelve edge components; keep distinct sheets out of each
-		// other's normal and material caches, including division halo faces.
-		return FIntVector(Coord.X * 13 + PatchIndex + 1, Coord.Y, Coord.Z);
-	}
+	const FVector& Position() const { return Cell->Center; }
+	const FVector& Normal() const { return Cell->Normal; }
+	FIntVector VertexKey() const { return Coord; }
 };
 
 FColor PackChannels(const TStaticArray<uint8, 4>& Values)
@@ -68,23 +61,11 @@ public:
 	void GenerateQuadsForCell(int32 CellX, int32 CellY, int32 CellZ, bool bEmit = true)
 	{
 		const FIntVector& CellCounts = DualContour.CellCount;
-		const auto GetCell = [this, &CellCounts](int32 QueryCellX, int32 QueryCellY, int32 QueryCellZ,
-			int32 Axis, const FIntVector& EdgeStart) -> FDualContourCellRef
+		const auto GetCell = [this, &CellCounts](int32 QueryCellX, int32 QueryCellY, int32 QueryCellZ) -> FDualContourCellRef
 		{
 			if (!DualContourUtils::IsValidCoordinate(CellCounts, QueryCellX, QueryCellY, QueryCellZ))
 				return {};
-			FDualContourCellRef Ref{DualContour.GetCell(QueryCellX, QueryCellY, QueryCellZ), FIntVector(QueryCellX, QueryCellY, QueryCellZ)};
-			if (Ref.Cell && !Ref.Cell->Patches.IsEmpty())
-			{
-				const uint16 EdgeMask = 1u << DualContourUtils::CellEdgeIndex(Axis, EdgeStart - Ref.Coord);
-				for (int32 I = 0; I < Ref.Cell->Patches.Num(); ++I)
-					if (Ref.Cell->Patches[I].EdgeMask & EdgeMask)
-					{
-						Ref.PatchIndex = I;
-						break;
-					}
-			}
-			return Ref;
+			return {DualContour.GetCell(QueryCellX, QueryCellY, QueryCellZ), FIntVector(QueryCellX, QueryCellY, QueryCellZ)};
 		};
 
 		// Reversed winding, (0,2,1) + (0,3,2), makes faces visible from the outward side in UE.
@@ -201,10 +182,10 @@ public:
 			const uint16 DensityB = DualContour.GetDensity(CellX + 1, CellY + 1, CellZ + 1);
 			if ((DensityA < GDualContourIsoValue) != (DensityB < GDualContourIsoValue))
 			{
-				const FDualContourCellRef C00 = GetCell(CellX, CellY, CellZ, 0, FIntVector(CellX, CellY + 1, CellZ + 1));
-				const FDualContourCellRef C10 = GetCell(CellX, CellY + 1, CellZ, 0, FIntVector(CellX, CellY + 1, CellZ + 1));
-				const FDualContourCellRef C11 = GetCell(CellX, CellY + 1, CellZ + 1, 0, FIntVector(CellX, CellY + 1, CellZ + 1));
-				const FDualContourCellRef C01 = GetCell(CellX, CellY, CellZ + 1, 0, FIntVector(CellX, CellY + 1, CellZ + 1));
+				const FDualContourCellRef C00 = GetCell(CellX, CellY, CellZ);
+				const FDualContourCellRef C10 = GetCell(CellX, CellY + 1, CellZ);
+				const FDualContourCellRef C11 = GetCell(CellX, CellY + 1, CellZ + 1);
+				const FDualContourCellRef C01 = GetCell(CellX, CellY, CellZ + 1);
 				if (DensityA >= GDualContourIsoValue)
 					AddQuad(C00, {0, 0}, C10, {1, 0}, C11, {1, 1}, C01, {0, 1});
 				else
@@ -219,10 +200,10 @@ public:
 			const uint16 DensityB = DualContour.GetDensity(CellX + 1, CellY + 1, CellZ + 1);
 			if ((DensityA < GDualContourIsoValue) != (DensityB < GDualContourIsoValue))
 			{
-				const FDualContourCellRef C00 = GetCell(CellX, CellY, CellZ, 1, FIntVector(CellX + 1, CellY, CellZ + 1));
-				const FDualContourCellRef C10 = GetCell(CellX + 1, CellY, CellZ, 1, FIntVector(CellX + 1, CellY, CellZ + 1));
-				const FDualContourCellRef C11 = GetCell(CellX + 1, CellY, CellZ + 1, 1, FIntVector(CellX + 1, CellY, CellZ + 1));
-				const FDualContourCellRef C01 = GetCell(CellX, CellY, CellZ + 1, 1, FIntVector(CellX + 1, CellY, CellZ + 1));
+				const FDualContourCellRef C00 = GetCell(CellX, CellY, CellZ);
+				const FDualContourCellRef C10 = GetCell(CellX + 1, CellY, CellZ);
+				const FDualContourCellRef C11 = GetCell(CellX + 1, CellY, CellZ + 1);
+				const FDualContourCellRef C01 = GetCell(CellX, CellY, CellZ + 1);
 				if (DensityA >= GDualContourIsoValue)
 					AddQuad(C00, {0, 0}, C01, {0, 1}, C11, {1, 1}, C10, {1, 0});
 				else
@@ -237,10 +218,10 @@ public:
 			const uint16 DensityB = DualContour.GetDensity(CellX + 1, CellY + 1, CellZ + 1);
 			if ((DensityA < GDualContourIsoValue) != (DensityB < GDualContourIsoValue))
 			{
-				const FDualContourCellRef C00 = GetCell(CellX, CellY, CellZ, 2, FIntVector(CellX + 1, CellY + 1, CellZ));
-				const FDualContourCellRef C10 = GetCell(CellX + 1, CellY, CellZ, 2, FIntVector(CellX + 1, CellY + 1, CellZ));
-				const FDualContourCellRef C11 = GetCell(CellX + 1, CellY + 1, CellZ, 2, FIntVector(CellX + 1, CellY + 1, CellZ));
-				const FDualContourCellRef C01 = GetCell(CellX, CellY + 1, CellZ, 2, FIntVector(CellX + 1, CellY + 1, CellZ));
+				const FDualContourCellRef C00 = GetCell(CellX, CellY, CellZ);
+				const FDualContourCellRef C10 = GetCell(CellX + 1, CellY, CellZ);
+				const FDualContourCellRef C11 = GetCell(CellX + 1, CellY + 1, CellZ);
+				const FDualContourCellRef C01 = GetCell(CellX, CellY + 1, CellZ);
 				if (DensityA >= GDualContourIsoValue)
 					AddQuad(C00, {0, 0}, C10, {1, 0}, C11, {1, 1}, C01, {0, 1});
 				else

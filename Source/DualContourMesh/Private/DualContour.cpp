@@ -811,15 +811,12 @@ FDualContourCell UDualContour::CreateNewCell(int32 CellX, int32 CellY, int32 Cel
 	Cell.Center = CellCenter;
 
 	bool bHasInside = false, bHasOutside = false;
-	double CornerDensity[8];
 	for (int32 Z = 0; Z <= 1; ++Z)
 		for (int32 Y = 0; Y <= 1; ++Y)
 			for (int32 X = 0; X <= 1; ++X)
 			{
-				CornerDensity[X + 2 * Y + 4 * Z] = GetLinearDensity(CellX + X, CellY + Y, CellZ + Z);
-				(CornerDensity[X + 2 * Y + 4 * Z] >= GDualContourLinearIsoValue
-					 ? bHasInside
-					 : bHasOutside) = true;
+				const double CornerDensity = GetLinearDensity(CellX + X, CellY + Y, CellZ + Z);
+				(CornerDensity >= GDualContourLinearIsoValue ? bHasInside : bHasOutside) = true;
 			}
 	Cell.bActive = bHasInside && bHasOutside;
 	if (!Cell.bActive)
@@ -829,7 +826,6 @@ FDualContourCell UDualContour::CreateNewCell(int32 CellX, int32 CellY, int32 Cel
 	double Vector[3] = {};
 	FVector QEFMassPoint = FVector::ZeroVector;
 	int32 NumIntersections = 0;
-	FVector EdgePositions[12], EdgeNormals[12];
 	for (int32 EdgeIndex = 0; EdgeIndex < 12; ++EdgeIndex)
 	{
 		const int32* A = EdgeCorners[EdgeIndex][0];
@@ -846,8 +842,6 @@ FDualContourCell UDualContour::CreateNewCell(int32 CellX, int32 CellY, int32 Cel
 		const float Alpha = (GDualContourLinearIsoValue - LinearDensityA) / (LinearDensityB - LinearDensityA);
 		const FVector GridPosition = FVector(AX, AY, AZ) + Alpha * (FVector(BX, BY, BZ) - FVector(AX, AY, AZ));
 		const FVector Normal = CalculateCentralDifferenceNormal(GridPosition);
-		EdgePositions[EdgeIndex] = GridPosition - FVector(CellX, CellY, CellZ);
-		EdgeNormals[EdgeIndex] = Normal;
 		if (Normal.IsNearlyZero())
 			continue;
 		const double NX = Normal.X, NY = Normal.Y, NZ = Normal.Z;
@@ -891,47 +885,6 @@ FDualContourCell UDualContour::CreateNewCell(int32 CellX, int32 CellY, int32 Cel
 		Cell.Normal = bPlanar ? PlaneNormal : CalculateCentralDifferenceNormal(Cell.Center / CellSize);
 		if (Cell.Normal.IsNearlyZero())
 			Cell.Normal = FVector::UpVector;
-	}
-	const auto Patches = DualContourUtils::FindCellSurfacePatches(CornerDensity);
-	if (Patches.Num() > 1)
-	{
-		for (const uint16 Mask : Patches)
-		{
-			double PatchMatrix[3][3] = {}, PatchVector[3] = {};
-			FVector MassPoint = FVector::ZeroVector;
-			int32 Count = 0;
-			for (int32 Edge = 0; Edge < 12; ++Edge)
-			{
-				if (!(Mask & (1u << Edge)) || EdgeNormals[Edge].IsNearlyZero())
-					continue;
-				const FVector& N = EdgeNormals[Edge];
-				MassPoint += EdgePositions[Edge];
-				const double Distance = FVector::DotProduct(N, EdgePositions[Edge]);
-				for (int32 I = 0; I < 3; ++I)
-				{
-					PatchVector[I] += N[I] * Distance;
-					for (int32 J = 0; J < 3; ++J)
-						PatchMatrix[I][J] += N[I] * N[J];
-				}
-				++Count;
-			}
-			FDualContourCellPatch& Patch = Cell.Patches.AddDefaulted_GetRef();
-			Patch.EdgeMask = Mask;
-			Patch.Center = Cell.Center;
-			Patch.Normal = Cell.Normal;
-			if (Count == 0)
-				continue;
-			MassPoint /= Count;
-			for (int32 I = 0; I < 3; ++I)
-			{
-				PatchMatrix[I][I] += 0.05 * Count;
-				PatchVector[I] += 0.05 * Count * MassPoint[I];
-			}
-			Patch.Center = CellMin + SolveCellQEF(PatchMatrix, PatchVector, MassPoint) * CellSize;
-			Patch.Normal = CalculateCentralDifferenceNormal(Patch.Center / CellSize);
-			if (Patch.Normal.IsNearlyZero())
-				Patch.Normal = Cell.Normal;
-		}
 	}
 	return Cell;
 }
@@ -1055,7 +1008,7 @@ void UDualContour::RebuildCellsInRangeInternal(FIntVector RangeMin, FIntVector R
 			for (const TPair<uint16, FDualContourCell>& CellPair : ChunkPair.Value.ActiveCells)
 			{
 				const FIntVector CellCoord = ChunkOrigin + DualContourUtils::ChunkLocalCoord(CellPair.Key);
-				if (CellPair.Value.bSharpFeature || !CellPair.Value.Patches.IsEmpty())
+				if (CellPair.Value.bSharpFeature)
 					continue;
 				FVector Sum = FVector::ZeroVector;
 				int32 Count = 0;
@@ -1064,9 +1017,6 @@ void UDualContour::RebuildCellsInRangeInternal(FIntVector RangeMin, FIntVector R
 				{
 					if (const FDualContourCell* Neighbor = GetCell(CellCoord.X + Offset.X, CellCoord.Y + Offset.Y, CellCoord.Z + Offset.Z))
 					{
-						// A multi-sheet cell has no single neighbouring surface position.
-						if (!Neighbor->Patches.IsEmpty())
-							continue;
 						if (FVector::DotProduct(CellPair.Value.Normal, Neighbor->Normal) < MinimumNormalCosine)
 							continue;
 						Sum += Neighbor->Center;

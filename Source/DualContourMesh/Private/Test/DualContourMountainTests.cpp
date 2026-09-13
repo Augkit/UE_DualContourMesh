@@ -96,7 +96,7 @@ bool FDualContourMountainTest::RunTest(const FString& Parameters)
 					}
 				}
 				TestEqual(TEXT("Divisions emit every mountain triangle once"), IndexCount, Mesh.Indices.Num());
-				TestTrue(TEXT("Surface patch geometry, normals and materials agree across divisions"), bSame);
+				TestTrue(TEXT("Geometry, normals and materials agree across divisions"), bSame);
 			}
 			Grid->Rebuild();
 			FDualContourMeshData Rebuilt;
@@ -108,46 +108,6 @@ bool FDualContourMountainTest::RunTest(const FString& Parameters)
 			FDualContourMeshBuilder::Build(*Grid, FIntVector::ZeroValue, Grid->CellCount, Rebuilt);
 			Measure(Rebuilt, TEXT("DefaultRelaxation"));
 		}
-	return true;
-}
-
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualContourCellTopologyTest, "DualContour.Geometry.CellSurfacePatches",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-bool FDualContourCellTopologyTest::RunTest(const FString& Parameters)
-{
-	// Every crossing edge must belong to exactly one patch for all corner signs.
-	for (int32 Signs = 0; Signs < 256; ++Signs)
-	{
-		double Density[8];
-		for (int32 I = 0; I < 8; ++I) Density[I] = Signs & (1 << I) ? 1.0 : -1.0;
-		uint16 Expected = 0, Actual = 0;
-		for (int32 Axis = 0; Axis < 3; ++Axis)
-			for (int32 I = 0; I < 8; ++I)
-				if (!(I & (1 << Axis)) && (Density[I] >= 0) != (Density[I | (1 << Axis)] >= 0))
-					Expected |= 1u << DualContourUtils::CellEdgeIndex(Axis, FIntVector(I & 1, (I >> 1) & 1, I >> 2));
-		for (const uint16 Mask : DualContourUtils::FindCellSurfacePatches(Density))
-		{
-			TestEqual(TEXT("Surface patches do not share crossing edges"), Actual & Mask, 0);
-			Actual |= Mask;
-		}
-		TestEqual(TEXT("Surface patches cover every crossing edge"), Actual, Expected);
-	}
-	// Two positive islands below a negative slab: the bilinear saddle connects
-	// the negative region, so these must not share a dual vertex. Also exercise
-	// each face orientation and difference (sign-complemented) geometry.
-	for (int32 Axis = 0; Axis < 3; ++Axis)
-		for (int32 Side = 0; Side < 2; ++Side)
-			for (double Sign : {-1.0, 1.0})
-			{
-				double Density[8];
-				for (double& Value : Density) Value = -50.0 * Sign;
-				const int32 U = Axis == 0 ? 1 : 0, V = Axis == 2 ? 1 : 2;
-				const double Face[4] = {3.0, -2.0, -6.0, 1.0};
-				for (int32 I = 0; I < 4; ++I)
-					Density[(Side << Axis) | ((I & 1) << U) | ((I >> 1) << V)] = Sign * Face[I];
-				TestEqual(TEXT("Disconnected saddle sheets get distinct vertices"), DualContourUtils::FindCellSurfacePatches(Density).Num(), 2);
-			}
 	return true;
 }
 
