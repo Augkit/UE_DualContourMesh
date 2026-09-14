@@ -21,7 +21,7 @@ bool UVolumeSampledDualContour::SampleSource()
 	const FVector SamplerPivotPosition = VolumeSampler->Pivot * SamplingVolumeSize;
 	FTransform SamplerPivotTransform = SampleTransform;
 	SamplerPivotTransform.AddToTranslation(SamplerPivotPosition);
-	if (!ApplySampler(*VolumeSampler, SamplingVolumeSize, SamplerPivotTransform, Error))
+	if (!ReplaceDensityFromSampler(*VolumeSampler, SamplingVolumeSize, SamplerPivotTransform, Error))
 	{
 		UE_LOG(LogVolumeSampledDualContour, Error, TEXT("Volume sampling failed for %s: %s"), *GetPathName(), *Error.ToString());
 		return false;

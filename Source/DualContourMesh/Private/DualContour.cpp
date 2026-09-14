@@ -372,10 +372,10 @@ bool UDualContour::Rebuild()
 	return true;
 }
 
-bool UDualContour::ApplySampler(const UVolumeSampler& Sampler, const FVector& SamplingVolumeSize, const FTransform& SamplerPivotTransform,
+bool UDualContour::ReplaceDensityFromSampler(const UVolumeSampler& Sampler, const FVector& SamplingVolumeSize, const FTransform& SamplerPivotTransform,
 	FText& OutError)
 {
-	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_ApplySampler);
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_ReplaceDensityFromSampler);
 	check(IsInGameThread());
 	if (CellCount.X <= 0 || CellCount.Y <= 0 || CellCount.Z <= 0
 	    || CellCount.X >= MAX_int32 || CellCount.Y >= MAX_int32 || CellCount.Z >= MAX_int32

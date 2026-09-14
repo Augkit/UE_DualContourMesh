@@ -68,8 +68,8 @@ public:
 	bool CopyFrom(const UDualContour* Source, bool bBroadcastCellsRebuilt = true);
 
 	bool Rebuild();
-	/** Samples a volume and applies its density directly to this contour. */
-	bool ApplySampler(const UVolumeSampler& Sampler, const FVector& SamplingVolumeSize, const FTransform& SamplerPivotTransform, FText& OutError);
+	/** Replaces this contour's density with samples from a volume. */
+	bool ReplaceDensityFromSampler(const UVolumeSampler& Sampler, const FVector& SamplingVolumeSize, const FTransform& SamplerPivotTransform, FText& OutError);
 	/** Replaces density from sampled chunks; density outside the sampled range becomes zero. */
 	bool ReplaceDensityFromSampledChunks(TArray<FDualContourSampledChunk>&& SampledChunks, bool bBroadcastCellsRebuilt = true);
 

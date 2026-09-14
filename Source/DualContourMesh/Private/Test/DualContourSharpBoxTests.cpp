@@ -22,7 +22,7 @@ bool FDualContourSharpBoxTest::RunTest(const FString& Parameters)
 			const FTransform BoxTransform(FRotator(0, Yaw, 0), FVector(320) + Offset);
 			const FVector Center = FVector(320) + Offset;
 			FText Error;
-			if (!TestTrue(TEXT("Sample default box"), Grid->ApplySampler(*Box, FVector(Grid->CellCount) * Grid->CellSize, BoxTransform, Error)))
+			if (!TestTrue(TEXT("Sample default box"), Grid->ReplaceDensityFromSampler(*Box, FVector(Grid->CellCount) * Grid->CellSize, BoxTransform, Error)))
 				return false;
 			FDualContourMeshData Mesh;
 			FDualContourMeshBuilder::Build(*Grid, FIntVector::ZeroValue, Grid->CellCount, Mesh);
@@ -101,7 +101,7 @@ bool FDualContourQEFDivisionTest::RunTest(const FString& Parameters)
 	TStrongObjectPtr<UBoxVolumeSampler> Box(NewObject<UBoxVolumeSampler>());
 	const FTransform BoxTransform(FRotator(0, 45, 0), FVector(322.3, 318.3, 320.6));
 	FText Error;
-	if (!TestTrue(TEXT("Sample translated rotated box"), Grid->ApplySampler(*Box, FVector(Grid->CellCount) * Grid->CellSize, BoxTransform, Error)))
+	if (!TestTrue(TEXT("Sample translated rotated box"), Grid->ReplaceDensityFromSampler(*Box, FVector(Grid->CellCount) * Grid->CellSize, BoxTransform, Error)))
 		return false;
 	// Change samples on both sides of a density-chunk boundary near the top rim.
 	FDualContourEditContext Edit(*Grid);
@@ -161,7 +161,7 @@ bool FDualContourQEFSphereTest::RunTest(const FString& Parameters)
 	TStrongObjectPtr<UDualContour> Grid(NewObject<UDualContour>());
 	TStrongObjectPtr<USphereVolumeSampler> Sphere(NewObject<USphereVolumeSampler>());
 	FText Error;
-	if (!TestTrue(TEXT("Sample smooth sphere"), Grid->ApplySampler(*Sphere, FVector(Grid->CellCount) * Grid->CellSize, FTransform(FVector(320)), Error)))
+	if (!TestTrue(TEXT("Sample smooth sphere"), Grid->ReplaceDensityFromSampler(*Sphere, FVector(Grid->CellCount) * Grid->CellSize, FTransform(FVector(320)), Error)))
 		return false;
 	FDualContourMeshData Mesh;
 	FDualContourMeshBuilder::Build(*Grid, FIntVector::ZeroValue, Grid->CellCount, Mesh);
@@ -195,7 +195,7 @@ bool FDualContourCoarseStampTest::RunTest(const FString& Parameters)
 		// Procedural shape dimensions are normalized to the explicit 1600-unit sampling volume.
 		Ground->HalfExtents = bDifference ? FVector(600.0 / 1600.0) : FVector(600.0 / 1600.0, 600.0 / 1600.0, 200.0 / 1600.0);
 		FText Error;
-		TestTrue(TEXT("Build underlying terrain volume"), Grid->ApplySampler(*Ground, FVector(1600),
+		TestTrue(TEXT("Build underlying terrain volume"), Grid->ReplaceDensityFromSampler(*Ground, FVector(1600),
 			FTransform(FVector(1600, 1600, bDifference ? 1600 : 1300)), Error));
 		TStrongObjectPtr<UBoxVolumeSampler> Box(NewObject<UBoxVolumeSampler>());
 		const FQuat Rotation = FRotator(PlacementCase == 2 ? 15 : 0, 45, PlacementCase == 2 ? 8 : 0).Quaternion();
@@ -280,7 +280,7 @@ bool FDualContourCylDiagTest::RunTest(const FString& Parameters)
 		TStrongObjectPtr<UCylinderVolumeSampler> Cyl(NewObject<UCylinderVolumeSampler>());
 		const FVector Center(0.5 * N * CellSize);
 		FText Error;
-	Grid->ApplySampler(*Cyl, FVector(N * CellSize), FTransform(FVector(N * CellSize * 0.5f)), Error);
+	Grid->ReplaceDensityFromSampler(*Cyl, FVector(N * CellSize), FTransform(FVector(N * CellSize * 0.5f)), Error);
 		const double R = Cyl->Radius, Half = Cyl->HalfHeight;
 		const int32 TopLayer = FMath::FloorToInt((Center.Z + Half) / CellSize);
 		double MaxRim = 0.0, SumRim = 0.0;
