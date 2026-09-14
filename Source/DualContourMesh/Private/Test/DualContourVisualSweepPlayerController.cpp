@@ -51,8 +51,8 @@ TAutoConsoleVariable<int32> CVarDualContourVisualTestNoiseSeed(
 	TEXT("Seed assigned to the visual-test noise sampler."), ECVF_Default);
 
 TAutoConsoleVariable<float> CVarDualContourVisualTestNoiseFrequency(
-	TEXT("dc.VisualTest.NoiseFrequency"), 0.001f,
-	TEXT("Frequency assigned to the visual-test noise sampler."), ECVF_Default);
+	TEXT("dc.VisualTest.NoiseFrequency"), 8.0f,
+	TEXT("Frequency assigned to the visual-test noise sampler (noise features across the normalized volume)."), ECVF_Default);
 
 TAutoConsoleVariable<int32> CVarDualContourVisualTestNoiseOctaves(
 	TEXT("dc.VisualTest.NoiseOctaves"), 3,
@@ -71,8 +71,8 @@ TAutoConsoleVariable<float> CVarDualContourVisualTestHeightOffset(
 	TEXT("Height offset assigned to the visual-test noise sampler."), ECVF_Default);
 
 TAutoConsoleVariable<float> CVarDualContourVisualTestHeightAmplitude(
-	TEXT("dc.VisualTest.HeightAmplitude"), 128.0f,
-	TEXT("Height amplitude assigned to the visual-test noise sampler."), ECVF_Default);
+	TEXT("dc.VisualTest.HeightAmplitude"), 0.05f,
+	TEXT("Height amplitude assigned to the visual-test noise sampler (normalized; volume spans -0.5..0.5)."), ECVF_Default);
 
 TAutoConsoleVariable<float> CVarDualContourVisualTestSettleSeconds(
 	TEXT("dc.VisualTest.SettleSeconds"), 1.0f,
