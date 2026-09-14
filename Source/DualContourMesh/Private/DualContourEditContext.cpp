@@ -199,10 +199,10 @@ bool FDualContourEditContext::ApplyDensityInternal(EDualContourDensityOperation 
 		switch (Operation)
 		{
 			case EDualContourDensityOperation::Add:
-				Value = Before + GDualContourMaxLinearDensity;
+				Value = Before + Target->CellSize * GDualContourLinearDensityFixedPointScale;
 				break;
 			case EDualContourDensityOperation::Subtract:
-				Value = Before - GDualContourMaxLinearDensity;
+				Value = Before - Target->CellSize * GDualContourLinearDensityFixedPointScale;
 				break;
 			case EDualContourDensityOperation::Union:
 				Value = FMath::Max(Before, Value);

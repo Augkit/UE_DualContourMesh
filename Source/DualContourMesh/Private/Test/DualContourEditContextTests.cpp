@@ -124,6 +124,40 @@ bool FDualContourFieldSamplerTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualContourSculptDensityUnitsTest, "DualContour.EditContext.SculptDensityUnits",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FDualContourSculptDensityUnitsTest::RunTest(const FString& Parameters)
+{
+	for (const float CellSize : {1.0f, 10.0f, 25.0f})
+	{
+		TStrongObjectPtr<UDualContour> Grid(NewObject<UDualContour>());
+		Grid->CellCount = FIntVector(8);
+		Grid->CellSize = CellSize;
+		if (!TestTrue(TEXT("Initialize sculpt grid"), Grid->Rebuild()))
+			return false;
+		TStrongObjectPtr<UDualContourShapeVolumeSampler> Shape(NewObject<UDualContourShapeVolumeSampler>());
+		Shape->TargetLocalCenter = FVector(4.0f * CellSize);
+		Shape->Radius = 2.0f * CellSize;
+		Shape->Falloff = 0.0f;
+		FDualContourEditContext Edit(*Grid);
+		const FIntVector Center(4);
+		Edit.SetDensity(Center, 0.0f);
+		constexpr float Strength = 0.3f;
+		const float ExpectedDelta = Strength * CellSize * GDualContourLinearDensityFixedPointScale;
+		if (!TestTrue(TEXT("Sculpt adds density"), Edit.ApplyDensity(EDualContourDensityOperation::Add, *Shape,
+			FVector(4.0f * CellSize), Strength)))
+			return false;
+		TestTrue(TEXT("Sculpt strength scales with cell size"),
+			FMath::IsNearlyEqual(Edit.GetDensity(Center), ExpectedDelta, 0.01f));
+		TestTrue(TEXT("Sculpt subtracts density"), Edit.ApplyDensity(EDualContourDensityOperation::Subtract, *Shape,
+			FVector(4.0f * CellSize), Strength));
+		TestTrue(TEXT("Subtract reverses sculpt at the same strength"),
+			FMath::IsNearlyZero(Edit.GetDensity(Center), 0.01f));
+	}
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualContourPendingBatchEditTest, "DualContour.EditContext.PendingBatch",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
