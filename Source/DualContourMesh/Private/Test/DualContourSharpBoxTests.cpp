@@ -192,7 +192,8 @@ bool FDualContourCoarseStampTest::RunTest(const FString& Parameters)
 		Grid->CellCount = FIntVector(128);
 		Grid->CellSize = 25.0f;
 		TStrongObjectPtr<UBoxVolumeSampler> Ground(NewObject<UBoxVolumeSampler>());
-		Ground->HalfExtents = bDifference ? FVector(600) : FVector(600, 600, 200);
+		// Procedural shape dimensions are normalized to the explicit 1600-unit sampling volume.
+		Ground->HalfExtents = bDifference ? FVector(600.0 / 1600.0) : FVector(600.0 / 1600.0, 600.0 / 1600.0, 200.0 / 1600.0);
 		FText Error;
 		TestTrue(TEXT("Build underlying terrain volume"), Grid->ApplySampler(*Ground, FVector(1600),
 			FTransform(FVector(1600, 1600, bDifference ? 1600 : 1300)), Error));

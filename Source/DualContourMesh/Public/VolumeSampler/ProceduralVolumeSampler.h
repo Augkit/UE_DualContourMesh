@@ -19,7 +19,7 @@ class DUALCONTOURMESH_API UProceduralVolumeSampler : public UVolumeSampler
 public:
 	virtual bool Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement, float& Value, float& Weight) const override;
 
-	/** Density units generated per normalized signed-distance unit. */
+	/** Density units generated per target-local signed-distance unit. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volume", meta = (ClampMin = "0.0001"))
 	float DensityScale = 16.0f;
 
@@ -28,7 +28,8 @@ public:
 	float DensityBias = 0.0f;
 
 	/**
-	 * Returns the normalized signed distance to the surface at a centered sampler-local position.
+	 * Returns signed distance in normalized sampler coordinates at a centered sampler-local position.
+	 * Sample converts that distance to target-local length units before density encoding.
 	 * Negative values are inside the solid, zero is on the surface, and positive values are outside.
 	 */
 	UFUNCTION(BlueprintNativeEvent, BlueprintPure, Category = "Volume Sampling|Procedural")

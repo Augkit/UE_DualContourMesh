@@ -41,8 +41,12 @@ bool UProceduralVolumeSampler::Sample(const FVector& TargetLocalPosition, const 
 	const float SignedDistance = GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint)
 		                             ? GetSignedDistance(CenteredLocalPosition)
 		                             : GetSignedDistance_Implementation(CenteredLocalPosition);
+	// Shape parameters are normalized, but the density field must retain a distance
+	// slope in target-local units. Without this conversion a 400-unit brush weakens
+	// the SDF gradient by 400x relative to pre-normalization terrain assets.
+	const double DistanceUnit = Placement.SamplingVolumeSize.GetMin();
 	Value = FMath::IsFinite(SignedDistance)
-		        ? (DensityBias - SignedDistance * DensityScale) * GDualContourLinearDensityFixedPointScale
+		        ? (DensityBias - SignedDistance * DistanceUnit * DensityScale) * GDualContourLinearDensityFixedPointScale
 		        : 0.0f;
 	if (Placement.MaxTargetDensitySlope > 0.0f)
 	{
@@ -53,7 +57,7 @@ bool UProceduralVolumeSampler::Sample(const FVector& TargetLocalPosition, const 
 			Placement.TargetToSamplerNormalizedMatrix.TransformVector(FVector::ForwardVector).SizeSquared()
 			+ Placement.TargetToSamplerNormalizedMatrix.TransformVector(FVector::RightVector).SizeSquared()
 			+ Placement.TargetToSamplerNormalizedMatrix.TransformVector(FVector::UpVector).SizeSquared());
-		const double SlopeBound = DensityScale * GDualContourLinearDensityFixedPointScale * TransformBound;
+		const double SlopeBound = DistanceUnit * DensityScale * GDualContourLinearDensityFixedPointScale * TransformBound;
 		if (SlopeBound > Placement.MaxTargetDensitySlope)
 			Value *= Placement.MaxTargetDensitySlope / SlopeBound;
 	}

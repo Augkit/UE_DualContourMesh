@@ -29,6 +29,7 @@ FVolumeSamplerPlacement UVolumeSampler::MakePlacement(const FVector& SamplingVol
 {
 	FVolumeSamplerPlacement Placement;
 	Placement.MaxTargetDensitySlope = MaxTargetDensitySlope;
+	Placement.SamplingVolumeSize = SamplingVolumeSize;
 	const FVector PivotPosition = Pivot * SamplingVolumeSize;
 	// The normalized volume is converted to target-local units before the placement transform.
 	// Sampling then needs only one target-local -> normalized affine per sample.

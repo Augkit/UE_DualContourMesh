@@ -5,6 +5,7 @@
 #include "Engine/VolumeTexture.h"
 #include "Misc/AutomationTest.h"
 #include "UObject/StrongObjectPtr.h"
+#include "VolumeSampler/ProceduralVolumeSampler.h"
 #include "VolumeSampler/TextureSDFSampler.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -103,6 +104,52 @@ bool FDualContourMountainTest::RunTest(const FString& Parameters)
 			TestTrue(TEXT("Local stamp and full rebuild positions agree"), Mesh.Positions == Rebuilt.Positions);
 			TestTrue(TEXT("Local stamp and full rebuild triangulation agree"), Mesh.Indices == Rebuilt.Indices);
 		}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualContourNoiseBoxStampUnitsTest, "DualContour.Geometry.NoiseBoxStampUnits",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FDualContourNoiseBoxStampUnitsTest::RunTest(const FString& Parameters)
+{
+	const UDualContour* Noise = LoadObject<UDualContour>(nullptr, TEXT("/Game/NoiseVS.NoiseVS"));
+	if (!Noise)
+	{
+		AddWarning(TEXT("Project fixture /Game/NoiseVS is unavailable; box stamp test skipped."));
+		return true;
+	}
+	if (!TestEqual(TEXT("NoiseVS cell count"), Noise->CellCount, FIntVector(128))
+	    || !TestEqual(TEXT("NoiseVS cell size"), Noise->CellSize, 10.0f))
+		return false;
+	const int32 X = 64, Y = 64;
+	int32 SurfaceZ = INDEX_NONE;
+	for (int32 Z = 1; Z < Noise->CellCount.Z; ++Z)
+		if (Noise->GetLinearDensity(X, Y, Z - 1) >= 0 && Noise->GetLinearDensity(X, Y, Z) < 0)
+		{
+			SurfaceZ = Z;
+			break;
+		}
+	if (!TestTrue(TEXT("NoiseVS surface found at stamp center"), SurfaceZ != INDEX_NONE))
+		return false;
+	const double TerrainSlope = FMath::Abs(Noise->GetLinearDensity(X, Y, SurfaceZ)
+		- Noise->GetLinearDensity(X, Y, SurfaceZ - 1)) / Noise->CellSize;
+	TStrongObjectPtr<UBoxVolumeSampler> Box(NewObject<UBoxVolumeSampler>());
+	FText Error;
+	if (!TestTrue(TEXT("Prepare box sampler"), static_cast<UVolumeSampler*>(Box.Get())->Prepare(Error)))
+		return false;
+	const FVector Center(640, 640, SurfaceZ * 10.0 + 100.0);
+	const FTransform Transform(Center);
+	const FVolumeSamplerPlacement Placement = Box->MakePlacement(FVector(400), &Transform,
+		GDualContourMaxLinearDensity / (4.0f * Noise->CellSize));
+	float Inside = 0, Outside = 0, Weight = 0;
+	if (!TestTrue(TEXT("Sample box inside side wall"), Box->Sample(Center + FVector(155, 0, 0), Placement, Inside, Weight))
+	    || !TestTrue(TEXT("Sample box outside side wall"), Box->Sample(Center + FVector(165, 0, 0), Placement, Outside, Weight)))
+		return false;
+	Box->Finish();
+	const double BoxSlope = (Inside - Outside) / Noise->CellSize;
+	AddInfo(FString::Printf(TEXT("NoiseVS/Box stamp slopes: terrain=%.3f box=%.3f encoded units/cm"), TerrainSlope, BoxSlope));
+	TestTrue(TEXT("Stamped box and baked noise terrain use comparable density units"),
+		TerrainSlope > 0 && BoxSlope > TerrainSlope * 0.25 && BoxSlope < TerrainSlope * 4.0);
 	return true;
 }
 

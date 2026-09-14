@@ -189,4 +189,35 @@ bool FDualContourUnifiedVolumeTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualContourProceduralDistanceUnitsTest, "DualContour.EditContext.ProceduralDistanceUnits",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FDualContourProceduralDistanceUnitsTest::RunTest(const FString& Parameters)
+{
+	TStrongObjectPtr<USphereVolumeSampler> Sphere(NewObject<USphereVolumeSampler>());
+	Sphere->Radius = 0.25f;
+	FText Error;
+	if (!TestTrue(TEXT("Prepare procedural SDF"), static_cast<UVolumeSampler*>(Sphere.Get())->Prepare(Error)))
+		return false;
+	for (const double Size : {400.0, 640.0})
+	{
+		const FTransform Transform{FVector(Size)};
+		for (const float SlopeLimit : {0.0f, GDualContourMaxLinearDensity / 40.0f})
+		{
+			const FVolumeSamplerPlacement Placement = Sphere->MakePlacement(FVector(Size), &Transform, SlopeLimit);
+			float Inside = 0, Surface = 0, Weight = 0;
+			if (!TestTrue(TEXT("Sample inside sphere"), Sphere->Sample(FVector(Size * 1.24, Size, Size), Placement, Inside, Weight))
+			    || !TestTrue(TEXT("Sample sphere surface"), Sphere->Sample(FVector(Size * 1.25, Size, Size), Placement, Surface, Weight)))
+				return false;
+			const double ActualSlope = (Inside - Surface) / (Size * 0.01);
+			const double UncappedSlope = Sphere->DensityScale * GDualContourLinearDensityFixedPointScale;
+			const double SlopeBound = UncappedSlope * FMath::Sqrt(3.0);
+			const double ExpectedSlope = SlopeLimit > 0 ? UncappedSlope * FMath::Min(1.0, SlopeLimit / SlopeBound) : UncappedSlope;
+			TestTrue(TEXT("Procedural density slope remains in target-local units"), FMath::Abs(ActualSlope - ExpectedSlope) < 0.1);
+		}
+	}
+	Sphere->Finish();
+	return true;
+}
+
 #endif

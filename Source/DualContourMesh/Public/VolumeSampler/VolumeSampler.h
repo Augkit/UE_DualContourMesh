@@ -16,6 +16,7 @@ DECLARE_MULTICAST_DELEGATE(FOnVolumeSamplerPropertyChanged);
 struct FVolumeSamplerPlacement
 {
 	FMatrix TargetToSamplerNormalizedMatrix = FMatrix::Identity;
+	FVector SamplingVolumeSize = FVector::OneVector;
 	/** Optional encoded-density slope limit supplied by the destination grid. Zero keeps authored density units. */
 	float MaxTargetDensitySlope = 0.0f;
 };
