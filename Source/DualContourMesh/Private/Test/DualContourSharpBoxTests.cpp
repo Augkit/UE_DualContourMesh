@@ -18,7 +18,6 @@ bool FDualContourSharpBoxTest::RunTest(const FString& Parameters)
 		for (const FVector Offset : {FVector::ZeroVector, FVector(2.3, -1.7, 0.6)})
 		{
 			TStrongObjectPtr<UDualContour> Grid(NewObject<UDualContour>());
-			Grid->VertexRelaxation = 0.0f;
 			TStrongObjectPtr<UBoxVolumeSampler> Box(NewObject<UBoxVolumeSampler>());
 			const FTransform BoxTransform(FRotator(0, Yaw, 0), FVector(320) + Offset);
 			const FVector Center = FVector(320) + Offset;
@@ -99,7 +98,6 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualContourQEFDivisionTest, "DualContour.Geome
 bool FDualContourQEFDivisionTest::RunTest(const FString& Parameters)
 {
 	TStrongObjectPtr<UDualContour> Grid(NewObject<UDualContour>());
-	Grid->VertexRelaxation = 0.0f;
 	TStrongObjectPtr<UBoxVolumeSampler> Box(NewObject<UBoxVolumeSampler>());
 	const FTransform BoxTransform(FRotator(0, 45, 0), FVector(322.3, 318.3, 320.6));
 	FText Error;
@@ -161,7 +159,6 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualContourQEFSphereTest, "DualContour.Geometr
 bool FDualContourQEFSphereTest::RunTest(const FString& Parameters)
 {
 	TStrongObjectPtr<UDualContour> Grid(NewObject<UDualContour>());
-	Grid->VertexRelaxation = 0.0f;
 	TStrongObjectPtr<USphereVolumeSampler> Sphere(NewObject<USphereVolumeSampler>());
 	FText Error;
 	if (!TestTrue(TEXT("Sample smooth sphere"), Grid->ApplySampler(*Sphere, FVector(Grid->CellCount) * Grid->CellSize, FTransform(FVector(320)), Error)))
@@ -241,12 +238,11 @@ bool FDualContourCoarseStampTest::RunTest(const FString& Parameters)
 			double M[3][3] = {}, R[3] = {};
 			int32 N = 0;
 			FVector Normal;
-			bool bSharp = false;
-			const bool bFit = DualContourPlaneFit::Fit(*Grid, C, M, R, N, Normal, bSharp);
+			const bool bFit = DualContourPlaneFit::Fit(*Grid, C, M, R, N, Normal);
 			AddInfo(FString::Printf(TEXT("Worst cell=%s position=%s fit=%d count=%d normal=%s rhs=(%.5f,%.5f,%.5f)"),
 				*C.ToString(), *WorstPosition.ToString(), bFit, N, *Normal.ToString(), R[0], R[1], R[2]));
 		}
-		// Preserve recovered features even after a full rebuild with default relaxation.
+		// Preserve recovered features after a full rebuild.
 		Grid->Rebuild();
 		FDualContourMeshData Rebuilt;
 		FDualContourMeshBuilder::Build(*Grid, FIntVector::ZeroValue, Grid->CellCount, Rebuilt);
@@ -260,7 +256,7 @@ bool FDualContourCoarseStampTest::RunTest(const FString& Parameters)
 			RebuiltMaxError = FMath::Max(RebuiltMaxError, double(FMath::Abs(Box->GetSignedDistance_Implementation(P / 640.0))));
 		}
 		AddInfo(FString::Printf(TEXT("CoarseStamp Placement=%d Difference=%d RebuiltMaxError=%.6f"), PlacementCase, bDifference, RebuiltMaxError));
-		TestTrue(TEXT("Default relaxation preserves recovered coarse faces"), RebuiltMaxError < 0.1);
+		TestTrue(TEXT("Full rebuild preserves recovered coarse faces"), RebuiltMaxError < 0.1);
 		TestEqual(TEXT("Target resolution preserved"), Grid->CellCount, FIntVector(128));
 		TestEqual(TEXT("Target cell size preserved"), Grid->CellSize, 25.0f);
 	}
@@ -280,7 +276,6 @@ bool FDualContourCylDiagTest::RunTest(const FString& Parameters)
 		const int32 N = CellSize == 10.0f ? 64 : 128;
 		Grid->CellCount = FIntVector(N);
 		Grid->CellSize = CellSize;
-		Grid->VertexRelaxation = 0.0f;
 		TStrongObjectPtr<UCylinderVolumeSampler> Cyl(NewObject<UCylinderVolumeSampler>());
 		const FVector Center(0.5 * N * CellSize);
 		FText Error;

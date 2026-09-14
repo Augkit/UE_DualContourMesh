@@ -25,7 +25,6 @@ bool FDualContourMountainTest::RunTest(const FString& Parameters)
 			TStrongObjectPtr<UDualContour> Grid(NewObject<UDualContour>());
 			Grid->CellCount = FIntVector(128);
 			Grid->CellSize = 10.0f;
-			Grid->VertexRelaxation = 0.0f; // Isolate the local stamp solve from full-grid smoothing.
 			Grid->Rebuild();
 			TStrongObjectPtr<UTex3DSDFSampler> Sampler(NewObject<UTex3DSDFSampler>());
 			Sampler->Texture = Texture.Get();
@@ -103,10 +102,6 @@ bool FDualContourMountainTest::RunTest(const FString& Parameters)
 			FDualContourMeshBuilder::Build(*Grid, FIntVector::ZeroValue, Grid->CellCount, Rebuilt);
 			TestTrue(TEXT("Local stamp and full rebuild positions agree"), Mesh.Positions == Rebuilt.Positions);
 			TestTrue(TEXT("Local stamp and full rebuild triangulation agree"), Mesh.Indices == Rebuilt.Indices);
-			Grid->VertexRelaxation = GetDefault<UDualContour>()->VertexRelaxation;
-			Grid->Rebuild();
-			FDualContourMeshBuilder::Build(*Grid, FIntVector::ZeroValue, Grid->CellCount, Rebuilt);
-			Measure(Rebuilt, TEXT("DefaultRelaxation"));
 		}
 	return true;
 }

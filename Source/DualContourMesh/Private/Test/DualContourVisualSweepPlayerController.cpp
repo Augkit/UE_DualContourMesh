@@ -273,8 +273,8 @@ void ADualContourVisualSweepPlayerController::RunDualContourVisualSweep()
 			MeshActor->InitialDualContour = LoadObject<UDualContour>(nullptr, TEXT("/Game/NoiseVS.NoiseVS"));
 			if (!MeshActor->InitialDualContour) { FinishVisualSweep(false); return; }
 			MeshActor->ResetDualContour();
-			UE_LOG(LogDualContourVisualSweep, Display, TEXT("NoiseVS initial: Cells=%s Size=%g Relaxation=%g"),
-				*MeshActor->DualContour->CellCount.ToString(), MeshActor->DualContour->CellSize, MeshActor->DualContour->VertexRelaxation);
+			UE_LOG(LogDualContourVisualSweep, Display, TEXT("NoiseVS initial: Cells=%s Size=%g"),
+				*MeshActor->DualContour->CellCount.ToString(), MeshActor->DualContour->CellSize);
 		}
 		else
 		{
@@ -358,15 +358,12 @@ void ADualContourVisualSweepPlayerController::RunDualContourVisualSweep()
 		}
 	}
 
-	const UDualContour* SweepDualContour = VisualSweepSubjects.IsEmpty() ? nullptr : VisualSweepSubjects[0]->DualContour;
 	FString Manifest = FString::Printf(
-		TEXT("Engine=%s\nResolution=%d\nCellSize=%.6g\nLinearDensityScale=%.6g\nNoiseDimension=HeightField2D\nNoiseSeed=%d\nNoiseFrequency=%.9g\nNoiseType=OpenSimplex2S\nNoiseRotation3D=ImproveXZPlanes\nFractalType=FBm\nNoiseOctaves=%d\nNoiseLacunarity=%.6g\nNoiseGain=%.6g\nHeightOffset=%.6g\nHeightAmplitude=%.6g\nVertexPosition=Power4HermiteIntersectionCentroid\nNormal=CenterCentralDifference\nGradientStep=0.125\nDensityStorage=BiasedSignedUInt16\nEncodedIsoValue=32768\nFixedPointScale=64\nVertexRelaxation=%.6g\nRelaxationNormalCosine=%.6g\nMeshNormal=PositionWeldedAreaWeighted\nMeshNormalBlend=0.25\nMaterial=/Game/M_Normal.M_Normal\nMaterialPurpose=NormalVisualization\nWireframeOverlay=%s\nViews=%s\nExposureMode=Manual\nExposureBias=0\nKeyLightIntensity=%s\nShadowBias=%s\nSkyLightIntensity=%s\nCastShadows=%s\n"),
+		TEXT("Engine=%s\nResolution=%d\nCellSize=%.6g\nLinearDensityScale=%.6g\nNoiseDimension=HeightField2D\nNoiseSeed=%d\nNoiseFrequency=%.9g\nNoiseType=OpenSimplex2S\nNoiseRotation3D=ImproveXZPlanes\nFractalType=FBm\nNoiseOctaves=%d\nNoiseLacunarity=%.6g\nNoiseGain=%.6g\nHeightOffset=%.6g\nHeightAmplitude=%.6g\nVertexPosition=Power4HermiteIntersectionCentroid\nNormal=CenterCentralDifference\nGradientStep=0.125\nDensityStorage=BiasedSignedUInt16\nEncodedIsoValue=32768\nFixedPointScale=64\nMeshNormal=PositionWeldedAreaWeighted\nMeshNormalBlend=0.25\nMaterial=/Game/M_Normal.M_Normal\nMaterialPurpose=NormalVisualization\nWireframeOverlay=%s\nViews=%s\nExposureMode=Manual\nExposureBias=0\nKeyLightIntensity=%s\nShadowBias=%s\nSkyLightIntensity=%s\nCastShadows=%s\n"),
 		*FEngineVersion::Current().ToString(), Resolution, CellSize,
 		LinearDensityScale,
 		Sampler->Seed, Sampler->Frequency, Sampler->Octaves, Sampler->Lacunarity, Sampler->Gain,
 		Sampler->HeightOffset, Sampler->HeightAmplitude,
-		SweepDualContour ? SweepDualContour->VertexRelaxation : 0.0f,
-		SweepDualContour ? SweepDualContour->RelaxationNormalCosine : 0.0f,
 		*ReadConsoleVariable(TEXT("dc.VisualTest.WireframeOverlay")),
 		*CapturedViewNames,
 		*ReadConsoleVariable(TEXT("dc.VisualTest.KeyLightIntensity")),

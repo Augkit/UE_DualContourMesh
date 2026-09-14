@@ -47,9 +47,6 @@ struct DUALCONTOURMESH_API FDualContourCell
 
 	UPROPERTY(BlueprintReadOnly)
 	FVector Normal = FVector::UpVector;
-
-	/** Derived feature classification; prevents relaxation from bending recovered creases. */
-	bool bSharpFeature = false;
 };
 
 // Sparse density chunk. Empty DensitySamples means the whole chunk has UniformValue.

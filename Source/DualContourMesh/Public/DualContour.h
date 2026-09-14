@@ -25,14 +25,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour")
 	float CellSize = 10.f;
 
-	/** Tangent-plane smoothing strength. Set to zero to disable the relaxation pass. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Relaxation", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float VertexRelaxation = 0.25f;
-
-	/** Minimum normal dot product required for neighbouring cells to smooth each other. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Relaxation", meta = (ClampMin = "-1.0", ClampMax = "1.0"))
-	float RelaxationNormalCosine = 0.5f;
-
 	/** UV projection used by generated mesh components. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|UV")
 	EDualContourUVMode UVMode = EDualContourUVMode::WorldAlignedBox;

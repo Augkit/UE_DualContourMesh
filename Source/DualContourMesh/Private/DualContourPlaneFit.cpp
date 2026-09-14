@@ -37,7 +37,7 @@ bool IsUnsaturated(double D)
 }
 
 bool Fit(const UDualContour& Grid, FIntVector Cell, double Matrix[3][3], double RHS[3],
-	int32& ConstraintCount, FVector& OutNormal, bool& bOutSharpFeature)
+		int32& ConstraintCount, FVector& OutNormal)
 {
 	const auto Read = [&Grid](FIntVector P) { return double(Grid.GetLinearDensity(P.X, P.Y, P.Z)); };
 	double CellDensities[8];
@@ -224,7 +224,6 @@ bool Fit(const UDualContour& Grid, FIntVector Cell, double Matrix[3][3], double 
 		FMemory::Memcpy(RHS, NewRHS, sizeof(NewRHS));
 		ConstraintCount = Count;
 		OutNormal = NormalSum.GetSafeNormal();
-		bOutSharpFeature = bSharp;
 		return true;
 	}
 	return false;

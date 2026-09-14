@@ -158,9 +158,7 @@ void UDualContour::PostEditChangeProperty(FPropertyChangedEvent& PropertyChanged
 		                                 ? PropertyChangedEvent.MemberProperty->GetFName()
 		                                 : NAME_None;
 	if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, CellCount)
-	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, CellSize)
-	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, VertexRelaxation)
-	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, RelaxationNormalCosine))
+	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, CellSize))
 	{
 		bRebuildRequired = true;
 	}
@@ -345,8 +343,6 @@ bool UDualContour::CopyFrom(const UDualContour* Source, bool bBroadcastCellsRebu
 	Modify();
 	CellCount = Source->CellCount;
 	CellSize = Source->CellSize;
-	VertexRelaxation = Source->VertexRelaxation;
-	RelaxationNormalCosine = Source->RelaxationNormalCosine;
 	UVMode = Source->UVMode;
 	UVWorldSize = Source->UVWorldSize;
 	bRebuildRequired = Source->bRebuildRequired;
@@ -875,7 +871,7 @@ FDualContourCell UDualContour::CreateNewCell(int32 CellX, int32 CellY, int32 Cel
 		QEFMassPoint /= NumIntersections;
 		FVector PlaneNormal = FVector::ZeroVector;
 		const bool bPlanar = DualContourPlaneFit::Fit(*this, FIntVector(CellX, CellY, CellZ),
-			Matrix, Vector, NumIntersections, PlaneNormal, Cell.bSharpFeature);
+			Matrix, Vector, NumIntersections, PlaneNormal);
 		// Nearly parallel, quantized Hermite normals must not amplify a weak
 		// tangential constraint into a jump to the cell boundary. Regularize about
 		// the edge-intersection centroid in cell units, normalized by sample count.
@@ -1001,49 +997,6 @@ void UDualContour::RebuildCellsInRangeInternal(FIntVector RangeMin, FIntVector R
 		}
 	}
 
-	const float Relaxation = FMath::Clamp(VertexRelaxation, 0.0f, 1.0f);
-	if (Relaxation > 0.0f && RangeMin.X == 0 && RangeMin.Y == 0 && RangeMin.Z == 0
-	    && RangeMax.X == CellCount.X && RangeMax.Y == CellCount.Y && RangeMax.Z == CellCount.Z)
-	{
-		TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_RelaxeCellChunks);
-		const float MinimumNormalCosine = FMath::Clamp(RelaxationNormalCosine, -1.0f, 1.0f);
-		TMap<FIntVector, FVector> RelaxedCenters;
-		for (const TPair<FIntVector, FCellChunk>& ChunkPair : CellChunks)
-		{
-			const FIntVector ChunkOrigin = DualContourUtils::ChunkOrigin(ChunkPair.Key);
-			for (const TPair<uint16, FDualContourCell>& CellPair : ChunkPair.Value.ActiveCells)
-			{
-				const FIntVector CellCoord = ChunkOrigin + DualContourUtils::ChunkLocalCoord(CellPair.Key);
-				if (CellPair.Value.bSharpFeature)
-					continue;
-				FVector Sum = FVector::ZeroVector;
-				int32 Count = 0;
-				for (const FIntVector& Offset : {FIntVector(1, 0, 0), FIntVector(-1, 0, 0), FIntVector(0, 1, 0),
-				                                 FIntVector(0, -1, 0), FIntVector(0, 0, 1), FIntVector(0, 0, -1)})
-				{
-					if (const FDualContourCell* Neighbor = GetCell(CellCoord.X + Offset.X, CellCoord.Y + Offset.Y, CellCoord.Z + Offset.Z))
-					{
-						if (FVector::DotProduct(CellPair.Value.Normal, Neighbor->Normal) < MinimumNormalCosine)
-							continue;
-						Sum += Neighbor->Center;
-						++Count;
-					}
-				}
-				if (Count > 0)
-				{
-					// Relaxing in 3D shrinks the surface and pulls vertices across cap/wall features.
-					// Keep only the displacement tangent to this cell's Hermite normal so the pass
-					// smooths neighbouring cells without moving the surface along its normal.
-					FVector Delta = Sum / Count - CellPair.Value.Center;
-					Delta -= CellPair.Value.Normal * FVector::DotProduct(Delta, CellPair.Value.Normal);
-					RelaxedCenters.Add(CellCoord, CellPair.Value.Center + Delta * Relaxation);
-				}
-			}
-		}
-		for (const TPair<FIntVector, FVector>& Pair : RelaxedCenters)
-			if (FDualContourCell* Cell = const_cast<FDualContourCell*>(GetCell(Pair.Key.X, Pair.Key.Y, Pair.Key.Z)))
-				Cell->Center = Pair.Value;
-	}
 	if (bBroadcastCellsRebuilt && RangeMin.X < RangeMax.X && RangeMin.Y < RangeMax.Y && RangeMin.Z < RangeMax.Z)
 	{
 		if (IsInGameThread())
