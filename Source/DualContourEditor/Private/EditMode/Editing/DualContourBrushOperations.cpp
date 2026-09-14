@@ -15,7 +15,7 @@ TStrongObjectPtr<UDualContourShapeVolumeSampler> MakeShapeSampler(const FDualCon
 	auto& Sampler = *SamplerOwner;
 	Sampler.TargetLocalCenter = Stamp.TargetLocalCenter;
 	Sampler.TargetLocalNormal = Stamp.TargetLocalNormal;
-	Sampler.Radius = Stamp.Radius;
+	Sampler.Radius = Stamp.BrushSize * 0.5f;
 	Sampler.Falloff = Stamp.Falloff;
 	Sampler.FalloffType = static_cast<EDualContourEditFalloff>(Stamp.FalloffType);
 	Sampler.bBox = Stamp.Shape == EDualContourBrushShape::Box;

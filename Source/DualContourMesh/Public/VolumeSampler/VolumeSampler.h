@@ -37,8 +37,7 @@ public:
 	 * Pass nullptr when no outer placement transform is needed.
 	 * MaxTargetDensitySlope is an optional target-grid density-gradient limit; zero disables it.
 	 */
-	FVolumeSamplerPlacement MakePlacement(const FVector& SamplingVolumeSize,
-		const FTransform* SamplerPivotTransform,
+	FVolumeSamplerPlacement MakePlacement(const FVector& SamplingVolumeSize, const FTransform* SamplerPivotTransform,
 		float MaxTargetDensitySlope = 0.0f) const;
 
 	/**

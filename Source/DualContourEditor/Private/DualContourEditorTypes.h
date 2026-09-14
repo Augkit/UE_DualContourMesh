@@ -45,7 +45,6 @@ struct DUALCONTOUREDITOR_API FDualContourBrushStamp
 	FVector TargetLocalClayPlaneOrigin = FVector::ZeroVector;
 	FVector TargetLocalFlattenPlaneOrigin = FVector::ZeroVector;
 	FVector TargetLocalFlattenPlaneNormal = FVector::UpVector;
-	float Radius = 100.0f;
 	/** Local sampling volume size for this brush stamp. */
 	float BrushSize = 200.0f;
 	float Falloff = 0.5f;

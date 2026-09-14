@@ -45,11 +45,10 @@ bool UDualContourShapeVolumeSampler::Sample(const FVector& TargetLocalPosition, 
 		const FVector PlanarOffset = CenterToSample - BrushAxis * AxialDistance;
 		FVector PlanarAxisX, PlanarAxisY;
 		BrushAxis.FindBestAxisVectors(PlanarAxisX, PlanarAxisY);
-		Distance =
-			bBox
-				? FMath::Max(FMath::Abs(FVector::DotProduct(PlanarOffset, PlanarAxisX)),
-					FMath::Abs(FVector::DotProduct(PlanarOffset, PlanarAxisY)))
-				: PlanarOffset.Length();
+		Distance = bBox
+			           ? FMath::Max(FMath::Abs(FVector::DotProduct(PlanarOffset, PlanarAxisX)),
+				           FMath::Abs(FVector::DotProduct(PlanarOffset, PlanarAxisY)))
+			           : PlanarOffset.Length();
 		Weight = EvaluateFalloff(Distance / Radius, Falloff, FalloffType);
 		if (FMath::Abs(AxialDistance) > Radius * Weight)
 			return false;

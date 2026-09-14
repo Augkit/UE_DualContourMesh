@@ -488,7 +488,6 @@ FDualContourBrushStamp UDualContourBrushTool::MakeStamp(const FVector& WorldPosi
 	Stamp.TargetLocalFlattenPlaneNormal = TargetLocalFlattenPlaneNormal;
 	if (Settings->bUseClayBrush)
 		Stamp.TargetLocalNormal = TargetLocalClayPlaneNormal;
-	Stamp.Radius = Settings->BrushSize * 0.5f / FMath::Max(ActorScale, UE_SMALL_NUMBER);
 	Stamp.BrushSize = Settings->BrushSize / FMath::Max(ActorScale, UE_SMALL_NUMBER);
 	Stamp.Falloff = Settings->BrushFalloff;
 	Stamp.FalloffType = Settings->BrushFalloffType;
