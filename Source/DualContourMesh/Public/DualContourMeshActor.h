@@ -108,12 +108,12 @@ public:
 	 */
 	void ProcessPendingMeshUpdates();
 
-	/** Applies any volume sampler at a surface point; when supplied, the edit direction aligns the sampler's local +X axis. */
-	bool ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal, UVolumeSampler* Sampler, float UniformScale,
-		bool bExcavate, const FVector& WorldEditDirection = FVector::ZeroVector);
-	/** Applies a material ID through a sampler at a surface point, using the same optional edit-direction alignment. */
+	/** Applies a sampler with the supplied target-local volume size at a surface point. The optional edit direction aligns its local +X axis. */
+	bool ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal, UVolumeSampler* Sampler,
+		const FVector& SamplingVolumeSize, bool bExcavate, const FVector& WorldEditDirection = FVector::ZeroVector);
+	/** Applies a material ID through a sampler with the supplied target-local volume size at a surface point. */
 	bool ModifyMaterialWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal, UVolumeSampler* Sampler,
-		float UniformScale, uint8 MaterialId, const FVector& WorldEditDirection = FVector::ZeroVector);
+		const FVector& SamplingVolumeSize, uint8 MaterialId, const FVector& WorldEditDirection = FVector::ZeroVector);
 	/**
 	 * Marks an interactive density stroke as active. Collision cooking is deferred by default, but tools whose
 	 * hit position must follow the changing preview surface can request collision updates during the stroke.

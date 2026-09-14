@@ -28,6 +28,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour", meta = (ClampMin = "0.0001"))
 	float SamplerScale = 0.2f;
 
+	/** Local size of each sampler volume before SamplerScale is applied. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour", meta = (ClampMin = "0.0001"))
+	float SamplerSize = 640.0f;
+
 	/** Moves the ray hit position back toward the ray origin before applying the sampler, in Unreal units. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour", meta = (ClampMin = "0.0"))
 	float HitPositionRetreatDistance = 0.0f;

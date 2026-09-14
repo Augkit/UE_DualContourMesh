@@ -376,7 +376,8 @@ bool UDualContour::Rebuild()
 	return true;
 }
 
-bool UDualContour::ApplySampler(const UVolumeSampler& Sampler, const FTransform& SamplerToTargetTransform, FText& OutError)
+bool UDualContour::ApplySampler(const UVolumeSampler& Sampler, const FVector& SamplingVolumeSize, const FTransform& SamplerPivotTransform,
+	FText& OutError)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_ApplySampler);
 	check(IsInGameThread());
@@ -387,27 +388,32 @@ bool UDualContour::ApplySampler(const UVolumeSampler& Sampler, const FTransform&
 		OutError = NSLOCTEXT("VolumeSampler", "InvalidTarget", "The target DualContour grid settings are invalid.");
 		return false;
 	}
-	const FVector SamplerToTargetScale = SamplerToTargetTransform.GetScale3D();
-	if (SamplerToTargetTransform.ContainsNaN() || SamplerToTargetScale.GetAbs().GetMin() <= UE_SMALL_NUMBER)
+	if (SamplingVolumeSize.ContainsNaN() || SamplingVolumeSize.GetMin() <= UE_SMALL_NUMBER)
+	{
+		OutError = NSLOCTEXT("VolumeSampler", "InvalidSamplingVolumeSize", "SamplingVolumeSize must be positive on every axis.");
+		return false;
+	}
+	const FVector SamplerPivotScale = SamplerPivotTransform.GetScale3D();
+	if (SamplerPivotTransform.ContainsNaN() || SamplerPivotScale.GetAbs().GetMin() <= UE_SMALL_NUMBER)
 	{
 		OutError = NSLOCTEXT("VolumeSampler", "InvalidTransformScale",
-			"SamplerToTargetTransform scale must be non-zero on every axis.");
+			"SamplerPivotTransform scale must be non-zero on every axis.");
 		return false;
 	}
 	if (!Sampler.Prepare(OutError))
 		return false;
 	ON_SCOPE_EXIT { Sampler.Finish(); };
-	FVolumeSamplerPlacement Placement = Sampler.MakePlacement(&SamplerToTargetTransform, GDualContourMaxLinearDensity / (4.0f * CellSize));
+	FVolumeSamplerPlacement Placement =
+		Sampler.MakePlacement(SamplingVolumeSize, &SamplerPivotTransform, GDualContourMaxLinearDensity / (4.0f * CellSize));
 	TArray<FDualContourSampledChunk> SampledChunks;
 
-	const FVector PivotPosition = Sampler.Pivot * Sampler.VolumeSize;
-	const FBox SamplerInputBounds = Sampler.GetBounds();
+	const FBox SamplerInputBounds = Sampler.GetSamplingBounds(SamplingVolumeSize);
 	if (!SamplerInputBounds.IsValid)
 	{
 		OutError = NSLOCTEXT("VolumeSampler", "InvalidBounds", "Sampler bounds are invalid.");
 		return false;
 	}
-	const FBox TargetLocalBounds = UVolumeSampler::TransformBoxAroundPivot(SamplerInputBounds, SamplerToTargetTransform, PivotPosition);
+	const FBox TargetLocalBounds = Sampler.TransformBoxByPivotTransform(SamplerInputBounds, SamplerPivotTransform, SamplingVolumeSize);
 
 	const FVector TargetLocalMax = FVector(CellCount) * CellSize;
 	if (TargetLocalBounds.Max.X < 0.0 || TargetLocalBounds.Max.Y < 0.0 || TargetLocalBounds.Max.Z < 0.0

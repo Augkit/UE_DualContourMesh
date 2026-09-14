@@ -72,18 +72,17 @@ bool FDualContourEditContext::SetMaterial(FIntVector Coord, uint8 Value)
 	return true;
 }
 
-bool FDualContourEditContext::GetSampleBounds(const UVolumeSampler& Sampler, const FTransform* SamplerToTargetTransform,
-	FIntVector& OutMinSampleCoord, FIntVector& OutMaxSampleCoord) const
+bool FDualContourEditContext::GetSampleBounds(const UVolumeSampler& Sampler, const FVector& SamplingVolumeSize,
+	const FTransform* SamplerPivotTransform, FIntVector& OutMinSampleCoord, FIntVector& OutMaxSampleCoord) const
 {
 	if (!IsOpen())
 		return false;
-	FBox TargetLocalBounds = Sampler.GetBounds();
+	FBox TargetLocalBounds = Sampler.GetSamplingBounds(SamplingVolumeSize);
 	if (!TargetLocalBounds.IsValid || TargetLocalBounds.Min.ContainsNaN() || TargetLocalBounds.Max.ContainsNaN())
 		return false;
-	if (SamplerToTargetTransform)
+	if (SamplerPivotTransform)
 	{
-		TargetLocalBounds = UVolumeSampler::TransformBoxAroundPivot(
-			TargetLocalBounds, *SamplerToTargetTransform, Sampler.Pivot * Sampler.VolumeSize);
+		TargetLocalBounds = Sampler.TransformBoxByPivotTransform(TargetLocalBounds, *SamplerPivotTransform, SamplingVolumeSize);
 	}
 	const FVector TargetLocalMax = FVector(Target->CellCount) * Target->CellSize;
 	for (int32 Axis = 0; Axis < 3; ++Axis)
@@ -98,23 +97,26 @@ bool FDualContourEditContext::GetSampleBounds(const UVolumeSampler& Sampler, con
 	return true;
 }
 
-bool FDualContourEditContext::ApplyDensity(EDualContourDensityOperation Operation, const UVolumeSampler& Sampler, float Strength)
+bool FDualContourEditContext::ApplyDensity(EDualContourDensityOperation Operation, const UVolumeSampler& Sampler,
+	const FVector& SamplingVolumeSize, float Strength)
 {
-	return ApplyDensityInternal(Operation, Sampler, nullptr, Strength);
+	return ApplyDensityInternal(Operation, Sampler, SamplingVolumeSize, nullptr, Strength);
 }
 
 bool FDualContourEditContext::ApplyDensity(EDualContourDensityOperation Operation, const UVolumeSampler& Sampler,
-	const FTransform& SamplerToTargetTransform, float Strength)
+	const FVector& SamplingVolumeSize, const FTransform& SamplerPivotTransform, float Strength)
 {
-	return ApplyDensityInternal(Operation, Sampler, &SamplerToTargetTransform, Strength);
+	return ApplyDensityInternal(Operation, Sampler, SamplingVolumeSize, &SamplerPivotTransform, Strength);
 }
 
 bool FDualContourEditContext::ApplyDensityInternal(EDualContourDensityOperation Operation, const UVolumeSampler& Sampler,
-	const FTransform* SamplerToTargetTransform, float Strength)
+	const FVector& SamplingVolumeSize, const FTransform* SamplerPivotTransform, float Strength)
 {
 	check(IsInGameThread());
 	FText Error;
 	if (!IsOpen() || !Sampler.Prepare(Error))
+		return false;
+	if (SamplingVolumeSize.ContainsNaN() || SamplingVolumeSize.GetMin() <= UE_SMALL_NUMBER)
 		return false;
 	ON_SCOPE_EXIT
 	{
@@ -122,10 +124,11 @@ bool FDualContourEditContext::ApplyDensityInternal(EDualContourDensityOperation 
 	};
 	// Keep a usable distance band on both sides of a stamped surface, even when
 	// the target grid is coarse. Procedural SDF samplers honor this optional limit.
-	FVolumeSamplerPlacement Placement = Sampler.MakePlacement(SamplerToTargetTransform, GDualContourMaxLinearDensity / (4.0f * Target->CellSize));
+	FVolumeSamplerPlacement Placement = Sampler.MakePlacement(
+		SamplingVolumeSize, SamplerPivotTransform, GDualContourMaxLinearDensity / (4.0f * Target->CellSize));
 	FIntVector MinSampleCoord, MaxSampleCoord;
 	if (!FMath::IsFinite(Strength) || Strength <= 0
-	    || !GetSampleBounds(Sampler, SamplerToTargetTransform, MinSampleCoord, MaxSampleCoord))
+	    || !GetSampleBounds(Sampler, SamplingVolumeSize, SamplerPivotTransform, MinSampleCoord, MaxSampleCoord))
 		return false;
 	Strength = FMath::Min(Strength, 1.0f);
 	const FIntVector SampleDimensions = MaxSampleCoord - MinSampleCoord + FIntVector(1);
@@ -239,32 +242,34 @@ bool FDualContourEditContext::ApplyDensityInternal(EDualContourDensityOperation 
 	return bChanged;
 }
 
-bool FDualContourEditContext::ApplyMaterial(const UVolumeSampler& Sampler, uint8 MaterialId, float Threshold, bool bSolidOnly)
+bool FDualContourEditContext::ApplyMaterial(const UVolumeSampler& Sampler, const FVector& SamplingVolumeSize, uint8 MaterialId, float Threshold,
+	bool bSolidOnly)
 {
-	return ApplyMaterialInternal(Sampler, MaterialId, nullptr, Threshold, bSolidOnly);
+	return ApplyMaterialInternal(Sampler, MaterialId, SamplingVolumeSize, nullptr, Threshold, bSolidOnly);
 }
 
-bool FDualContourEditContext::ApplyMaterial(const UVolumeSampler& Sampler, uint8 MaterialId,
-	const FTransform& SamplerToTargetTransform, float Threshold, bool bSolidOnly)
+bool FDualContourEditContext::ApplyMaterial(const UVolumeSampler& Sampler, const FVector& SamplingVolumeSize, uint8 MaterialId,
+	const FTransform& SamplerPivotTransform, float Threshold, bool bSolidOnly)
 {
-	return ApplyMaterialInternal(Sampler, MaterialId, &SamplerToTargetTransform, Threshold, bSolidOnly);
+	return ApplyMaterialInternal(Sampler, MaterialId, SamplingVolumeSize, &SamplerPivotTransform, Threshold, bSolidOnly);
 }
 
-bool FDualContourEditContext::ApplyMaterialInternal(const UVolumeSampler& Sampler, uint8 MaterialId,
-	const FTransform* SamplerToTargetTransform, float Threshold, bool bSolidOnly)
+bool FDualContourEditContext::ApplyMaterialInternal(const UVolumeSampler& Sampler, uint8 MaterialId, const FVector& SamplingVolumeSize,
+	const FTransform* SamplerPivotTransform, float Threshold, bool bSolidOnly)
 {
 	check(IsInGameThread());
 	FText Error;
 	if (!IsOpen() || !Sampler.Prepare(Error))
 		return false;
+	if (SamplingVolumeSize.ContainsNaN() || SamplingVolumeSize.GetMin() <= UE_SMALL_NUMBER)
+		return false;
 	ON_SCOPE_EXIT
 	{
 		Sampler.Finish();
 	};
-	const FVolumeSamplerPlacement Placement = Sampler.MakePlacement(SamplerToTargetTransform);
+	const FVolumeSamplerPlacement Placement = Sampler.MakePlacement(SamplingVolumeSize, SamplerPivotTransform);
 	FIntVector MinSampleCoord, MaxSampleCoord;
-	if (!FMath::IsFinite(Threshold)
-	    || !GetSampleBounds(Sampler, SamplerToTargetTransform, MinSampleCoord, MaxSampleCoord))
+	if (!FMath::IsFinite(Threshold) || !GetSampleBounds(Sampler, SamplingVolumeSize, SamplerPivotTransform, MinSampleCoord, MaxSampleCoord))
 		return false;
 	Threshold = FMath::Clamp(Threshold, 0.0f, 1.0f);
 	bool bChanged = false;

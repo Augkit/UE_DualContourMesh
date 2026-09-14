@@ -37,8 +37,7 @@ float SmoothStep(const float Value)
 
 UTunnelVolumeSampler::UTunnelVolumeSampler()
 {
-	// Leave enough sampling margin around the default shape, including its enlarged entrance.
-	VolumeSize = FVector(1120.0, 600.0, 600.0);
+	// Shape parameters are normalized; the caller supplies the sampling volume size.
 }
 
 bool UTunnelVolumeSampler::Prepare(FText& OutError) const

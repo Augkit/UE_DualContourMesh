@@ -84,7 +84,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise")
 	int32 Seed = 1337;
 
-	/** Noise frequency in inverse sampler-local units. Smaller values produce larger features. */
+	/** Noise frequency in inverse normalized sampler units. Smaller values produce larger features. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise", meta = (ClampMin = "0.000001", UIMin = "0.0001", UIMax = "0.1"))
 	float Frequency = 0.01f;
 
@@ -95,7 +95,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise")
 	ENoiseSamplerRotation3D Rotation3D = ENoiseSamplerRotation3D::None;
 
-	/** Added to sampler-local coordinates before evaluating noise. */
+	/** Added to normalized sampler coordinates before evaluating noise. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise")
 	FVector CoordinateOffset = FVector::ZeroVector;
 
@@ -129,12 +129,12 @@ public:
 		meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "NoiseType == ENoiseSamplerType::Cellular", EditConditionHides))
 	float CellularJitter = 1.0f;
 
-	/** Sampler-local Z position corresponding to a zero noise value in 2D mode. */
+	/** Normalized sampler-local Z position corresponding to a zero noise value in 2D mode. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise|2D Height Field",
 		meta = (EditCondition = "Dimension == ENoiseSamplerDimension::HeightField2D", EditConditionHides))
 	float HeightOffset = 0.0f;
 
-	/** Maximum sampler-local height displacement produced by noise in 2D mode. */
+	/** Maximum normalized height displacement produced by noise in 2D mode. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise|2D Height Field",
 		meta = (ClampMin = "0.0", EditCondition = "Dimension == ENoiseSamplerDimension::HeightField2D", EditConditionHides))
 	float HeightAmplitude = 128.0f;
@@ -144,7 +144,7 @@ public:
 		meta = (ClampMin = "-1.0", ClampMax = "1.0", EditCondition = "Dimension == ENoiseSamplerDimension::Volume3D", EditConditionHides))
 	float IsoLevel = 0.0f;
 
-	/** Converts the dimensionless 3D noise difference into sampler-local pseudo-distance. */
+	/** Converts the dimensionless 3D noise difference into normalized pseudo-distance. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise|3D Volume",
 		meta = (ClampMin = "0.0001", EditCondition = "Dimension == ENoiseSamplerDimension::Volume3D", EditConditionHides))
 	float NoiseDistanceScale = 100.0f;

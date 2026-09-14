@@ -28,7 +28,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heightmap", meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0"))
 	float Bias = 0.5f;
 
-	/** Number of times the heightmap repeats across VolumeSize.XY. */
+	/** Number of times the heightmap repeats across normalized sampler X/Y. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heightmap", meta = (ClampMin = "0.0001", UIMin = "0.1"))
 	FVector2D Tiling = FVector2D(1.0, 1.0);
 

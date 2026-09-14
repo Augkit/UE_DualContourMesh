@@ -25,7 +25,7 @@ bool FDualContourEditContextTest::RunTest(const FString& Parameters)
 	Sphere.Radius = 0.75f;
 	FDualContourEditContext Edit(*Grid);
 	TestTrue(TEXT("Stage solid density"), Edit.SetDensity(Center, 100.0f));
-	TestTrue(TEXT("Material sees staged solid density"), Edit.ApplyMaterial(Sphere, 7, 0.0f));
+	TestTrue(TEXT("Material sees staged solid density"), Edit.ApplyMaterial(Sphere, FVector(8), 7, 0.0f));
 	TestEqual(TEXT("Outside mask excluded even at zero threshold"), Edit.GetMaterial(FIntVector(1, 1, 1)), uint8(0));
 	TestEqual(TEXT("No density write before commit"), Grid->GetDensity(2, 2, 2), uint16(0));
 	TestEqual(TEXT("No material write before commit"), Grid->GetMaterialId(2, 2, 2), uint8(0));
@@ -94,7 +94,7 @@ bool FDualContourFieldSamplerTest::RunTest(const FString& Parameters)
 	Shape.TargetLocalCenter = FVector(2);
 	Shape.Radius = 4;
 	Shape.Falloff = 0;
-	TestTrue(TEXT("Smooth staged impulse"), Edit.ApplyDensity(EDualContourDensityOperation::Smooth, Shape));
+	TestTrue(TEXT("Smooth staged impulse"), Edit.ApplyDensity(EDualContourDensityOperation::Smooth, Shape, FVector(8)));
 	TestEqual(TEXT("Gaussian center"), Edit.GetDensity(FIntVector(2)), 8.0f);
 	TestEqual(TEXT("Symmetric negative neighbor"), Edit.GetDensity(FIntVector(1, 2, 2)), 4.0f);
 	TestEqual(TEXT("Symmetric positive neighbor"), Edit.GetDensity(FIntVector(3, 2, 2)), 4.0f);
@@ -102,7 +102,7 @@ bool FDualContourFieldSamplerTest::RunTest(const FString& Parameters)
 	TStrongObjectPtr<UDualContourPlaneVolumeSampler> PlaneOwner(NewObject<UDualContourPlaneVolumeSampler>());
 	auto& Plane = *PlaneOwner;
 	Plane.Initialize(Shape, FVector(2, 2, 3), FVector::UpVector, 64);
-	Edit.ApplyDensity(EDualContourDensityOperation::Replace, Plane);
+	Edit.ApplyDensity(EDualContourDensityOperation::Replace, Plane, FVector(8));
 	TestEqual(TEXT("Plane sample"), Edit.GetDensity(FIntVector(2)), 64.0f);
 	Edit.Commit();
 	Grid->GetCell(0, 0, 0);
@@ -117,7 +117,7 @@ bool FDualContourFieldSamplerTest::RunTest(const FString& Parameters)
 	TStrongObjectPtr<UDualContourVolumeBrushSampler> IdentityVolumeOwner(NewObject<UDualContourVolumeBrushSampler>());
 	auto& IdentityVolume = *IdentityVolumeOwner;
 	IdentityVolume.Initialize(*Grid, FTransform::Identity);
-	TestTrue(TEXT("Parallel volume difference"), Difference.ApplyDensity(EDualContourDensityOperation::Difference, IdentityVolume));
+	TestTrue(TEXT("Parallel volume difference"), Difference.ApplyDensity(EDualContourDensityOperation::Difference, IdentityVolume, FVector(8)));
 	TestEqual(TEXT("Difference uses source snapshot"), Difference.GetDensity(FIntVector(2)), -64.0f);
 	Difference.Commit();
 	Grid->GetCell(0, 0, 0);
@@ -163,12 +163,11 @@ bool FDualContourUnifiedVolumeTest::RunTest(const FString& Parameters)
 	Grid->Rebuild();
 	Grid->GetCell(0, 0, 0);
 	TStrongObjectPtr<USphereVolumeSampler> Sphere(NewObject<USphereVolumeSampler>());
-	Sphere->VolumeSize = FVector(4);
-	Sphere->Radius = 1;
-	Sphere->SamplingTransform = FTransform(FVector(2, 0, 0));
+	Sphere->Radius = 0.25f;
+	const FTransform SphereTransform(FVector(4, 2, 2));
 	FText Error;
 	TestTrue(TEXT("Prepare existing SDF source"), static_cast<UVolumeSampler*>(Sphere.Get())->Prepare(Error));
-	const FVolumeSamplerPlacement Placement = static_cast<UVolumeSampler*>(Sphere.Get())->MakePlacement(nullptr);
+	const FVolumeSamplerPlacement Placement = static_cast<UVolumeSampler*>(Sphere.Get())->MakePlacement(FVector(4), &SphereTransform);
 	float Value = 0, Weight = 0;
 	TestTrue(TEXT("Transformed center"), Sphere->Sample(FVector(4, 2, 2), Placement, Value, Weight));
 	TestEqual(TEXT("Default influence"), Weight, 1.0f);
@@ -176,15 +175,15 @@ bool FDualContourUnifiedVolumeTest::RunTest(const FString& Parameters)
 	static_cast<UVolumeSampler*>(Sphere.Get())->Finish();
 
 	FDualContourEditContext Edit(*Grid);
-	TestTrue(TEXT("Existing source feeds edit"), Edit.ApplyDensity(EDualContourDensityOperation::Replace, *Sphere));
+	TestTrue(TEXT("Existing source feeds edit"), Edit.ApplyDensity(EDualContourDensityOperation::Replace, *Sphere, FVector(4)));
 	Edit.Commit();
 	const uint16 Edited = Grid->GetDensity(4, 2, 2);
-	TestTrue(TEXT("Same source feeds generation"), Grid->ApplySampler(*Sphere, FTransform::Identity, Error));
+	TestTrue(TEXT("Same source feeds generation"), Grid->ApplySampler(*Sphere, FVector(4), FTransform(FVector(2)), Error));
 	TestEqual(TEXT("Generation and edit agree"), Grid->GetDensity(4, 2, 2), Edited);
 	TStrongObjectPtr<UDualContourShapeVolumeSampler> Brush(NewObject<UDualContourShapeVolumeSampler>());
 	Brush->TargetLocalCenter = FVector(3);
 	Brush->Radius = 1.5f;
-	TestTrue(TEXT("New source feeds generation"), Grid->ApplySampler(*Brush, FTransform::Identity, Error));
+	TestTrue(TEXT("New source feeds generation"), Grid->ApplySampler(*Brush, FVector(8), FTransform::Identity, Error));
 	TestEqual(TEXT("New source center density"), Grid->GetDensity(3, 3, 3), FDensityChunk::EncodeDensity(GDualContourMaxLinearDensity));
 	Grid->GetCell(0, 0, 0);
 	return true;

@@ -18,10 +18,6 @@ public:
 	UPROPERTY(EditAnywhere, Instanced, Category = "Source", meta = (ShowOnlyInnerProperties))
 	TObjectPtr<UVolumeSampler> VolumeSampler;
 
-	/** Automatically keeps VolumeSampler.VolumeSize equal to CellCount * CellSize. */
-	UPROPERTY(EditAnywhere, Category = "Source")
-	bool bAutoCalculateVolumeSize = true;
-
 	/** Sampler-input to target-local placement applied about VolumeSampler's pivot. */
 	UPROPERTY(EditAnywhere, Category = "Source")
 	FTransform SampleTransform = FTransform::Identity;
@@ -46,8 +42,6 @@ public:
 private:
 	void BindVolumeSampler();
 	void HandleSamplerPropertyChanged();
-	void UpdateAutomaticVolumeSize();
-
 	TWeakObjectPtr<UVolumeSampler> BoundVolumeSampler;
 	FDelegateHandle VolumeSamplerChangedHandle;
 #endif

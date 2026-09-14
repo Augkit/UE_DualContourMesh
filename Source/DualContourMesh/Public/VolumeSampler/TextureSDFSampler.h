@@ -13,7 +13,7 @@ public:
 	virtual bool Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
 		float& Value, float& Weight) const override;
 
-	/** Density units per signed-distance unit. Negative SDF values become solid density. */
+	/** Density units per normalized signed-distance unit. Negative SDF values become solid density. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "0.0"))
 	float DensityScale = 16.0f;
 
@@ -28,13 +28,11 @@ public:
 
 protected:
 	float SignedDistanceToDensity(float SignedDistance) const;
-	float SampleCachedTexture(const FVector& BaseVolumePosition) const;
+	float SampleCachedTexture(const FVector& NormalizedPosition) const;
 	virtual bool PrepareTexture(FText& OutError) const PURE_VIRTUAL(UTextureSDFSampler::PrepareTexture, return false;);
 
 	mutable FIntVector CachedResolution = FIntVector::ZeroValue;
 	mutable TArray<float> CachedSignedDistances;
-	/** Precomputed CachedResolution / VolumeSize so sampling only multiplies per axis. */
-	mutable FVector CachedVoxelsPerVolumeUnit = FVector::ZeroVector;
 };
 
 /** Samples a Texture3D/VolumeTexture exported by StaticMeshSDFExporter. */

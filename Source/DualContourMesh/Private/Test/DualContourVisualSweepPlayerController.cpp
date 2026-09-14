@@ -252,7 +252,6 @@ void ADualContourVisualSweepPlayerController::RunDualContourVisualSweep()
 	MeshActor->MeshMaterial = NormalVisualizationMaterial;
 
 	UNoiseVolumeSampler* Sampler = NewObject<UNoiseVolumeSampler>(this);
-	Sampler->VolumeSize = FVector(Extent);
 	Sampler->DensityScale = LinearDensityScale;
 	Sampler->Dimension = ENoiseSamplerDimension::HeightField2D;
 	Sampler->Seed = CVarDualContourVisualTestNoiseSeed.GetValueOnGameThread();
@@ -280,9 +279,9 @@ void ADualContourVisualSweepPlayerController::RunDualContourVisualSweep()
 		else
 		{
 		UBoxVolumeSampler* Ground = NewObject<UBoxVolumeSampler>(this);
-		Ground->VolumeSize = FVector(Extent);
 		Ground->HalfExtents = FVector(Extent * 0.48, Extent * 0.48, 20);
-		if (!MeshActor->DualContour->ApplySampler(*Ground, FTransform(FVector(0, 0, -200)), Error))
+		if (!MeshActor->DualContour->ApplySampler(*Ground, FVector(Extent),
+			FTransform(FVector(Extent * 0.5f, Extent * 0.5f, Extent * 0.5f - 200.0f)), Error))
 		{
 			FinishVisualSweep(false);
 			return;
@@ -291,15 +290,16 @@ void ADualContourVisualSweepPlayerController::RunDualContourVisualSweep()
 		UTex3DSDFSampler* Mountain = NewObject<UTex3DSDFSampler>(this);
 		Mountain->Texture = LoadObject<UVolumeTexture>(nullptr, TEXT("/Game/SDF_Mountain_2001.SDF_Mountain_2001"));
 		FDualContourEditContext Edit(*MeshActor->DualContour);
-		if (!Edit.ApplyDensity(EDualContourDensityOperation::Union, *Mountain,
-			FTransform(FVector(Extent * 0.5) - Mountain->Pivot * Mountain->VolumeSize)) || !Edit.Commit())
+		if (!Edit.ApplyDensity(EDualContourDensityOperation::Union, *Mountain, FVector(640),
+			FTransform(FVector(Extent * 0.5))) || !Edit.Commit())
 		{
 			UE_LOG(LogDualContourVisualSweep, Error, TEXT("Failed to stamp mountain fixture."));
 			FinishVisualSweep(false);
 			return;
 		}
 	}
-	else if (!MeshActor->DualContour->ApplySampler(*Sampler, FTransform::Identity, Error))
+	else if (!MeshActor->DualContour->ApplySampler(*Sampler, FVector(Extent),
+		FTransform(FVector(Extent * 0.5f)), Error))
 	{
 		UE_LOG(LogDualContourVisualSweep, Error, TEXT("Failed to build Noise: %s"), *Error.ToString());
 		FinishVisualSweep(false);

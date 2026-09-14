@@ -22,7 +22,7 @@ float UDualContourShapeVolumeSampler::EvaluateFalloff(float Distance, float Fall
 	}
 }
 
-FBox UDualContourShapeVolumeSampler::GetBounds() const
+FBox UDualContourShapeVolumeSampler::GetSamplingBounds(const FVector& SamplingVolumeSize) const
 {
 	if (!FMath::IsFinite(Radius) || Radius <= UE_SMALL_NUMBER || TargetLocalCenter.ContainsNaN())
 		return FBox(ForceInit);
@@ -80,7 +80,7 @@ void UDualContourVolumeBrushSampler::Initialize(const UDualContour& InSource, co
 	SourceToTargetTransform = InSourceToTargetTransform;
 }
 
-FBox UDualContourVolumeBrushSampler::GetBounds() const
+FBox UDualContourVolumeBrushSampler::GetSamplingBounds(const FVector& SamplingVolumeSize) const
 {
 	const UDualContour* SourceDualContour = Source.Get();
 	if (!SourceDualContour || !SourceDualContour->HasCurrentGeneratedData() || SourceToTargetTransform.ContainsNaN() ||
@@ -90,8 +90,7 @@ FBox UDualContourVolumeBrushSampler::GetBounds() const
 	return FBox(FVector::ZeroVector, SourceLocalExtent).TransformBy(SourceToTargetTransform);
 }
 
-bool UDualContourVolumeBrushSampler::Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement&,
-	float& Value, float& Weight) const
+bool UDualContourVolumeBrushSampler::Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement&, float& Value, float& Weight) const
 {
 	const UDualContour* SourceDualContour = Source.Get();
 	if (!SourceDualContour || !SourceDualContour->HasCurrentGeneratedData())
@@ -114,9 +113,11 @@ void UDualContourRestoreVolumeSampler::Initialize(UVolumeSampler& InMask, const 
 	Source = &InSource;
 }
 
-FBox UDualContourRestoreVolumeSampler::GetBounds() const
+FBox UDualContourRestoreVolumeSampler::GetSamplingBounds(const FVector& SamplingVolumeSize) const
 {
-	return Mask && Source.IsValid() && Source->HasCurrentGeneratedData() ? Mask->GetBounds() : FBox(ForceInit);
+	return Mask && Source.IsValid() && Source->HasCurrentGeneratedData()
+		       ? Mask->GetSamplingBounds(SamplingVolumeSize)
+		       : FBox(ForceInit);
 }
 
 bool UDualContourRestoreVolumeSampler::Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,

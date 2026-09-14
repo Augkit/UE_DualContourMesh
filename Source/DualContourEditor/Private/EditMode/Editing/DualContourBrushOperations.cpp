@@ -36,16 +36,21 @@ bool DualContourBrushOperations::ApplyMaterialStamp(FDualContourEditContext& Edi
 	auto SamplerOwner = MakeShapeSampler(Stamp);
 	auto& Sampler = *SamplerOwner;
 	Sampler.bDirectional = false;
-	return Edit.ApplyMaterial(Sampler, PaintId, Threshold, bSolidSamplesOnly);
+	return FMath::IsFinite(Stamp.BrushSize) && Stamp.BrushSize > UE_SMALL_NUMBER
+	       && Edit.ApplyMaterial(Sampler, FVector(Stamp.BrushSize), PaintId, Threshold, bSolidSamplesOnly);
 }
 
 bool DualContourBrushOperations::ApplyDensityStamp(FDualContourEditContext& Edit, const UDualContour* RestoreSource,
 	const FDualContourBrushStamp& Stamp)
 {
-	if (!Edit.IsOpen() || !FMath::IsFinite(Stamp.Strength) || !FMath::IsFinite(Stamp.TimeScale))
+	if (!Edit.IsOpen() || !FMath::IsFinite(Stamp.Strength) || !FMath::IsFinite(Stamp.TimeScale)
+	    || !FMath::IsFinite(Stamp.BrushSize) || Stamp.BrushSize <= UE_SMALL_NUMBER)
 		return false;
 	auto MaskOwner = MakeShapeSampler(Stamp);
 	auto& Mask = *MaskOwner;
+	const UDualContour* Target = Edit.GetTarget();
+	if (!Target)
+		return false;
 	const float Strength = FMath::Clamp(Stamp.Strength * Stamp.TimeScale, 0.0f, 1.0f);
 	const bool bSculpt =
 		Stamp.Operation == EDualContourDensityEditOperation::Sculpt || Stamp.Operation == EDualContourDensityEditOperation::SculptSubtract;
@@ -58,13 +63,13 @@ bool DualContourBrushOperations::ApplyDensityStamp(FDualContourEditContext& Edit
 		return Edit.ApplyDensity(Stamp.Operation == EDualContourDensityEditOperation::StampUnion
 			                         ? EDualContourDensityOperation::Union
 			                         : EDualContourDensityOperation::Difference,
-			               *Stamp.VolumeSampler, Stamp.SourceToTargetTransform);
+			*Stamp.VolumeSampler, FVector(Stamp.BrushSize), Stamp.SourceToTargetTransform);
 	}
+	const FVector SamplingVolumeSize(Stamp.BrushSize);
 	if (Stamp.Operation == EDualContourDensityEditOperation::Smooth)
-		return Edit.ApplyDensity(EDualContourDensityOperation::Smooth, Mask, Strength);
+		return Edit.ApplyDensity(EDualContourDensityOperation::Smooth, Mask, SamplingVolumeSize, Strength);
 	if (Stamp.Operation == EDualContourDensityEditOperation::Erase)
 	{
-		const UDualContour* Target = Edit.GetTarget();
 		if (!IsValid(RestoreSource) || !RestoreSource->HasCurrentGeneratedData() ||
 		    RestoreSource->GetSampleDimensions() != Target->GetSampleDimensions() ||
 		    !FMath::IsNearlyEqual(RestoreSource->CellSize, Target->CellSize))
@@ -72,7 +77,7 @@ bool DualContourBrushOperations::ApplyDensityStamp(FDualContourEditContext& Edit
 		TStrongObjectPtr<UDualContourRestoreVolumeSampler> SamplerOwner(NewObject<UDualContourRestoreVolumeSampler>());
 		auto& Sampler = *SamplerOwner;
 		Sampler.Initialize(Mask, *RestoreSource);
-		return Edit.ApplyDensity(EDualContourDensityOperation::Replace, Sampler, Strength);
+		return Edit.ApplyDensity(EDualContourDensityOperation::Replace, Sampler, SamplingVolumeSize, Strength);
 	}
 	if (Stamp.Operation == EDualContourDensityEditOperation::Flatten)
 	{
@@ -80,7 +85,7 @@ bool DualContourBrushOperations::ApplyDensityStamp(FDualContourEditContext& Edit
 		auto& Sampler = *SamplerOwner;
 		Sampler.Initialize(Mask, Stamp.TargetLocalFlattenPlaneOrigin, Stamp.TargetLocalFlattenPlaneNormal,
 			GDualContourLinearDensityFixedPointScale);
-		return Edit.ApplyDensity(EDualContourDensityOperation::Replace, Sampler, Strength);
+		return Edit.ApplyDensity(EDualContourDensityOperation::Replace, Sampler, SamplingVolumeSize, Strength);
 	}
 	if (bSculpt && Stamp.bUseClayBrush)
 	{
@@ -90,11 +95,11 @@ bool DualContourBrushOperations::ApplyDensityStamp(FDualContourEditContext& Edit
 			GDualContourMaxLinearDensity / Edit.GetTarget()->CellSize);
 		return Edit.ApplyDensity(Stamp.Operation == EDualContourDensityEditOperation::Sculpt
 			                         ? EDualContourDensityOperation::Union
-			                         : EDualContourDensityOperation::Difference, Sampler, Strength);
+			                         : EDualContourDensityOperation::Difference, Sampler, SamplingVolumeSize, Strength);
 	}
 	return Edit.ApplyDensity(Stamp.Operation == EDualContourDensityEditOperation::Sculpt
 		                         ? EDualContourDensityOperation::Add
-		                         : EDualContourDensityOperation::Subtract, Mask, Strength);
+		                         : EDualContourDensityOperation::Subtract, Mask, SamplingVolumeSize, Strength);
 }
 
 void DualContourBrushOperations::ApplyMaterialVolumes(ADualContourMeshActor* TargetActor, FDualContourEditContext& Edit,
@@ -115,11 +120,12 @@ void DualContourBrushOperations::ApplyMaterialVolumes(ADualContourMeshActor* Tar
 		auto& Sampler = *SamplerOwner;
 		Sampler.Volume = Volume;
 		Sampler.TargetLocalToWorldTransform = TargetActor->GetActorTransform();
-		Edit.ApplyMaterial(Sampler, PaintId, 0.5f, true);
+		const FVector SamplingVolumeSize = Sampler.GetSamplingBounds(FVector::OneVector).GetSize().ComponentMax(FVector(UE_SMALL_NUMBER));
+		Edit.ApplyMaterial(Sampler, SamplingVolumeSize, PaintId, 0.5f, true);
 	}
 }
 
-FBox UDualContourMaterialRegionSampler::GetBounds() const
+FBox UDualContourMaterialRegionSampler::GetSamplingBounds(const FVector& SamplingVolumeSize) const
 {
 	return Volume.IsValid()
 		       ? Volume->GetBrushWorldBounds().TransformBy(TargetLocalToWorldTransform.Inverse())

@@ -122,8 +122,4 @@ public:
 		meta = (DisplayName = "Constraint World Direction",
 			EditCondition = "ActiveTool == EDualContourEditTool::Brush && bAlignVolumeSamplerToSurface"))
 	FVector VolumeSamplerConstraintWorldDirection = FVector::UpVector;
-
-	UPROPERTY(EditAnywhere, Config, Category = "Brush Stamp",
-		meta = (ClampMin = "0.001", EditCondition = "ActiveTool == EDualContourEditTool::Brush", EditConditionHides))
-	float VolumeSamplerScale = 1.0f;
 };

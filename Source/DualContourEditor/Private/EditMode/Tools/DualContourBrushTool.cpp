@@ -222,12 +222,12 @@ void UDualContourBrushTool::OnClickPress(const FInputDeviceRay& PressPos)
 		const FTransform ActorTransform = TargetActor->GetActorTransform();
 		TargetLocalFlattenPlaneOrigin = ActorTransform.InverseTransformPosition(HitPosition);
 		TargetLocalFlattenPlaneNormal = ActorTransform.InverseTransformVectorNoScale(FVector::UpVector)
-		                                   .GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
+		                                              .GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
 		HitNormal = FVector::UpVector;
 	}
 	TargetLocalClayPlaneOrigin = TargetActor->GetActorTransform().InverseTransformPosition(HitPosition);
 	TargetLocalClayPlaneNormal = TargetActor->GetActorTransform().InverseTransformVectorNoScale(HitNormal)
-		.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
+	                                        .GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
 	StrokeDeltas.Reset();
 	MaterialStrokeDeltas.Reset();
 	LastStampPosition = HitPosition;
@@ -445,12 +445,10 @@ bool UDualContourBrushTool::ApplyStationarySculptStamp(float WorldDistance, floa
 	return DualContourBrushOperations::ApplyDensityStamp(*ActiveEdit, TargetActor->InitialDualContour, Stamp);
 }
 
-int32 UDualContourBrushTool::ApplyMaterialBrushVolumes(
-	TConstArrayView<ADualContourMaterialBrushVolume*> BrushVolumes)
+int32 UDualContourBrushTool::ApplyMaterialBrushVolumes(TConstArrayView<ADualContourMaterialBrushVolume*> BrushVolumes)
 {
 	UDualContour* DualContour = TargetActor ? TargetActor->DualContour.Get() : nullptr;
-	if (bStrokeActive || !Settings || !IsValid(DualContour) || !DualContour->HasCurrentGeneratedData()
-	    || BrushVolumes.IsEmpty())
+	if (bStrokeActive || !Settings || !IsValid(DualContour) || !DualContour->HasCurrentGeneratedData() || BrushVolumes.IsEmpty())
 	{
 		return 0;
 	}
@@ -471,8 +469,7 @@ int32 UDualContourBrushTool::ApplyMaterialBrushVolumes(
 	const int32 ChangedSampleCount = Deltas.Num();
 	TUniquePtr<FDualContourMaterialEditChange> Change = MakeUnique<FDualContourMaterialEditChange>();
 	Change->Deltas = MoveTemp(Deltas);
-	GetToolManager()->EmitObjectChange(
-		DualContour, MoveTemp(Change), LOCTEXT("MaterialRegionEdit", "Paint Dual Contour Material Region"));
+	GetToolManager()->EmitObjectChange(DualContour, MoveTemp(Change), LOCTEXT("MaterialRegionEdit", "Paint Dual Contour Material Region"));
 	DualContour->MarkPackageDirty();
 	TargetActor->MarkPackageDirty();
 	return ChangedSampleCount;
@@ -485,13 +482,14 @@ FDualContourBrushStamp UDualContourBrushTool::MakeStamp(const FVector& WorldPosi
 	const float ActorScale = FMath::Abs(ActorTransform.GetScale3D().X);
 	Stamp.TargetLocalCenter = ActorTransform.InverseTransformPosition(WorldPosition);
 	Stamp.TargetLocalNormal = ActorTransform.InverseTransformVectorNoScale(WorldNormal)
-		.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
+	                                        .GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
 	Stamp.TargetLocalClayPlaneOrigin = TargetLocalClayPlaneOrigin;
 	Stamp.TargetLocalFlattenPlaneOrigin = TargetLocalFlattenPlaneOrigin;
 	Stamp.TargetLocalFlattenPlaneNormal = TargetLocalFlattenPlaneNormal;
 	if (Settings->bUseClayBrush)
 		Stamp.TargetLocalNormal = TargetLocalClayPlaneNormal;
 	Stamp.Radius = Settings->BrushSize * 0.5f / FMath::Max(ActorScale, UE_SMALL_NUMBER);
+	Stamp.BrushSize = Settings->BrushSize / FMath::Max(ActorScale, UE_SMALL_NUMBER);
 	Stamp.Falloff = Settings->BrushFalloff;
 	Stamp.FalloffType = Settings->BrushFalloffType;
 	Stamp.Shape = Settings->BrushType;
@@ -516,12 +514,11 @@ FDualContourBrushStamp UDualContourBrushTool::MakeStamp(const FVector& WorldPosi
 			Stamp.VolumeSampler = Settings->VolumeSampler.Get();
 			if (Stamp.VolumeSampler)
 			{
-				const FVector SourcePivot = Stamp.VolumeSampler->Pivot * Stamp.VolumeSampler->VolumeSize;
 				FVector AlignmentNormal = Stamp.TargetLocalNormal;
 				const bool bLockZAxis = Settings->VolumeSamplerLockedAxes.bZ;
 				const FVector ConstraintLocalDirection = ActorTransform.InverseTransformVectorNoScale(
-					Settings->VolumeSamplerConstraintWorldDirection)
-					.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
+					                                                       Settings->VolumeSamplerConstraintWorldDirection)
+				                                                       .GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
 				if (Settings->VolumeSamplerLockedAxes.bX)
 					AlignmentNormal.X = 0.0f;
 				if (Settings->VolumeSamplerLockedAxes.bY)
@@ -529,13 +526,12 @@ FDualContourBrushStamp UDualContourBrushTool::MakeStamp(const FVector& WorldPosi
 				AlignmentNormal = AlignmentNormal.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
 				const FQuat Rotation = Settings->bAlignVolumeSamplerToSurface
 					                       ? FQuat::FindBetweenNormals(FVector::UpVector,
-					                       bLockZAxis ? ConstraintLocalDirection : AlignmentNormal)
+						                       bLockZAxis ? ConstraintLocalDirection : AlignmentNormal)
 					                       : FQuat::Identity;
-				const float LocalScale = Settings->VolumeSamplerScale / FMath::Max(ActorScale, UE_SMALL_NUMBER);
 				const FTransform ClickTransform(
 					Rotation,
-					Stamp.TargetLocalCenter - SourcePivot,
-					FVector(LocalScale));
+					Stamp.TargetLocalCenter,
+					FVector::OneVector);
 				Stamp.SourceToTargetTransform = Settings->VolumeSamplerTransform * ClickTransform;
 			}
 			break;

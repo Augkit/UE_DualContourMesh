@@ -7,8 +7,8 @@
 /**
  * Base class for analytic volume samplers.
  *
- * Positions passed to GetSignedDistance are measured in sampler-local units with
- * (0, 0, 0) at the center of VolumeSize. Negative distance is considered solid.
+ * Positions passed to GetSignedDistance are normalized sampler-local coordinates with
+ * (0, 0, 0) at the volume center and half extents of 0.5. Negative distance is solid.
  * Blueprint subclasses can implement GetSignedDistance to define custom geometry.
  */
 UCLASS(Abstract, Blueprintable, BlueprintType, EditInlineNew)
@@ -17,10 +17,9 @@ class DUALCONTOURMESH_API UProceduralVolumeSampler : public UVolumeSampler
 	GENERATED_BODY()
 
 public:
-	virtual bool Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
-		float& Value, float& Weight) const override;
+	virtual bool Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement, float& Value, float& Weight) const override;
 
-	/** Density units generated per sampler-local signed-distance unit. */
+	/** Density units generated per normalized signed-distance unit. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volume", meta = (ClampMin = "0.0001"))
 	float DensityScale = 16.0f;
 
@@ -29,7 +28,7 @@ public:
 	float DensityBias = 0.0f;
 
 	/**
-	 * Returns the signed distance to the surface at a centered sampler-local position.
+	 * Returns the normalized signed distance to the surface at a centered sampler-local position.
 	 * Negative values are inside the solid, zero is on the surface, and positive values are outside.
 	 */
 	UFUNCTION(BlueprintNativeEvent, BlueprintPure, Category = "Volume Sampling|Procedural")
@@ -49,7 +48,7 @@ class DUALCONTOURMESH_API USphereVolumeSampler : public UProceduralVolumeSampler
 
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sphere", meta = (ClampMin = "0.0001"))
-	float Radius = 256.0f;
+	float Radius = 0.4f;
 
 	virtual float GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const override;
 
@@ -65,7 +64,7 @@ class DUALCONTOURMESH_API UBoxVolumeSampler : public UProceduralVolumeSampler
 
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Box", meta = (ClampMin = "0.0001"))
-	FVector HalfExtents = FVector(256.0f);
+	FVector HalfExtents = FVector(0.4f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Box", meta = (ClampMin = "0.0"))
 	float CornerRadius = 0.0f;
@@ -83,10 +82,10 @@ class DUALCONTOURMESH_API UCylinderVolumeSampler : public UProceduralVolumeSampl
 
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cylinder", meta = (ClampMin = "0.0001"))
-	float Radius = 192.0f;
+	float Radius = 0.3f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cylinder", meta = (ClampMin = "0.0001"))
-	float HalfHeight = 256.0f;
+	float HalfHeight = 0.4f;
 
 	virtual float GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const override;
 
@@ -101,11 +100,11 @@ class DUALCONTOURMESH_API UCapsuleVolumeSampler : public UProceduralVolumeSample
 
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Capsule", meta = (ClampMin = "0.0001"))
-	float Radius = 160.0f;
+	float Radius = 0.25f;
 
 	/** Half length of the line segment between the centers of the two spherical caps. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Capsule", meta = (ClampMin = "0.0"))
-	float SegmentHalfLength = 128.0f;
+	float SegmentHalfLength = 0.2f;
 
 	virtual float GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const override;
 
@@ -121,10 +120,10 @@ class DUALCONTOURMESH_API UTorusVolumeSampler : public UProceduralVolumeSampler
 public:
 	/** Distance from the volume center to the center of the tube. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Torus", meta = (ClampMin = "0.0001"))
-	float MajorRadius = 192.0f;
+	float MajorRadius = 0.3f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Torus", meta = (ClampMin = "0.0001"))
-	float MinorRadius = 64.0f;
+	float MinorRadius = 0.1f;
 
 	virtual float GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const override;
 

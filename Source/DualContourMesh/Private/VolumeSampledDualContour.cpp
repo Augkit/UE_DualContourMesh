@@ -12,14 +12,16 @@ bool UVolumeSampledDualContour::SampleSource()
 	TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampledDualContour_SampleVolume);
 	if (!VolumeSampler)
 		return false;
-	UpdateAutomaticVolumeSize();
-
 	FText Error;
 	{
 		TRACE_CPUPROFILER_EVENT_SCOPE(VolumeSampledDualContour_Modify);
 		Modify();
 	}
-	if (!ApplySampler(*VolumeSampler, SampleTransform, Error))
+	const FVector SamplingVolumeSize = FVector(CellCount) * CellSize;
+	const FVector SamplerPivotPosition = VolumeSampler->Pivot * SamplingVolumeSize;
+	FTransform SamplerPivotTransform = SampleTransform;
+	SamplerPivotTransform.AddToTranslation(SamplerPivotPosition);
+	if (!ApplySampler(*VolumeSampler, SamplingVolumeSize, SamplerPivotTransform, Error))
 	{
 		UE_LOG(LogVolumeSampledDualContour, Error, TEXT("Volume sampling failed for %s: %s"), *GetPathName(), *Error.ToString());
 		return false;
@@ -64,7 +66,6 @@ void UVolumeSampledDualContour::HandleSamplerPropertyChanged()
 	if (IsTemplate())
 		return;
 
-	UpdateAutomaticVolumeSize();
 	bRebuildRequired = true;
 	MarkPackageDirty();
 }
@@ -79,22 +80,6 @@ void UVolumeSampledDualContour::PreSave(FObjectPreSaveContext SaveContext)
 	Super::PreSave(SaveContext);
 }
 
-void UVolumeSampledDualContour::UpdateAutomaticVolumeSize()
-{
-	if (!bAutoCalculateVolumeSize || !VolumeSampler)
-		return;
-
-	const FVector AutomaticVolumeSize(
-		static_cast<double>(CellCount.X) * CellSize,
-		static_cast<double>(CellCount.Y) * CellSize,
-		static_cast<double>(CellCount.Z) * CellSize);
-	if (VolumeSampler->VolumeSize != AutomaticVolumeSize)
-	{
-		VolumeSampler->Modify();
-		VolumeSampler->VolumeSize = AutomaticVolumeSize;
-	}
-}
-
 void UVolumeSampledDualContour::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	const FName MemberPropertyName = PropertyChangedEvent.MemberProperty
@@ -104,12 +89,10 @@ void UVolumeSampledDualContour::PostEditChangeProperty(FPropertyChangedEvent& Pr
 		BindVolumeSampler();
 
 	if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(UVolumeSampledDualContour, VolumeSampler)
-	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UVolumeSampledDualContour, bAutoCalculateVolumeSize)
 	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UVolumeSampledDualContour, SampleTransform)
 	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, CellCount)
 	    || MemberPropertyName == GET_MEMBER_NAME_CHECKED(UDualContour, CellSize))
 	{
-		UpdateAutomaticVolumeSize();
 		bRebuildRequired = true;
 	}
 

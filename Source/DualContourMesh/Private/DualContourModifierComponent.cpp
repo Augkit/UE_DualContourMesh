@@ -48,16 +48,18 @@ bool UDualContourModifierComponent::ModifyDualContourWithSamplerAndDirection(con
 	int32 SamplerIndex, uint8 MaterialId, bool bExcavate)
 {
 	if (!IsValid(MeshActor) || !Samplers.IsValidIndex(SamplerIndex)
-	    || !FMath::IsFinite(SamplerScale) || SamplerScale <= UE_SMALL_NUMBER)
+	    || !FMath::IsFinite(SamplerScale) || SamplerScale <= UE_SMALL_NUMBER
+	    || !FMath::IsFinite(SamplerSize) || SamplerSize <= UE_SMALL_NUMBER)
 		return false;
 
 	const TObjectPtr<UVolumeSampler>& Sampler = Samplers[SamplerIndex];
 	if (!IsValid(Sampler))
 		return false;
 
+	const FVector SamplingVolumeSize(SamplerSize * SamplerScale);
 	const bool bDensityModified = MeshActor->ModifyDensityWithSampler(
-		WorldHitPos, FVector::UpVector, Sampler, SamplerScale, bExcavate, WorldRayDirection);
+		WorldHitPos, FVector::UpVector, Sampler, SamplingVolumeSize, bExcavate, WorldRayDirection);
 	const bool bMaterialModified = MeshActor->ModifyMaterialWithSampler(
-		WorldHitPos, FVector::UpVector, Sampler, SamplerScale * 1.3f, MaterialId, WorldRayDirection);
+		WorldHitPos, FVector::UpVector, Sampler, SamplingVolumeSize * 1.3f, MaterialId, WorldRayDirection);
 	return bDensityModified || bMaterialModified;
 }

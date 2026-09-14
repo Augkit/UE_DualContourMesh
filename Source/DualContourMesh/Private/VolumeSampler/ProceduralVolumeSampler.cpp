@@ -31,15 +31,13 @@ bool UProceduralVolumeSampler::Prepare(FText& OutError) const
 	return true;
 }
 
-bool UProceduralVolumeSampler::Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
-	float& Value, float& Weight) const
+bool UProceduralVolumeSampler::Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement, float& Value, float& Weight) const
 {
-	FVector BaseVolumePosition;
-	if (!TryGetBaseVolumePosition(TargetLocalPosition, Placement, BaseVolumePosition))
+	FVector NormalizedPosition;
+	if (!TryGetNormalizedPosition(TargetLocalPosition, Placement, NormalizedPosition))
 		return false;
 	Weight = 1.0f;
-	// (BaseVolumePosition / VolumeSize - 0.5) * VolumeSize 简化为 BaseVolumePosition - 0.5 * VolumeSize。
-	const FVector CenteredLocalPosition = BaseVolumePosition - 0.5 * VolumeSize;
+	const FVector CenteredLocalPosition = NormalizedPosition - 0.5;
 	const float SignedDistance = GetClass()->HasAnyClassFlags(CLASS_CompiledFromBlueprint)
 		                             ? GetSignedDistance(CenteredLocalPosition)
 		                             : GetSignedDistance_Implementation(CenteredLocalPosition);
@@ -52,9 +50,9 @@ bool UProceduralVolumeSampler::Sample(const FVector& TargetLocalPosition, const 
 		// scales. Rescale the whole field (including bias), preserving its zero set.
 		// The Frobenius norm is a conservative bound on the inverse transform norm.
 		const double TransformBound = FMath::Sqrt(
-			Placement.TargetToSamplerLocalMatrix.TransformVector(FVector::ForwardVector).SizeSquared()
-			+ Placement.TargetToSamplerLocalMatrix.TransformVector(FVector::RightVector).SizeSquared()
-			+ Placement.TargetToSamplerLocalMatrix.TransformVector(FVector::UpVector).SizeSquared());
+			Placement.TargetToSamplerNormalizedMatrix.TransformVector(FVector::ForwardVector).SizeSquared()
+			+ Placement.TargetToSamplerNormalizedMatrix.TransformVector(FVector::RightVector).SizeSquared()
+			+ Placement.TargetToSamplerNormalizedMatrix.TransformVector(FVector::UpVector).SizeSquared());
 		const double SlopeBound = DensityScale * GDualContourLinearDensityFixedPointScale * TransformBound;
 		if (SlopeBound > Placement.MaxTargetDensitySlope)
 			Value *= Placement.MaxTargetDensitySlope / SlopeBound;

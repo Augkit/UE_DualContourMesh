@@ -20,17 +20,17 @@ bool FDualContourSharpBoxTest::RunTest(const FString& Parameters)
 			TStrongObjectPtr<UDualContour> Grid(NewObject<UDualContour>());
 			Grid->VertexRelaxation = 0.0f;
 			TStrongObjectPtr<UBoxVolumeSampler> Box(NewObject<UBoxVolumeSampler>());
-			Box->SamplingTransform = FTransform(FRotator(0, Yaw, 0), Offset);
+			const FTransform BoxTransform(FRotator(0, Yaw, 0), FVector(320) + Offset);
 			const FVector Center = FVector(320) + Offset;
 			FText Error;
-			if (!TestTrue(TEXT("Sample default box"), Grid->ApplySampler(*Box, FTransform::Identity, Error)))
+			if (!TestTrue(TEXT("Sample default box"), Grid->ApplySampler(*Box, FVector(Grid->CellCount) * Grid->CellSize, BoxTransform, Error)))
 				return false;
 			FDualContourMeshData Mesh;
 			FDualContourMeshBuilder::Build(*Grid, FIntVector::ZeroValue, Grid->CellCount, Mesh);
 			TestTrue(TEXT("Box has triangles"), !Mesh.Indices.IsEmpty());
 			TestEqual(TEXT("Cell size unchanged"), Grid->CellSize, 10.0f);
 			TestEqual(TEXT("Cell count unchanged"), Grid->CellCount, FIntVector(64));
-			const FQuat Rotation = Box->SamplingTransform.GetRotation();
+			const FQuat Rotation = BoxTransform.GetRotation();
 			double SurfaceErrorSum = 0.0, NormalErrorSum = 0.0, MaxSurfaceError = 0.0;
 			int32 Samples = 0;
 			for (int32 Index = 0; Index < Mesh.Positions.Num(); ++Index)
@@ -43,7 +43,7 @@ bool FDualContourSharpBoxTest::RunTest(const FString& Parameters)
 				const FVector Local = Rotation.UnrotateVector(P - Center);
 				if (FMath::Max(FMath::Abs(Local.X), FMath::Abs(Local.Y)) < 240)
 					continue;
-				const double SurfaceError = FMath::Abs(Box->GetSignedDistance_Implementation(Local));
+				const double SurfaceError = FMath::Abs(Box->GetSignedDistance_Implementation(Local / 640.0));
 				SurfaceErrorSum += SurfaceError;
 				MaxSurfaceError = FMath::Max(MaxSurfaceError, SurfaceError);
 				const FVector Normal = Rotation.UnrotateVector(Mesh.Normals[Index]);
@@ -101,9 +101,9 @@ bool FDualContourQEFDivisionTest::RunTest(const FString& Parameters)
 	TStrongObjectPtr<UDualContour> Grid(NewObject<UDualContour>());
 	Grid->VertexRelaxation = 0.0f;
 	TStrongObjectPtr<UBoxVolumeSampler> Box(NewObject<UBoxVolumeSampler>());
-	Box->SamplingTransform = FTransform(FRotator(0, 45, 0), FVector(2.3, -1.7, 0.6));
+	const FTransform BoxTransform(FRotator(0, 45, 0), FVector(322.3, 318.3, 320.6));
 	FText Error;
-	if (!TestTrue(TEXT("Sample translated rotated box"), Grid->ApplySampler(*Box, FTransform::Identity, Error)))
+	if (!TestTrue(TEXT("Sample translated rotated box"), Grid->ApplySampler(*Box, FVector(Grid->CellCount) * Grid->CellSize, BoxTransform, Error)))
 		return false;
 	// Change samples on both sides of a density-chunk boundary near the top rim.
 	FDualContourEditContext Edit(*Grid);
@@ -164,7 +164,7 @@ bool FDualContourQEFSphereTest::RunTest(const FString& Parameters)
 	Grid->VertexRelaxation = 0.0f;
 	TStrongObjectPtr<USphereVolumeSampler> Sphere(NewObject<USphereVolumeSampler>());
 	FText Error;
-	if (!TestTrue(TEXT("Sample smooth sphere"), Grid->ApplySampler(*Sphere, FTransform::Identity, Error)))
+	if (!TestTrue(TEXT("Sample smooth sphere"), Grid->ApplySampler(*Sphere, FVector(Grid->CellCount) * Grid->CellSize, FTransform(FVector(320)), Error)))
 		return false;
 	FDualContourMeshData Mesh;
 	FDualContourMeshBuilder::Build(*Grid, FIntVector::ZeroValue, Grid->CellCount, Mesh);
@@ -195,19 +195,17 @@ bool FDualContourCoarseStampTest::RunTest(const FString& Parameters)
 		Grid->CellCount = FIntVector(128);
 		Grid->CellSize = 25.0f;
 		TStrongObjectPtr<UBoxVolumeSampler> Ground(NewObject<UBoxVolumeSampler>());
-		Ground->VolumeSize = FVector(1600);
 		Ground->HalfExtents = bDifference ? FVector(600) : FVector(600, 600, 200);
 		FText Error;
-		TestTrue(TEXT("Build underlying terrain volume"), Grid->ApplySampler(*Ground,
-			FTransform(FVector(800, 800, bDifference ? 800 : 500)), Error));
+		TestTrue(TEXT("Build underlying terrain volume"), Grid->ApplySampler(*Ground, FVector(1600),
+			FTransform(FVector(1600, 1600, bDifference ? 1600 : 1300)), Error));
 		TStrongObjectPtr<UBoxVolumeSampler> Box(NewObject<UBoxVolumeSampler>());
 		const FQuat Rotation = FRotator(PlacementCase == 2 ? 15 : 0, 45, PlacementCase == 2 ? 8 : 0).Quaternion();
-		Box->SamplingTransform = FTransform(Rotation);
 		const FVector Center = PlacementCase == 0 ? FVector(1602.3, 1598.3, 1600.6) : FVector(1612.5, 1607.3, 1617.8);
 		FDualContourEditContext Edit(*Grid);
 		TestTrue(TEXT("Stage box using brush stamp path"), Edit.ApplyDensity(bDifference
 			? EDualContourDensityOperation::Difference : EDualContourDensityOperation::Union,
-			*Box, FTransform(Center - FVector(320))));
+			*Box, FVector(640), FTransform(Rotation, Center)));
 		TestTrue(TEXT("Commit stamp"), Edit.Commit());
 		FDualContourMeshData Mesh;
 		FDualContourMeshBuilder::Build(*Grid, FIntVector::ZeroValue, Grid->CellCount, Mesh);
@@ -216,19 +214,19 @@ bool FDualContourCoarseStampTest::RunTest(const FString& Parameters)
 		int32 Count = 0;
 		for (int32 Index = 0; Index < Mesh.Positions.Num(); ++Index)
 		{
-			const FVector P = Box->SamplingTransform.GetRotation().UnrotateVector(Mesh.Positions[Index] - Center);
+			const FVector P = Rotation.UnrotateVector(Mesh.Positions[Index] - Center);
 			const double Side = FMath::Max(FMath::Abs(P.X), FMath::Abs(P.Y));
 			if (P.Z < 220 || P.Z > 280 || Side < 220 || Side > 280
 				|| FMath::Min(FMath::Abs(P.X), FMath::Abs(P.Y)) > 200)
 				continue;
-			const double Distance = FMath::Abs(Box->GetSignedDistance_Implementation(P));
+			const double Distance = FMath::Abs(Box->GetSignedDistance_Implementation(P / 640.0));
 			if (Distance > MaxError)
 			{
 				MaxError = Distance;
 				WorstPosition = Mesh.Positions[Index];
 			}
 			ErrorSum += Distance;
-			const FVector N = Box->SamplingTransform.GetRotation().UnrotateVector(Mesh.Normals[Index]);
+			const FVector N = Rotation.UnrotateVector(Mesh.Normals[Index]);
 			NormalSum += FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(N.GetAbs().GetMax(), 0.0, 1.0)));
 			++Count;
 		}
@@ -259,7 +257,7 @@ bool FDualContourCoarseStampTest::RunTest(const FString& Parameters)
 			const double Side = FMath::Max(FMath::Abs(P.X), FMath::Abs(P.Y));
 			if (P.Z < 220 || P.Z > 280 || Side < 220 || Side > 280 || FMath::Min(FMath::Abs(P.X), FMath::Abs(P.Y)) > 200)
 				continue;
-			RebuiltMaxError = FMath::Max(RebuiltMaxError, double(FMath::Abs(Box->GetSignedDistance_Implementation(P))));
+			RebuiltMaxError = FMath::Max(RebuiltMaxError, double(FMath::Abs(Box->GetSignedDistance_Implementation(P / 640.0))));
 		}
 		AddInfo(FString::Printf(TEXT("CoarseStamp Placement=%d Difference=%d RebuiltMaxError=%.6f"), PlacementCase, bDifference, RebuiltMaxError));
 		TestTrue(TEXT("Default relaxation preserves recovered coarse faces"), RebuiltMaxError < 0.1);
@@ -284,10 +282,9 @@ bool FDualContourCylDiagTest::RunTest(const FString& Parameters)
 		Grid->CellSize = CellSize;
 		Grid->VertexRelaxation = 0.0f;
 		TStrongObjectPtr<UCylinderVolumeSampler> Cyl(NewObject<UCylinderVolumeSampler>());
-		Cyl->VolumeSize = FVector(N * CellSize);
 		const FVector Center(0.5 * N * CellSize);
 		FText Error;
-		Grid->ApplySampler(*Cyl, FTransform::Identity, Error);
+	Grid->ApplySampler(*Cyl, FVector(N * CellSize), FTransform(FVector(N * CellSize * 0.5f)), Error);
 		const double R = Cyl->Radius, Half = Cyl->HalfHeight;
 		const int32 TopLayer = FMath::FloorToInt((Center.Z + Half) / CellSize);
 		double MaxRim = 0.0, SumRim = 0.0;

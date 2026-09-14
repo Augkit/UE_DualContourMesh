@@ -226,10 +226,10 @@ float UHeightmapSampler::SampleHeight(const FVector2D& NormalizedTexturePosition
 float UHeightmapSampler::GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const
 {
 	const FVector2D NormalizedVolumePosition(
-		CenteredLocalPosition.X / VolumeSize.X + 0.5,
-		CenteredLocalPosition.Y / VolumeSize.Y + 0.5);
+		CenteredLocalPosition.X + 0.5,
+		CenteredLocalPosition.Y + 0.5);
 	const float MappedHeight = FMath::Clamp(
 		HeightCurve.GetRichCurveConst()->Eval(SampleHeight(NormalizedVolumePosition * Tiling)), 0.0f, 1.0f);
-	const float SurfaceZ = (MappedHeight + Bias - 1.0f) * VolumeSize.Z;
+	const float SurfaceZ = MappedHeight + Bias - 1.0f;
 	return static_cast<float>(CenteredLocalPosition.Z) - SurfaceZ;
 }

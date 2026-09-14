@@ -898,7 +898,7 @@ void ADualContourMeshActor::UpdateMeshDivisions(const TSet<int32>& AffectedDivis
 }
 
 bool ADualContourMeshActor::ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal, UVolumeSampler* Sampler,
-	float UniformScale, bool bExcavate, const FVector& WorldEditDirection)
+	const FVector& SamplingVolumeSize, bool bExcavate, const FVector& WorldEditDirection)
 {
 	if (!DualContour || !DualContour->HasCurrentGeneratedData())
 	{
@@ -906,9 +906,9 @@ bool ADualContourMeshActor::ModifyDensityWithSampler(const FVector& WorldHitPos,
 			TEXT("Density edit ignored for %s because generation settings changed. Call RebuildMesh first."), *GetName());
 		return false;
 	}
-	if (!Sampler || !FMath::IsFinite(UniformScale) || UniformScale <= UE_SMALL_NUMBER)
+	if (!Sampler || SamplingVolumeSize.ContainsNaN() || SamplingVolumeSize.GetMin() <= UE_SMALL_NUMBER)
 	{
-		UE_LOG(LogDualContourMesh, Warning, TEXT("Density edit ignored for %s because its sampler or scale is invalid."),
+		UE_LOG(LogDualContourMesh, Warning, TEXT("Density edit ignored for %s because its sampler or sampling volume size is invalid."),
 			*GetName());
 		return false;
 	}
@@ -927,15 +927,13 @@ bool ADualContourMeshActor::ModifyDensityWithSampler(const FVector& WorldHitPos,
 			LocalUp = FMath::Abs(LocalEditDirection.Z) < 0.999f ? FVector::UpVector : FVector::RightVector;
 		SamplerRotation = FRotationMatrix::MakeFromXZ(LocalEditDirection, LocalUp).ToQuat();
 	}
-	const FVector SamplerPivotPosition = Sampler->Pivot * Sampler->VolumeSize;
-	const FTransform SamplerToTargetTransform(
-		SamplerRotation, LocalHitPosition - SamplerPivotPosition, FVector(UniformScale));
+	const FTransform SamplerPivotTransform(SamplerRotation, LocalHitPosition);
 
 	const EDualContourDensityOperation Operation = bExcavate
 		                                               ? EDualContourDensityOperation::Difference
 		                                               : EDualContourDensityOperation::Union;
 	FDualContourEditContext Edit(*DualContour);
-	if (!Edit.ApplyDensity(Operation, *Sampler, SamplerToTargetTransform))
+	if (!Edit.ApplyDensity(Operation, *Sampler, SamplingVolumeSize, SamplerPivotTransform))
 	{
 		UE_LOG(LogDualContourMesh, Warning, TEXT("Density edit failed for %s."), *GetName());
 		return false;
@@ -944,10 +942,10 @@ bool ADualContourMeshActor::ModifyDensityWithSampler(const FVector& WorldHitPos,
 }
 
 bool ADualContourMeshActor::ModifyMaterialWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal,
-	UVolumeSampler* Sampler, float UniformScale, uint8 MaterialId, const FVector& WorldEditDirection)
+	UVolumeSampler* Sampler, const FVector& SamplingVolumeSize, uint8 MaterialId, const FVector& WorldEditDirection)
 {
 	if (!DualContour || !DualContour->HasCurrentGeneratedData() || !Sampler
-	    || !FMath::IsFinite(UniformScale) || UniformScale <= UE_SMALL_NUMBER)
+	    || SamplingVolumeSize.ContainsNaN() || SamplingVolumeSize.GetMin() <= UE_SMALL_NUMBER)
 		return false;
 
 	const FTransform& ActorTransform = GetActorTransform();
@@ -965,11 +963,10 @@ bool ADualContourMeshActor::ModifyMaterialWithSampler(const FVector& WorldHitPos
 			LocalUp = FMath::Abs(LocalEditDirection.Z) < 0.999f ? FVector::UpVector : FVector::RightVector;
 		SamplerRotation = FRotationMatrix::MakeFromXZ(LocalEditDirection, LocalUp).ToQuat();
 	}
-	const FVector SamplerPivotPosition = Sampler->Pivot * Sampler->VolumeSize;
-	const FTransform SamplerToTargetTransform(SamplerRotation, LocalHitPosition - SamplerPivotPosition, FVector(UniformScale));
+	const FTransform SamplerPivotTransform(SamplerRotation, LocalHitPosition);
 
 	FDualContourEditContext Edit(*DualContour);
-	if (!Edit.ApplyMaterial(*Sampler, MaterialId, SamplerToTargetTransform))
+	if (!Edit.ApplyMaterial(*Sampler, SamplingVolumeSize, MaterialId, SamplerPivotTransform))
 		return false;
 	return Edit.Commit();
 }

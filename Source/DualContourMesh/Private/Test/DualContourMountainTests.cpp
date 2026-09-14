@@ -31,7 +31,7 @@ bool FDualContourMountainTest::RunTest(const FString& Parameters)
 			Sampler->Texture = Texture.Get();
 			FDualContourEditContext Edit(*Grid);
 			if (!TestTrue(TEXT("Stage mountain through brush stamp path"), Edit.ApplyDensity(
-				EDualContourDensityOperation::Union, *Sampler, FTransform(FRotator(0, Yaw, 0), FVector(320) + Offset)))
+				EDualContourDensityOperation::Union, *Sampler, FVector(640), FTransform(FRotator(0, Yaw, 0), FVector(640) + Offset)))
 				|| !TestTrue(TEXT("Commit mountain stamp"), Edit.Commit()))
 				return false;
 			FDualContourMeshData Mesh;
@@ -130,8 +130,8 @@ bool FDualContourNoiseMountainUnionTest::RunTest(const FString& Parameters)
 		TStrongObjectPtr<UTex3DSDFSampler> Mountain(NewObject<UTex3DSDFSampler>());
 		Mountain->Texture = Texture;
 		FDualContourEditContext Edit(*Grid);
-		if (!Edit.ApplyDensity(EDualContourDensityOperation::Union, *Mountain,
-			FTransform(FVector(640) - Mountain->Pivot * Mountain->VolumeSize)) || !Edit.Commit()) return false;
+		if (!Edit.ApplyDensity(EDualContourDensityOperation::Union, *Mountain, FVector(640),
+			FTransform(FVector(640))) || !Edit.Commit()) return false;
 		OutChangedNearSurface = 0;
 		for (int32 Z = 0; Z < 129; ++Z) for (int32 Y = 0; Y < 129; ++Y) for (int32 X = 0; X < 129; ++X)
 		{

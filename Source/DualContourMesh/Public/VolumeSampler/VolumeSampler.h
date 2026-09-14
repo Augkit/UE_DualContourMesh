@@ -10,12 +10,12 @@ DECLARE_MULTICAST_DELEGATE(FOnVolumeSamplerPropertyChanged);
 
 /**
  * Immutable mapping from target-local positions into the sampler's internal input space,
- * combining the outer placement transform with SamplingTransform into a single affine.
+ * combining the outer placement transform with the sampler volume scale into a single affine.
  * Build once per sampling pass with UVolumeSampler::MakePlacement.
  */
 struct FVolumeSamplerPlacement
 {
-	FMatrix TargetToSamplerLocalMatrix = FMatrix::Identity;
+	FMatrix TargetToSamplerNormalizedMatrix = FMatrix::Identity;
 	/** Optional encoded-density slope limit supplied by the destination grid. Zero keeps authored density units. */
 	float MaxTargetDensitySlope = 0.0f;
 };
@@ -27,19 +27,24 @@ class DUALCONTOURMESH_API UVolumeSampler : public UObject
 	GENERATED_BODY()
 
 public:
-	/** Bounds are expressed in sampler-input coordinates after SamplingTransform. */
-	virtual FBox GetBounds() const;
+	/** Bounds are expressed in target-local units for the supplied sampling volume. */
+	virtual FBox GetSamplingBounds(const FVector& SamplingVolumeSize) const;
 
 	/**
-	 * Combines SamplerToTargetTransform with SamplingTransform (both rotate/scale about Pivot * VolumeSize)
-	 * into the single affine used by Sample. Pass nullptr when no outer placement transform is needed.
+	 * Converts target-local positions into normalized sampler coordinates. The placement transform
+	 * maps the sampler volume in target-local units and rotates/scales it about Pivot * SamplingVolumeSize.
+	 * Pass nullptr when no outer placement transform is needed.
 	 * MaxTargetDensitySlope is an optional target-grid density-gradient limit; zero disables it.
 	 */
-	FVolumeSamplerPlacement MakePlacement(const FTransform* SamplerToTargetTransform,
+	FVolumeSamplerPlacement MakePlacement(const FVector& SamplingVolumeSize,
+		const FTransform* SamplerPivotTransform,
 		float MaxTargetDensitySlope = 0.0f) const;
 
-	/** Transforms a box about PivotPosition by Transform (forward direction). */
-	static FBox TransformBoxAroundPivot(const FBox& Box, const FTransform& Transform, const FVector& PivotPosition);
+	/**
+	 * Transforms a sampler-local box using a transform whose location is the sampler pivot target position.
+	 * The sampler's normalized Pivot is converted to sampler-volume units using SamplingVolumeSize.
+	 */
+	FBox TransformBoxByPivotTransform(const FBox& Box, const FTransform& SamplerPivotTransform, const FVector& SamplingVolumeSize) const;
 
 	/**
 	 * Samples a continuous position measured in the target contour's local units, through the placement
@@ -55,15 +60,7 @@ public:
 	/** True when Sample may be called concurrently while the game thread is blocked. */
 	virtual bool SupportsParallelSampling() const { return false; }
 
-	/** Maps base-volume coordinates into sampler-input coordinates about Pivot * VolumeSize. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volume")
-	FTransform SamplingTransform = FTransform::Identity;
-
-	/** Size of the base volume in target-local length units before placement transforms are applied. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volume", meta = (ClampMin = "0.0001"))
-	FVector VolumeSize = FVector(640.0);
-
-	/** Normalized base-volume point about which placement transforms rotate and scale. */
+	/** Normalized point about which the placement transform rotates and scales. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volume", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	FVector Pivot = FVector(0.5);
 
@@ -75,10 +72,10 @@ public:
 
 protected:
 	/**
-	 * Maps a target-local position through the placement into base-volume coordinates (UE units,
-	 * origin at the volume corner); false when the point lies outside [0, VolumeSize].
+	 * Maps a target-local position through the placement into normalized base-volume coordinates;
+	 * false when the point lies outside [0, 1].
 	 */
-	bool TryGetBaseVolumePosition(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
-		FVector& OutBaseVolumePosition) const;
+	bool TryGetNormalizedPosition(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
+		FVector& OutNormalizedPosition) const;
 
 };
