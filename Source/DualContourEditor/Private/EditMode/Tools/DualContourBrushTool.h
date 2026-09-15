@@ -68,6 +68,8 @@ private:
 	bool ProjectBrushPointToSurface(const FVector& PlanePoint, float ProjectionHalfDepth, FVector& OutSurfacePoint) const;
 	void DrawSurfaceProjectedFalloff(IToolsContextRenderAPI* RenderAPI, float Radius) const;
 	void DrawSurfaceProjectedRing(FPrimitiveDrawInterface* PDI, float Radius, const FLinearColor& Color, float Thickness) const;
+	/** Wireframe cube matching the volume a Brush stamp would occupy at the cursor. */
+	void DrawVolumeStampBox(FPrimitiveDrawInterface* PDI, const FLinearColor& Color, float Thickness) const;
 	bool BeginPendingBatch();
 	bool ApplyStampAt(const FVector& WorldPosition, const FVector& WorldNormal, float TimeScale);
 	void ApplyPathTo(const FVector& WorldPosition, const FVector& WorldNormal);

@@ -461,28 +461,26 @@ FDualContourBrushStamp UDualContourBrushTool::MakeStamp(const FVector& WorldPosi
 		{
 			Stamp.Operation = bShiftDown ? EDualContourDensityEditOperation::StampDifference : EDualContourDensityEditOperation::StampUnion;
 			Stamp.VolumeSampler = Settings->VolumeSampler.Get();
-			if (Stamp.VolumeSampler)
-			{
-				FVector AlignmentNormal = Stamp.TargetLocalNormal;
-				const bool bLockZAxis = Settings->VolumeSamplerLockedAxes.bZ;
-				const FVector ConstraintLocalDirection = ActorTransform.InverseTransformVectorNoScale(
-					                                                       Settings->VolumeSamplerConstraintWorldDirection)
-				                                                       .GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
-				if (Settings->VolumeSamplerLockedAxes.bX)
-					AlignmentNormal.X = 0.0f;
-				if (Settings->VolumeSamplerLockedAxes.bY)
-					AlignmentNormal.Y = 0.0f;
-				AlignmentNormal = AlignmentNormal.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
-				const FQuat Rotation = Settings->bAlignVolumeSamplerToSurface
-					                       ? FQuat::FindBetweenNormals(FVector::UpVector,
-						                       bLockZAxis ? ConstraintLocalDirection : AlignmentNormal)
-					                       : FQuat::Identity;
-				const FTransform ClickTransform(
-					Rotation,
-					Stamp.TargetLocalCenter,
-					FVector::OneVector);
-				Stamp.SourceToTargetTransform = Settings->VolumeSamplerTransform * ClickTransform;
-			}
+			// The placement transform doubles as the brush stamp viewport handle, so build it
+			// even without a sampler; ApplyDensityStamp separately rejects missing samplers.
+			FVector AlignmentNormal = Stamp.TargetLocalNormal;
+			const bool bLockZAxis = Settings->VolumeSamplerLockedAxes.bZ;
+			const FVector ConstraintLocalDirection = ActorTransform.InverseTransformVectorNoScale(Settings->VolumeSamplerConstraintWorldDirection)
+			                                                       .GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
+			if (Settings->VolumeSamplerLockedAxes.bX)
+				AlignmentNormal.X = 0.0f;
+			if (Settings->VolumeSamplerLockedAxes.bY)
+				AlignmentNormal.Y = 0.0f;
+			AlignmentNormal = AlignmentNormal.GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
+			const FQuat Rotation = Settings->bAlignVolumeSamplerToSurface
+				                       ? FQuat::FindBetweenNormals(FVector::UpVector,
+					                       bLockZAxis ? ConstraintLocalDirection : AlignmentNormal)
+				                       : FQuat::Identity;
+			const FTransform ClickTransform(
+				Rotation,
+				Stamp.TargetLocalCenter,
+				FVector::OneVector);
+			Stamp.SourceToTargetTransform = Settings->VolumeSamplerTransform * ClickTransform;
 			break;
 		}
 		default:
@@ -750,6 +748,48 @@ void UDualContourBrushTool::DrawSurfaceProjectedRing(
 	}
 }
 
+void UDualContourBrushTool::DrawVolumeStampBox(FPrimitiveDrawInterface* PDI, const FLinearColor& Color, float Thickness) const
+{
+	if (!PDI || !TargetActor || !Settings)
+		return;
+
+	const FDualContourBrushStamp Stamp = MakeStamp(HitPosition, HitNormal, 1.0f);
+	// Same placement math as FDualContourEditContext::GetSampleBounds: the sampling
+	// volume box, recentered on the sampler pivot and placed by SourceToTargetTransform.
+	const FVector SamplingVolumeSize(Stamp.BrushSize);
+	FBox SamplerLocalBounds(FVector::ZeroVector, SamplingVolumeSize);
+	FVector SamplerPivotPosition = FVector(0.5) * SamplingVolumeSize;
+	if (const UVolumeSampler* Sampler = Settings->VolumeSampler.Get())
+	{
+		SamplerLocalBounds = Sampler->GetSamplingBounds(SamplingVolumeSize);
+		SamplerPivotPosition = Sampler->Pivot * SamplingVolumeSize;
+	}
+	if (!SamplerLocalBounds.IsValid || SamplerLocalBounds.Min.ContainsNaN() || SamplerLocalBounds.Max.ContainsNaN()
+	    || Stamp.SourceToTargetTransform.ContainsNaN())
+		return;
+
+	FVector WorldCorners[8];
+	const FTransform ActorTransform = TargetActor->GetActorTransform();
+	for (int32 CornerIndex = 0; CornerIndex < 8; ++CornerIndex)
+	{
+		const FVector SamplerLocalCorner(
+			(CornerIndex & 1) ? SamplerLocalBounds.Max.X : SamplerLocalBounds.Min.X,
+			(CornerIndex & 2) ? SamplerLocalBounds.Max.Y : SamplerLocalBounds.Min.Y,
+			(CornerIndex & 4) ? SamplerLocalBounds.Max.Z : SamplerLocalBounds.Min.Z);
+		const FVector TargetLocalCorner = Stamp.SourceToTargetTransform.TransformPosition(
+			SamplerLocalCorner - SamplerPivotPosition);
+		WorldCorners[CornerIndex] = ActorTransform.TransformPosition(TargetLocalCorner);
+	}
+
+	constexpr int32 CubeEdges[12][2] = {
+		{0, 1}, {2, 3}, {4, 5}, {6, 7},
+		{0, 2}, {1, 3}, {4, 6}, {5, 7},
+		{0, 4}, {1, 5}, {2, 6}, {3, 7},
+	};
+	for (const int32 (&Edge)[2] : CubeEdges)
+		PDI->DrawLine(WorldCorners[Edge[0]], WorldCorners[Edge[1]], Color, SDPG_Foreground, Thickness, 0.0f, true);
+}
+
 void UDualContourBrushTool::Render(IToolsContextRenderAPI* RenderAPI)
 {
 	if (!bHasHit || !Settings)
@@ -759,6 +799,14 @@ void UDualContourBrushTool::Render(IToolsContextRenderAPI* RenderAPI)
 	const float Radius = Settings->BrushSize * 0.5f;
 	const float FalloffRadius = Radius * (1.0f - Settings->BrushFalloff);
 	const FLinearColor BrushRingColor(1.0f, 1.0f, 1.0f, 0.65f);
+
+	if (Settings->ActiveTool == EDualContourEditTool::Brush)
+	{
+		// A volume stamp lands as an exact boolean op, so the handle is the cube the
+		// sampler volume occupies rather than a radial falloff preview.
+		DrawVolumeStampBox(PDI, BrushRingColor, 1.0f);
+		return;
+	}
 
 	DrawSurfaceProjectedFalloff(RenderAPI, Radius);
 
