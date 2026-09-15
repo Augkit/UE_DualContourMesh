@@ -46,6 +46,8 @@ FDualContourEditorToolkit::~FDualContourEditorToolkit()
 
 	if (Asset)
 		Asset->OnCellsRebuilt.RemoveAll(this);
+	if (Viewport && Viewport->GetDensityActor())
+		Viewport->GetDensityActor()->OnMeshComponentProgress.RemoveAll(this);
 	FEditorDelegates::PostUndoRedo.RemoveAll(this);
 }
 
@@ -119,6 +121,8 @@ TSharedRef<SDockTab> FDualContourEditorToolkit::SpawnViewportTab(const FSpawnTab
 		SNew(SDualContourEditorViewport).EditorToolkit(SharedThis(this));
 	Viewport = NewViewport;
 	Viewport->OnMeshComponentsUpdated.AddSP(this, &FDualContourEditorToolkit::HandlePreviewMeshComponentsUpdated);
+	if (ADualContourMeshActor* PreviewActor = Viewport->GetDensityActor())
+		PreviewActor->OnMeshComponentProgress.AddSP(this, &FDualContourEditorToolkit::HandlePreviewMeshComponentProgress);
 	if (bEditModeEnabled && !Viewport->SetEditingEnabled(true))
 		bEditModeEnabled = false;
 	return SNew(SDockTab)
@@ -443,6 +447,17 @@ void FDualContourEditorToolkit::HandleCellsRebuilt(FIntVector, FIntVector)
 	GenerationProgressTarget = FMath::Max(GenerationProgressTarget, 0.6f);
 	if (Viewport)
 		Viewport->RefreshPreview();
+}
+
+void FDualContourEditorToolkit::HandlePreviewMeshComponentProgress(int32 CompletedMeshCount, int32 TotalMeshCount)
+{
+	if (!bGenerationInProgress || TotalMeshCount <= 0)
+		return;
+
+	const float MeshProgress = FMath::Clamp(
+		static_cast<float>(CompletedMeshCount) / static_cast<float>(TotalMeshCount), 0.0f, 1.0f);
+	GenerationProgressTarget = FMath::Max(GenerationProgressTarget, 0.6f + MeshProgress * 0.35f);
+	FSlateApplication::Get().InvalidateAllWidgets(false);
 }
 
 void FDualContourEditorToolkit::HandlePreviewMeshComponentsUpdated()

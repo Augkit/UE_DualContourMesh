@@ -63,6 +63,7 @@ private:
 	void GenerateDualContour();
 	bool CanGenerateDualContour() const;
 	void HandleCellsRebuilt(FIntVector CellMin, FIntVector CellMax);
+	void HandlePreviewMeshComponentProgress(int32 CompletedMeshCount, int32 TotalMeshCount);
 	void HandlePreviewMeshComponentsUpdated();
 	bool StartGeneration(float DeltaTime);
 	bool TickGenerationProgress(float DeltaTime);

@@ -15,6 +15,7 @@
 class UVolumeSampler;
 
 DECLARE_MULTICAST_DELEGATE(FOnDualContourMeshComponentsUpdated);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDualContourMeshComponentProgress, int32, int32);
 
 UCLASS()
 class DUALCONTOURMESH_API ADualContourMeshActor : public AActor
@@ -65,6 +66,12 @@ public:
 
 	/** Broadcast after all queued mesh component creations, updates, and removals have completed. */
 	FOnDualContourMeshComponentsUpdated OnMeshComponentsUpdated;
+
+	/** Broadcast after each generated mesh division is applied, with the current generation counts. */
+	FOnDualContourMeshComponentProgress OnMeshComponentProgress;
+
+	/** Gets the current generated mesh progress without maintaining separate counters. */
+	void GetMeshComponentProgress(int32& OutCompletedMeshCount, int32& OutTotalMeshCount) const;
 
 	/** Rebuilds generated cells and mesh components from the actor-owned DualContour. */
 	UFUNCTION(CallInEditor, Category = "DualContour")

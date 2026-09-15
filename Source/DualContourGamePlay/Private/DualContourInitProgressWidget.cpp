@@ -111,6 +111,7 @@ void UDualContourInitProgressWidget::BindActor(FTrackedActor& Tracked, int32 Tra
 	// Actors with serialized contour data already have their cells ready; actors that copy
 	// InitialDualContour during BeginPlay only reach that state once OnCellsRebuilt fires.
 	Tracked.bCellsReady = Actor->DualContour && Actor->DualContour->HasCurrentGeneratedData();
+	Actor->GetMeshComponentProgress(Tracked.CompletedMeshCount, Tracked.TotalMeshCount);
 
 	TWeakObjectPtr<UDualContourInitProgressWidget> WeakThis(this);
 	if (UDualContour* DualContour = Actor->DualContour)
@@ -122,6 +123,13 @@ void UDualContourInitProgressWidget::BindActor(FTrackedActor& Tracked, int32 Tra
 					Widget->HandleCellsRebuilt(TrackedIndex);
 			});
 	}
+
+	Tracked.MeshComponentProgressHandle = Actor->OnMeshComponentProgress.AddLambda(
+		[WeakThis, TrackedIndex](int32 CompletedMeshCount, int32 TotalMeshCount)
+		{
+			if (UDualContourInitProgressWidget* Widget = WeakThis.Get())
+				Widget->HandleMeshComponentProgress(TrackedIndex, CompletedMeshCount, TotalMeshCount);
+		});
 
 	Tracked.MeshComponentsUpdatedHandle = Actor->OnMeshComponentsUpdated.AddLambda(
 		[WeakThis, TrackedIndex]()
@@ -135,6 +143,11 @@ void UDualContourInitProgressWidget::UnbindActor(FTrackedActor& Tracked)
 {
 	if (ADualContourMeshActor* Actor = Tracked.Actor.Get())
 	{
+		if (Tracked.MeshComponentProgressHandle.IsValid())
+		{
+			Actor->OnMeshComponentProgress.Remove(Tracked.MeshComponentProgressHandle);
+			Tracked.MeshComponentProgressHandle.Reset();
+		}
 		if (Tracked.MeshComponentsUpdatedHandle.IsValid())
 		{
 			Actor->OnMeshComponentsUpdated.Remove(Tracked.MeshComponentsUpdatedHandle);
@@ -149,6 +162,23 @@ void UDualContourInitProgressWidget::UnbindActor(FTrackedActor& Tracked)
 				Tracked.CellsRebuiltHandle.Reset();
 			}
 		}
+	}
+}
+
+void UDualContourInitProgressWidget::HandleMeshComponentProgress(int32 TrackedIndex, int32 CompletedMeshCount,
+	int32 TotalMeshCount)
+{
+	if (!TrackedActors.IsValidIndex(TrackedIndex))
+		return;
+
+	FTrackedActor& Tracked = TrackedActors[TrackedIndex];
+	Tracked.CompletedMeshCount = FMath::Max(CompletedMeshCount, 0);
+	Tracked.TotalMeshCount = FMath::Max(TotalMeshCount, 0);
+	if (Tracked.TotalMeshCount > 0)
+	{
+		const float MeshProgress = FMath::Clamp(
+			static_cast<float>(Tracked.CompletedMeshCount) / static_cast<float>(Tracked.TotalMeshCount), 0.0f, 1.0f);
+		Tracked.ProgressTarget = FMath::Max(Tracked.ProgressTarget, 0.6f + MeshProgress * 0.35f);
 	}
 }
 
@@ -205,15 +235,6 @@ float UDualContourInitProgressWidget::GetOverallProgress() const
 	return ProgressSum / static_cast<float>(TrackedActors.Num());
 }
 
-int32 UDualContourInitProgressWidget::GetCompletedActorCount() const
-{
-	int32 CompletedCount = 0;
-	for (const FTrackedActor& Tracked : TrackedActors)
-		if (Tracked.bComplete)
-			++CompletedCount;
-	return CompletedCount;
-}
-
 FText UDualContourInitProgressWidget::GetStatusText() const
 {
 	if (TrackedActors.IsEmpty() || AreAllActorsComplete())
@@ -227,8 +248,19 @@ FText UDualContourInitProgressWidget::GetStatusText() const
 	const FText PhaseText = bAnyCellsPending
 		? LOCTEXT("StatusCells", "Preparing contour cells...")
 		: LOCTEXT("StatusMesh", "Building mesh components...");
-	return FText::Format(LOCTEXT("StatusActorCount", "{0}  ({1} / {2} meshes)"),
-		PhaseText, GetCompletedActorCount(), TrackedActors.Num());
+	int32 CompletedMeshCount = 0;
+	int32 TotalMeshCount = 0;
+	for (const FTrackedActor& Tracked : TrackedActors)
+	{
+		CompletedMeshCount += Tracked.CompletedMeshCount;
+		TotalMeshCount += Tracked.TotalMeshCount;
+	}
+	if (TotalMeshCount > 0)
+	{
+		return FText::Format(LOCTEXT("StatusMeshCount", "{0}  ({1} / {2} meshes)"),
+			PhaseText, CompletedMeshCount, TotalMeshCount);
+	}
+	return PhaseText;
 }
 
 void UDualContourInitProgressWidget::NativeDestruct()

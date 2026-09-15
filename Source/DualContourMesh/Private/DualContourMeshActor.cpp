@@ -146,6 +146,14 @@ bool ADualContourMeshActor::IsMeshInitializationPending() const
 	return (DualContour && DualContour->IsCellRebuildPending()) || ActiveMeshBuild.IsValid() || bMeshUpdateCompletionPending;
 }
 
+void ADualContourMeshActor::GetMeshComponentProgress(int32& OutCompletedMeshCount, int32& OutTotalMeshCount) const
+{
+	OutCompletedMeshCount = MeshComponents.Num();
+	OutTotalMeshCount = MeshComponents.Num() + (PendingMeshApplies.Num() - NextPendingMeshApplyIndex);
+	if (ActiveMeshBuild.IsValid())
+		OutTotalMeshCount += ActiveMeshBuild->Requests.Num();
+}
+
 void ADualContourMeshActor::FlushPendingMeshWork()
 {
 	AbortActiveMeshBuild();
@@ -523,6 +531,7 @@ void ADualContourMeshActor::RecreateMeshComponents()
 		MeshComponents.Reset();
 		MeshCellCount = DualContour->CellCount;
 		MeshCellSize = DualContour->CellSize;
+		OnMeshComponentProgress.Broadcast(0, Requests.Num());
 
 		const TSharedPtr<FAsyncMeshBuild> Build = MakeShared<FAsyncMeshBuild>();
 		Build->DualContour = TStrongObjectPtr<UDualContour>(DualContour.Get());
@@ -733,6 +742,11 @@ void ADualContourMeshActor::ApplyQueuedMeshData()
 			MeshComponents.Add(PendingApply.DivisionIndex, MeshComponent);
 		else if (bCreatedComponent && IsValid(MeshComponent))
 			MeshComponent->DestroyComponent();
+
+		int32 CompletedMeshCount = 0;
+		int32 TotalMeshCount = 0;
+		GetMeshComponentProgress(CompletedMeshCount, TotalMeshCount);
+		OnMeshComponentProgress.Broadcast(CompletedMeshCount, TotalMeshCount);
 	}
 
 	if (NextPendingMeshApplyIndex >= PendingMeshApplies.Num())

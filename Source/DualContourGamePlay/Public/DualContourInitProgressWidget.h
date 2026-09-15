@@ -17,8 +17,9 @@ DECLARE_MULTICAST_DELEGATE(FOnDualContourInitProgressFinished);
  *
  * Progress mirrors the DualContour editor toolkit's generation progress: an animated
  * fake value with diminishing returns until the contour cells are ready (capped at 0.6),
- * then while the actor applies its queued mesh components (capped at 0.95), and a snap
- * to 100% when OnMeshComponentsUpdated reports the actor is done.
+ * then while the actor applies its queued mesh components (capped at 0.95), with the
+ * applied mesh count reported by ADualContourMeshActor, and a snap to 100% when
+ * OnMeshComponentsUpdated reports the actor is done.
  */
 UCLASS()
 class DUALCONTOURGAMEPLAY_API UDualContourInitProgressWidget : public UUserWidget
@@ -51,10 +52,6 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DualContour|Progress")
 	float GetOverallProgress() const;
 
-	/** Number of tracked actors whose mesh components finished initializing. */
-	UFUNCTION(BlueprintPure, Category = "DualContour|Progress")
-	int32 GetCompletedActorCount() const;
-
 	/** Phase description shown below the progress bar. */
 	UFUNCTION(BlueprintPure, Category = "DualContour|Progress")
 	FText GetStatusText() const;
@@ -68,9 +65,12 @@ private:
 	{
 		TWeakObjectPtr<ADualContourMeshActor> Actor;
 		FDelegateHandle CellsRebuiltHandle;
+		FDelegateHandle MeshComponentProgressHandle;
 		FDelegateHandle MeshComponentsUpdatedHandle;
 		float Progress = 0.0f;
 		float ProgressTarget = 0.0f;
+		int32 CompletedMeshCount = 0;
+		int32 TotalMeshCount = 0;
 		bool bCellsReady = false;
 		bool bComplete = false;
 	};
@@ -78,6 +78,7 @@ private:
 	void BindActor(FTrackedActor& Tracked, int32 TrackedIndex);
 	void UnbindActor(FTrackedActor& Tracked);
 	void HandleCellsRebuilt(int32 TrackedIndex);
+	void HandleMeshComponentProgress(int32 TrackedIndex, int32 CompletedMeshCount, int32 TotalMeshCount);
 	void HandleMeshComponentsUpdated(int32 TrackedIndex);
 	/** True when the actor can no longer queue mesh updates, so there is nothing left to observe. */
 	bool IsActorInitializationComplete(const ADualContourMeshActor& Actor) const;
