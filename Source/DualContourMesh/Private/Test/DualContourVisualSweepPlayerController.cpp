@@ -265,6 +265,9 @@ void ADualContourVisualSweepPlayerController::RunDualContourVisualSweep()
 	Sampler->HeightOffset = CVarDualContourVisualTestHeightOffset.GetValueOnGameThread();
 	Sampler->HeightAmplitude = FMath::Max(0.0f, CVarDualContourVisualTestHeightAmplitude.GetValueOnGameThread());
 
+	// The contour below is mutated directly; join any in-flight background mesh build first.
+	MeshActor->FlushPendingMeshWork();
+
 	FText Error;
 	if (bMountain)
 	{

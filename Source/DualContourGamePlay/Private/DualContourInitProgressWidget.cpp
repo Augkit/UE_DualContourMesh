@@ -182,10 +182,8 @@ void UDualContourInitProgressWidget::HandleMeshComponentsUpdated(int32 TrackedIn
 
 bool UDualContourInitProgressWidget::IsActorInitializationComplete(const ADualContourMeshActor& Actor) const
 {
-	// Mesh actors only tick while component updates are queued. An actor that began play
-	// with ticking disabled has no pending initialization left to wait for; this also
-	// covers actors that finished before the overlay started tracking them.
-	return Actor.HasActorBegunPlay() && !Actor.IsActorTickEnabled();
+	// Pending work is only reported after BeginPlay; before that, initialization has not started yet.
+	return Actor.HasActorBegunPlay() && !Actor.IsMeshInitializationPending();
 }
 
 bool UDualContourInitProgressWidget::AreAllActorsComplete() const

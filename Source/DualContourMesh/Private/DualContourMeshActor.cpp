@@ -1,6 +1,7 @@
 #include "DualContourMeshActor.h"
 #include "DualContourMeshBuilder.h"
 #include "DualContourRuntimeSaveGame.h"
+#include "Async/Async.h"
 #include "Async/ParallelFor.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Engine/CollisionProfile.h"
@@ -14,39 +15,44 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogDualContourMesh, Log, All);
 
-namespace
-{
-struct FMeshBuildRequest
-{
-	int32 DivisionIndex = INDEX_NONE;
-	FIntVector CellMin = FIntVector::ZeroValue;
-	FIntVector CellMax = FIntVector::ZeroValue;
-	FDualContourMeshData MeshData;
-};
-
-void BuildMeshRequests(const UDualContour& DualContour, TArray<FMeshBuildRequest>& Requests)
+void ADualContourMeshActor::BuildMeshRequests(const UDualContour& InDualContour, TArray<FMeshBuildRequest>& Requests,
+	const std::atomic<bool>* bAbortFlag)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_BuildMeshRequests);
-	check(IsInGameThread());
 	ParallelFor(TEXT("DualContourMesh.BuildDivisions"), Requests.Num(), 1,
-		[&DualContour, &Requests](int32 RequestIndex)
+		[&InDualContour, &Requests, bAbortFlag](int32 RequestIndex)
 		{
-			FMeshBuildRequest& Request = Requests[RequestIndex];
-			FDualContourMeshBuilder::Build(DualContour, Request.CellMin, Request.CellMax, Request.MeshData);
-		}, EParallelForFlags::Unbalanced);
+			// Aborted builds keep remaining divisions empty; the revision check discards them later.
+			if (bAbortFlag && bAbortFlag->load(std::memory_order_relaxed))
+				return;
 
-	int64 ProcessedCellCount = 0;
-	int64 VertexCount = 0;
-	int64 TriangleCount = 0;
-	for (const FMeshBuildRequest& Request : Requests)
-	{
-		ProcessedCellCount += static_cast<int64>(FMath::Max(0, Request.CellMax.X - Request.CellMin.X))
-			* FMath::Max(0, Request.CellMax.Y - Request.CellMin.Y)
-			* FMath::Max(0, Request.CellMax.Z - Request.CellMin.Z);
-		VertexCount += Request.MeshData.Positions.Num();
-		TriangleCount += Request.MeshData.Indices.Num() / 3;
-	}
+			FMeshBuildRequest& Request = Requests[RequestIndex];
+			FDualContourMeshBuilder::Build(InDualContour, Request.CellMin, Request.CellMax, Request.MeshData);
+		}, EParallelForFlags::Unbalanced);
 }
+
+bool ADualContourMeshActor::IsMeshInitializationPending() const
+{
+	return (DualContour && DualContour->IsCellRebuildPending()) || ActiveMeshBuild.IsValid() || bMeshUpdateCompletionPending;
+}
+
+void ADualContourMeshActor::FlushPendingMeshWork()
+{
+	AbortActiveMeshBuild();
+}
+
+void ADualContourMeshActor::AbortActiveMeshBuild()
+{
+	if (ActiveMeshBuild.IsValid())
+		ActiveMeshBuild->bAborted.store(true, std::memory_order_relaxed);
+
+	if (PendingMeshBuildFuture.IsValid())
+	{
+		// Workers observe the abort flag between requests, so this join only waits for in-flight chunks.
+		PendingMeshBuildFuture.Get();
+		PendingMeshBuildFuture = TFuture<void>();
+	}
+	ActiveMeshBuild.Reset();
 }
 
 ADualContourMeshActor::ADualContourMeshActor()
@@ -161,6 +167,7 @@ void ADualContourMeshActor::ProcessPendingMeshUpdates()
 
 void ADualContourMeshActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	AbortActiveMeshBuild();
 	++MeshQueueRevision;
 	DivisionUpdateSerials.Reset();
 	bMeshUpdateCompletionPending = false;
@@ -265,6 +272,7 @@ void ADualContourMeshActor::ProcessPendingDebugComponentRefresh()
 void ADualContourMeshActor::RebuildMesh()
 {
 	TGuardValue<bool> RebuildingMeshGuard(bRebuildingMesh, true);
+	AbortActiveMeshBuild();
 	if (!DualContour || !DualContour->Rebuild())
 		return;
 	RecreateMeshComponents();
@@ -287,6 +295,7 @@ void ADualContourMeshActor::ResetDualContour()
 		return;
 	}
 
+	AbortActiveMeshBuild();
 	if (!DualContour->Initialize(InitialDualContour))
 	{
 		UE_LOG(LogDualContourMesh, Error,
@@ -366,6 +375,7 @@ bool ADualContourMeshActor::LoadRuntimeDensityIncrement(const FString& SlotName,
 	}
 
 	TGuardValue<bool> RebuildingMeshGuard(bRebuildingMesh, true);
+	AbortActiveMeshBuild();
 	if (!DualContour->Initialize(InitialDualContour, &SaveGame->DensityChunks, &SaveGame->MaterialChunks))
 	{
 		RecreateMeshComponents();
@@ -440,20 +450,14 @@ void ADualContourMeshActor::OnDualContourCellsRebuilt(FIntVector AffectedCellMin
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_OnDualContourCellsRebuilt);
 	if (bRebuildingMesh)
 		return;
-	if (MeshCellCount.X != DualContour->CellCount.X || MeshCellCount.Y != DualContour->CellCount.Y
+	const bool bFullGridRebuild = AffectedCellMin == FIntVector::ZeroValue && AffectedCellMax == DualContour->CellCount;
+	if (bFullGridRebuild || MeshCellCount.X != DualContour->CellCount.X || MeshCellCount.Y != DualContour->CellCount.Y
 	    || MeshCellCount.Z != DualContour->CellCount.Z || MeshCellSize != DualContour->CellSize)
 	{
 		RecreateMeshComponents();
 		return;
 	}
 
-#if WITH_EDITOR
-	const bool bFullGridRebuild = AffectedCellMin.X == 0 && AffectedCellMin.Y == 0 && AffectedCellMin.Z == 0
-	                              && AffectedCellMax.X == DualContour->CellCount.X
-	                              && AffectedCellMax.Y == DualContour->CellCount.Y
-	                              && AffectedCellMax.Z == DualContour->CellCount.Z;
-	bDebugRefreshImmediatelyAfterMeshUpdate |= bFullGridRebuild;
-#endif
 	PartialUpdateComponents(AffectedCellMin, AffectedCellMax);
 }
 
@@ -469,6 +473,16 @@ void ADualContourMeshActor::RecreateMeshComponents()
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_RecreateMeshComponents);
 	if (!DualContour || !DualContour->HasCurrentGeneratedData())
 		return;
+
+	// Cells may still be rebuilding in the background (e.g. dispatched by PostLoad after loading).
+	// Game worlds resume through OnCellsRebuilt; editor worlds keep the previous blocking
+	// behavior because their world Tick is not guaranteed to run.
+	const UWorld* World = GetWorld();
+	if (World && World->IsGameWorld() && DualContour->IsCellRebuildPending())
+		return;
+
+	// Supersede any in-flight build before touching shared contour state.
+	AbortActiveMeshBuild();
 	UpdateAutoDivisions();
 	if (!HasValidDivisions())
 	{
@@ -491,24 +505,21 @@ void ADualContourMeshActor::RecreateMeshComponents()
 #endif
 
 	TArray<FMeshBuildRequest> Requests;
-	{
-		Requests.Reserve(Divisions.X * Divisions.Y * Divisions.Z);
-		for (int32 DivisionZ = 0; DivisionZ < Divisions.Z; ++DivisionZ)
-			for (int32 DivisionY = 0; DivisionY < Divisions.Y; ++DivisionY)
-				for (int32 DivisionX = 0; DivisionX < Divisions.X; ++DivisionX)
-				{
-					const FIntVector CellMin = DivisionCellMin(DivisionX, DivisionY, DivisionZ);
-					const FIntVector CellMax = DivisionCellMax(DivisionX, DivisionY, DivisionZ);
-					if (!DualContour->HasActiveCellInRange(CellMin, CellMax))
-						continue;
+	Requests.Reserve(Divisions.X * Divisions.Y * Divisions.Z);
+	for (int32 DivisionZ = 0; DivisionZ < Divisions.Z; ++DivisionZ)
+		for (int32 DivisionY = 0; DivisionY < Divisions.Y; ++DivisionY)
+			for (int32 DivisionX = 0; DivisionX < Divisions.X; ++DivisionX)
+			{
+				const FIntVector CellMin = DivisionCellMin(DivisionX, DivisionY, DivisionZ);
+				const FIntVector CellMax = DivisionCellMax(DivisionX, DivisionY, DivisionZ);
+				if (!DualContour->HasActiveCellInRange(CellMin, CellMax))
+					continue;
 
-					FMeshBuildRequest& Request = Requests.AddDefaulted_GetRef();
-					Request.DivisionIndex = DivisionIndex(DivisionX, DivisionY, DivisionZ);
-					Request.CellMin = CellMin;
-					Request.CellMax = CellMax;
-				}
-	}
-	BuildMeshRequests(*DualContour, Requests);
+				FMeshBuildRequest& Request = Requests.AddDefaulted_GetRef();
+				Request.DivisionIndex = DivisionIndex(DivisionX, DivisionY, DivisionZ);
+				Request.CellMin = CellMin;
+				Request.CellMax = CellMax;
+			}
 
 	{
 		TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_ReplaceFullComponents);
@@ -523,10 +534,35 @@ void ADualContourMeshActor::RecreateMeshComponents()
 		MeshCellCount = DualContour->CellCount;
 		MeshCellSize = DualContour->CellSize;
 
-		for (FMeshBuildRequest& Request : Requests)
-			QueueMeshData(Request.DivisionIndex, MoveTemp(Request.MeshData));
-		SortQueuedMeshDataByViewDistance();
-		NotifyMeshComponentsUpdatedIfReady();
+		const TSharedPtr<FAsyncMeshBuild> Build = MakeShared<FAsyncMeshBuild>();
+		Build->DualContour = TStrongObjectPtr<UDualContour>(DualContour.Get());
+		Build->Requests = MoveTemp(Requests);
+		Build->Revision = MeshQueueRevision;
+		ActiveMeshBuild = Build;
+
+		TWeakObjectPtr<ADualContourMeshActor> WeakThis(this);
+		PendingMeshBuildFuture = Async(EAsyncExecution::ThreadPool, [WeakThis, Build]()
+		{
+			BuildMeshRequests(*Build->DualContour, Build->Requests, &Build->bAborted);
+
+			AsyncTask(ENamedThreads::GameThread, [WeakThis, Build]()
+			{
+				ADualContourMeshActor* Actor = WeakThis.Get();
+				if (!Actor || Build != Actor->ActiveMeshBuild)
+					return;
+
+				// Leave PendingMeshBuildFuture alone: the worker may still be unwinding after enqueuing this
+				// callback, and a completed future is a no-op for the next AbortActiveMeshBuild join.
+				Actor->ActiveMeshBuild.Reset();
+				if (Build->bAborted.load(std::memory_order_relaxed) || Build->Revision != Actor->MeshQueueRevision)
+					return;
+
+				for (FMeshBuildRequest& Request : Build->Requests)
+					Actor->QueueMeshData(Request.DivisionIndex, MoveTemp(Request.MeshData));
+				Actor->SortQueuedMeshDataByViewDistance();
+				Actor->NotifyMeshComponentsUpdatedIfReady();
+			});
+		});
 	}
 }
 
@@ -652,7 +688,8 @@ void ADualContourMeshActor::CancelQueuedMeshData(int32 DivisionIndex)
 
 void ADualContourMeshActor::NotifyMeshComponentsUpdatedIfReady()
 {
-	if (!bMeshUpdateCompletionPending || NextPendingMeshApplyIndex < PendingMeshApplies.Num())
+	// An async build still in flight means its queued data has not been produced yet.
+	if (!bMeshUpdateCompletionPending || ActiveMeshBuild.IsValid() || NextPendingMeshApplyIndex < PendingMeshApplies.Num())
 		return;
 
 	// Clear first so callbacks that enqueue another update start a new completion cycle.
@@ -877,7 +914,7 @@ void ADualContourMeshActor::UpdateMeshDivisions(const TSet<int32>& AffectedDivis
 		Request.CellMin = CellMin;
 		Request.CellMax = CellMax;
 	}
-	BuildMeshRequests(*DualContour, Requests);
+	BuildMeshRequests(*DualContour, Requests, nullptr);
 
 	{
 		TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_QueuePartialComponents);
@@ -934,6 +971,7 @@ bool ADualContourMeshActor::ModifyDensityWithSampler(const FVector& WorldHitPos,
 	const EDualContourDensityOperation Operation = bExcavate
 		                                               ? EDualContourDensityOperation::Difference
 		                                               : EDualContourDensityOperation::Union;
+	AbortActiveMeshBuild();
 	FDualContourEditContext Edit(*DualContour);
 	if (!Edit.ApplyDensity(Operation, *Sampler, SamplingVolumeSize, SamplerPivotTransform))
 	{
@@ -967,6 +1005,7 @@ bool ADualContourMeshActor::ModifyMaterialWithSampler(const FVector& WorldHitPos
 	}
 	const FTransform SamplerPivotTransform(SamplerRotation, LocalHitPosition);
 
+	AbortActiveMeshBuild();
 	FDualContourEditContext Edit(*DualContour);
 	if (!Edit.ApplyMaterial(*Sampler, SamplingVolumeSize, MaterialId, SamplerPivotTransform))
 		return false;

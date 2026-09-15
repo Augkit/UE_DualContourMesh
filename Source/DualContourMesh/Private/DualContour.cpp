@@ -132,7 +132,7 @@ void UDualContour::PostLoad()
 	CellChunks.Reset();
 	if (HasCurrentGeneratedData() && !DensityChunks.IsEmpty())
 	{
-		RebuildCells(true, false);
+		RebuildCells(true);
 	}
 }
 
@@ -1009,7 +1009,11 @@ void UDualContour::RebuildCellsInRangeInternal(FIntVector RangeMin, FIntVector R
 			AsyncTask(ENamedThreads::GameThread, [WeakThis, RangeMin, RangeMax]()
 			{
 				if (WeakThis.IsValid())
+				{
+					// The worker may still be returning after enqueueing this notification.
+					WeakThis->EnsureRebuildComplete();
 					WeakThis->OnCellsRebuilt.Broadcast(RangeMin, RangeMax);
+				}
 			});
 		}
 	}

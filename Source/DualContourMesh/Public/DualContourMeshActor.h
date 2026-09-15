@@ -3,6 +3,9 @@
 #include "GameFramework/Actor.h"
 #include "Materials/MaterialInterface.h"
 #include "PhysicsEngine/BodyInstance.h"
+#include "Async/Future.h"
+#include "UObject/StrongObjectPtr.h"
+#include <atomic>
 #include "DualContourTypes.h"
 #include "DualContour.h"
 #include "DualContourMeshComponent.h"
@@ -108,6 +111,12 @@ public:
 	 */
 	void ProcessPendingMeshUpdates();
 
+	/** True while contour cells or background mesh generation are still producing this actor's mesh. Game thread only. */
+	bool IsMeshInitializationPending() const;
+
+	/** Joins any in-flight background mesh generation. Call before mutating the contour externally. */
+	void FlushPendingMeshWork();
+
 	/** Applies a sampler with the supplied target-local volume size at a surface point. The optional edit direction aligns its local +X axis. */
 	bool ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal, UVolumeSampler* Sampler,
 		const FVector& SamplingVolumeSize, bool bExcavate, const FVector& WorldEditDirection = FVector::ZeroVector);
@@ -150,6 +159,29 @@ private:
 		bool bUpdateCollision = true;
 	};
 
+	/** One division's mesh build inputs and outputs, shared with background workers. */
+	struct FMeshBuildRequest
+	{
+		int32 DivisionIndex = INDEX_NONE;
+		FIntVector CellMin = FIntVector::ZeroValue;
+		FIntVector CellMax = FIntVector::ZeroValue;
+		FDualContourMeshData MeshData;
+	};
+
+	/** Shared state for one dispatched background mesh build. */
+	struct FAsyncMeshBuild
+	{
+		/** Keeps the contour alive even if the actor is destroyed mid-build. */
+		TStrongObjectPtr<UDualContour> DualContour;
+		TArray<FMeshBuildRequest> Requests;
+		std::atomic<bool> bAborted{false};
+		uint64 Revision = 0;
+	};
+
+	/** Builds every request's mesh data in parallel. Workers observe bAbortFlag between requests. */
+	static void BuildMeshRequests(const UDualContour& InDualContour, TArray<FMeshBuildRequest>& Requests, const std::atomic<bool>* bAbortFlag);
+	void AbortActiveMeshBuild();
+
 	FDelegateHandle DualContourCellsRebuiltHandle;
 	FDelegateHandle DualContourMaterialsChangedHandle;
 	TArray<FPendingMeshApply> PendingMeshApplies;
@@ -162,6 +194,8 @@ private:
 	bool bRebuildingMesh = false;
 	bool bDensityEditInProgress = false;
 	bool bUpdateCollisionDuringDensityEdit = false;
+	TSharedPtr<FAsyncMeshBuild> ActiveMeshBuild;
+	TFuture<void> PendingMeshBuildFuture;
 	FIntVector MeshCellCount = FIntVector(0, 0, 0);
 	float MeshCellSize = 0.f;
 	void BindToDualContour();

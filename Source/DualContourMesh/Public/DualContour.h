@@ -47,6 +47,9 @@ public:
 
 	bool HasCurrentGeneratedData() const;
 
+	/** True while a background cell rebuild (e.g. dispatched by PostLoad) is still running. Game thread only. */
+	bool IsCellRebuildPending() const { return PendingRebuildFuture.IsValid() && !PendingRebuildFuture.IsReady(); }
+
 	uint16 GetDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
 	float GetLinearDensity(int32 SampleX, int32 SampleY, int32 SampleZ) const;
 	float GetTrilinearDensity(const FVector& GridPos) const;
