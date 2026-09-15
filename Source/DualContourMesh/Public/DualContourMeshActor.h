@@ -66,14 +66,6 @@ public:
 	/** Broadcast after all queued mesh component creations, updates, and removals have completed. */
 	FOnDualContourMeshComponentsUpdated OnMeshComponentsUpdated;
 
-	/** Slot used by the test save/load buttons below. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Runtime Save")
-	FString RuntimeSaveSlotName = TEXT("DualContourRuntime");
-
-	/** Platform user index used by the test save/load buttons below. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Runtime Save", meta = (ClampMin = "0"))
-	int32 RuntimeSaveUserIndex = 0;
-
 	/** Rebuilds generated cells and mesh components from the actor-owned DualContour. */
 	UFUNCTION(CallInEditor, Category = "DualContour")
 	void RebuildMesh();
@@ -89,12 +81,6 @@ public:
 	/** Rebuilds from InitialDualContour and applies previously saved density/material chunk overlays. */
 	UFUNCTION(BlueprintCallable, Category = "DualContour|Runtime Save")
 	bool LoadRuntimeDensityIncrement(const FString& SlotName, int32 UserIndex = 0);
-
-	UFUNCTION(CallInEditor, Category = "DualContour|Runtime Save", meta = (DisplayName = "Test Save Density Increment"))
-	void TestSaveRuntimeDensityIncrement();
-
-	UFUNCTION(CallInEditor, Category = "DualContour|Runtime Save", meta = (DisplayName = "Test Load Density Increment"))
-	void TestLoadRuntimeDensityIncrement();
 
 #if WITH_EDITOR
 	/** Rebuilds the editor-only mesh-chunk visualization when DualContour.Debug.DrawMeshComponents is enabled. */

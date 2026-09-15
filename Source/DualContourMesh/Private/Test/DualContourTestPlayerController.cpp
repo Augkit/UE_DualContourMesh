@@ -125,13 +125,13 @@ void ADualContourTestPlayerController::IncreaseSamplerScale()
 void ADualContourTestPlayerController::SaveRuntimeDensityIncrement()
 {
 	if (ADualContourMeshActor* MeshActor = FindDualContourMeshActor())
-		MeshActor->TestSaveRuntimeDensityIncrement();
+		MeshActor->SaveRuntimeDensityIncrement(TEXT("DualContourRuntime"), 0);
 }
 
 void ADualContourTestPlayerController::LoadRuntimeDensityIncrement()
 {
 	if (ADualContourMeshActor* MeshActor = FindDualContourMeshActor())
-		MeshActor->TestLoadRuntimeDensityIncrement();
+		MeshActor->LoadRuntimeDensityIncrement(TEXT("DualContourRuntime"), 0);
 }
 
 ADualContourMeshActor* ADualContourTestPlayerController::FindDualContourMeshActor() const

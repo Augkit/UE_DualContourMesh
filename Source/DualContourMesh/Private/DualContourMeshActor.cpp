@@ -391,16 +391,6 @@ bool ADualContourMeshActor::LoadRuntimeDensityIncrement(const FString& SlotName,
 	return true;
 }
 
-void ADualContourMeshActor::TestSaveRuntimeDensityIncrement()
-{
-	SaveRuntimeDensityIncrement(RuntimeSaveSlotName, RuntimeSaveUserIndex);
-}
-
-void ADualContourMeshActor::TestLoadRuntimeDensityIncrement()
-{
-	LoadRuntimeDensityIncrement(RuntimeSaveSlotName, RuntimeSaveUserIndex);
-}
-
 bool ADualContourMeshActor::SetGeneratedDualContour(UDualContour* InDualContour)
 {
 	if (!InDualContour || !InDualContour->HasCurrentGeneratedData())
