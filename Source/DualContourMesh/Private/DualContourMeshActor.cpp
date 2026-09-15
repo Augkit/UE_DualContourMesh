@@ -185,6 +185,8 @@ void ADualContourMeshActor::PostEditChangeProperty(FPropertyChangedEvent& Proper
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 	if (!PropertyChangedEvent.MemberProperty)
 	{
+		// Undo/redo restores serialized properties only; re-sync chunk overrides with MeshMaterial.
+		RefreshMeshMaterial();
 		RefreshCollisionSettings();
 		return;
 	}

@@ -213,6 +213,39 @@ int32 UDualContourMeshComponent::GetNumMaterials() const
 	return 1;
 }
 
+#if WITH_EDITOR
+void UDualContourMeshComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	// Editor material drops and details-panel overrides write to this chunk's OverrideMaterials.
+	// Route them into the owning actor's MeshMaterial so the assignment reaches every chunk and
+	// survives mesh rebuilds, which reapply MeshMaterial to each regenerated component.
+	const FProperty* ChangedMember = PropertyChangedEvent.MemberProperty;
+	if (!ChangedMember || ChangedMember->GetFName() != GET_MEMBER_NAME_CHECKED(UMeshComponent, OverrideMaterials))
+		return;
+
+	ADualContourMeshActor* OwnerActor = GetOwner<ADualContourMeshActor>();
+	if (!OwnerActor)
+		return;
+
+	UMaterialInterface* const DroppedMaterial = Super::GetMaterial(0);
+	if (OwnerActor->MeshMaterial == DroppedMaterial)
+		return;
+
+	FProperty* MeshMaterialProperty = FindFProperty<FObjectProperty>(ADualContourMeshActor::StaticClass(),
+		GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, MeshMaterial));
+	if (!MeshMaterialProperty)
+		return;
+
+	OwnerActor->Modify();
+	OwnerActor->PreEditChange(MeshMaterialProperty);
+	OwnerActor->MeshMaterial = DroppedMaterial;
+	FPropertyChangedEvent MeshMaterialEvent(MeshMaterialProperty, PropertyChangedEvent.ChangeType);
+	OwnerActor->PostEditChangeProperty(MeshMaterialEvent);
+}
+#endif
+
 FBoxSphereBounds UDualContourMeshComponent::CalcBounds(const FTransform& LocalToWorld) const
 {
 	FBox EffectiveLocalBounds = MeshData.LocalBounds.IsValid

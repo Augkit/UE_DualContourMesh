@@ -28,6 +28,11 @@ public:
 	virtual UBodySetup* GetBodySetup() override;
 	virtual UMaterialInterface* GetMaterialFromCollisionFaceIndex(int32 FaceIndex, int32& SectionIndex) const override;
 
+#if WITH_EDITOR
+	/** Routes editor material drops on this chunk into the owning actor's MeshMaterial. */
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
+
 	// IInterface_CollisionDataProvider
 	virtual bool GetTriMeshSizeEstimates(FTriMeshCollisionDataEstimates& OutTriMeshEstimates, bool bInUseAllTriData) const override;
 	virtual bool GetPhysicsTriMeshData(FTriMeshCollisionData* CollisionData, bool bInUseAllTriData) override;
