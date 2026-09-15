@@ -13,6 +13,7 @@
 #include "DualContourMeshActor.generated.h"
 
 class UVolumeSampler;
+class FDualContourMeshEventIntegrator;
 
 DECLARE_MULTICAST_DELEGATE(FOnDualContourMeshComponentsUpdated);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDualContourMeshComponentProgress, int32, int32);
@@ -24,6 +25,7 @@ class DUALCONTOURMESH_API ADualContourMeshActor : public AActor
 
 public:
 	ADualContourMeshActor();
+	virtual ~ADualContourMeshActor() override;
 
 	UPROPERTY(Transient)
 	TMap<int32, TObjectPtr<UDualContourMeshComponent>> MeshComponents;
@@ -187,6 +189,7 @@ private:
 	bool bRebuildingMesh = false;
 	bool bDensityEditInProgress = false;
 	bool bUpdateCollisionDuringDensityEdit = false;
+	TUniquePtr<FDualContourMeshEventIntegrator> ContourEventIntegrator;
 	TSharedPtr<FAsyncMeshBuild> ActiveMeshBuild;
 	TFuture<void> PendingMeshBuildFuture;
 	FIntVector MeshCellCount = FIntVector(0, 0, 0);
@@ -195,6 +198,7 @@ private:
 	void UnbindFromDualContour();
 	void OnDualContourCellsRebuilt(FIntVector AffectedCellMin, FIntVector AffectedCellMax);
 	void OnDualContourMaterialsChanged(FIntVector AffectedCellMin, FIntVector AffectedCellMax);
+	void ProcessPendingContourEvents();
 	void UpdateMeshDivisions(const TSet<int32>& AffectedDivisions, bool bUpdateCollision = true);
 
 	void ApplyCollisionSettings(UDualContourMeshComponent* MeshComponent) const;

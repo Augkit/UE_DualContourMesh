@@ -72,13 +72,16 @@ public:
 
 	bool Rebuild();
 	/** Replaces this contour's density with samples from a volume. */
-	bool ReplaceDensityFromSampler(const UVolumeSampler& Sampler, const FVector& SamplingVolumeSize, const FTransform& SamplerPivotTransform, FText& OutError);
+	bool ReplaceDensityFromSampler(const UVolumeSampler& Sampler, const FVector& SamplingVolumeSize, const FTransform& SamplerPivotTransform,
+		FText& OutError);
 	/** Replaces density from sampled chunks; density outside the sampled range becomes zero. */
 	bool ReplaceDensityFromSampledChunks(TArray<FDualContourSampledChunk>&& SampledChunks, bool bBroadcastCellsRebuilt = true);
 
 	/** Consumes both batches before notification. Observers must not mutate this grid during submission. */
+	/** If false, waits for Cell rebuilding before returning. */
 	bool ApplyPendingEdit(FDualContourPendingDensityBatch& DensityBatch, FDualContourPendingMaterialBatch& MaterialBatch,
-		FDualContourDensityChangedCallback OnDensityChanged = {}, FDualContourMaterialChangedCallback OnMaterialChanged = {});
+		FDualContourDensityChangedCallback OnDensityChanged = {}, FDualContourMaterialChangedCallback OnMaterialChanged = {},
+		bool bAsync = true);
 	/** Consumes pending writes and rebuilds changed chunks. Callback receives actual encoded changes; it must not mutate this grid or batch. */
 	bool ApplyPendingDensityBatch(FDualContourPendingDensityBatch& Batch, FDualContourDensityChangedCallback OnSampleChanged = {});
 	bool ApplyPendingMaterialBatch(FDualContourPendingMaterialBatch& Batch, FDualContourMaterialChangedCallback OnSampleChanged = {});

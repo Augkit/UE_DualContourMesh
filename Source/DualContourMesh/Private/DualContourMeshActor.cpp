@@ -11,6 +11,7 @@
 #include "ProfilingDebugging/CpuProfilerTrace.h"
 #include "UObject/StrongObjectPtr.h"
 #include "DualContourEditContext.h"
+#include "DualContourMeshEventIntegrator.h"
 #include "VolumeSampler/VolumeSampler.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDualContourMesh, Log, All);
@@ -22,6 +23,7 @@ ADualContourMeshActor::ADualContourMeshActor()
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 	RootComponent->SetMobility(EComponentMobility::Static);
 	DualContour = CreateDefaultSubobject<UDualContour>(TEXT("DualContour"));
+	ContourEventIntegrator = MakeUnique<FDualContourMeshEventIntegrator>();
 	CollisionSettings.SetCollisionProfileName(UCollisionProfile::BlockAll_ProfileName);
 
 #if WITH_EDITOR
@@ -30,6 +32,8 @@ ADualContourMeshActor::ADualContourMeshActor()
 	DebugComponent->bSelectable = false;
 #endif
 }
+
+ADualContourMeshActor::~ADualContourMeshActor() = default;
 
 void ADualContourMeshActor::ApplyCollisionSettings(UDualContourMeshComponent* MeshComponent) const
 {
@@ -110,6 +114,7 @@ void ADualContourMeshActor::BeginPlay()
 void ADualContourMeshActor::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	ProcessPendingContourEvents();
 	ProcessPendingMeshUpdates();
 #if WITH_EDITOR
 	ProcessPendingDebugComponentRefresh();
@@ -445,25 +450,41 @@ void ADualContourMeshActor::UnbindFromDualContour()
 
 void ADualContourMeshActor::OnDualContourCellsRebuilt(FIntVector AffectedCellMin, FIntVector AffectedCellMax)
 {
-	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_OnDualContourCellsRebuilt);
-	if (bRebuildingMesh)
-		return;
-	const bool bFullGridRebuild = AffectedCellMin == FIntVector::ZeroValue && AffectedCellMax == DualContour->CellCount;
-	if (bFullGridRebuild || MeshCellCount.X != DualContour->CellCount.X || MeshCellCount.Y != DualContour->CellCount.Y
-	    || MeshCellCount.Z != DualContour->CellCount.Z || MeshCellSize != DualContour->CellSize)
+	if (ContourEventIntegrator)
 	{
-		RecreateMeshComponents();
-		return;
+		ContourEventIntegrator->AddCellsRebuilt(AffectedCellMin, AffectedCellMax);
+		UpdateActorTickEnabled();
 	}
-
-	PartialUpdateComponents(AffectedCellMin, AffectedCellMax);
 }
 
 void ADualContourMeshActor::OnDualContourMaterialsChanged(FIntVector AffectedCellMin, FIntVector AffectedCellMax)
 {
-	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_OnDualContourMaterialsChanged);
-	if (!bRebuildingMesh)
-		PartialUpdateComponents(AffectedCellMin, AffectedCellMax, false);
+	if (ContourEventIntegrator)
+	{
+		ContourEventIntegrator->AddMaterialsChanged(AffectedCellMin, AffectedCellMax);
+		UpdateActorTickEnabled();
+	}
+}
+
+void ADualContourMeshActor::ProcessPendingContourEvents()
+{
+	if (!ContourEventIntegrator || !ContourEventIntegrator->HasPending() || bRebuildingMesh)
+		return;
+	if (!DualContour)
+		return;
+
+	FPendingDualContourMeshEvent Event;
+	if (!ContourEventIntegrator->Consume(Event))
+		return;
+
+	const bool bFullGridRebuild = Event.CellMin == FIntVector::ZeroValue && Event.CellMax == DualContour->CellCount;
+	const bool bRequiresRecreate = bFullGridRebuild || MeshCellCount != DualContour->CellCount || MeshCellSize != DualContour->CellSize;
+	UpdateActorTickEnabled();
+
+	if (bRequiresRecreate)
+		RecreateMeshComponents();
+	else
+		PartialUpdateComponents(Event.CellMin, Event.CellMax, Event.bUpdateCollision);
 }
 
 void ADualContourMeshActor::RecreateMeshComponents()
@@ -711,10 +732,11 @@ void ADualContourMeshActor::ResetQueuedMeshData()
 void ADualContourMeshActor::UpdateActorTickEnabled()
 {
 	const bool bHasPendingMeshData = NextPendingMeshApplyIndex < PendingMeshApplies.Num();
+	const bool bHasPendingContourEvent = ContourEventIntegrator && ContourEventIntegrator->HasPending();
 #if WITH_EDITOR
-	SetActorTickEnabled(bHasPendingMeshData || bDebugRefreshPending);
+	SetActorTickEnabled(bHasPendingMeshData || bHasPendingContourEvent || bDebugRefreshPending);
 #else
-	SetActorTickEnabled(bHasPendingMeshData);
+	SetActorTickEnabled(bHasPendingMeshData || bHasPendingContourEvent);
 #endif
 }
 

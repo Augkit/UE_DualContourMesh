@@ -562,7 +562,7 @@ bool UDualContour::ReplaceDensityFromSampledChunks(TArray<FDualContourSampledChu
 }
 
 bool UDualContour::ApplyPendingEdit(FDualContourPendingDensityBatch& Batch, FDualContourPendingMaterialBatch& MaterialBatch,
-	FDualContourDensityChangedCallback OnDensityChanged, FDualContourMaterialChangedCallback OnMaterialChanged)
+	FDualContourDensityChangedCallback OnDensityChanged, FDualContourMaterialChangedCallback OnMaterialChanged, bool bAsync)
 {
 	check(IsInGameThread());
 	if (!MaterialBatch.bOpen || MaterialBatch.Owner != this)
@@ -629,6 +629,10 @@ bool UDualContour::ApplyPendingEdit(FDualContourPendingDensityBatch& Batch, FDua
 	RecordModifiedDensityChunks(ActuallyDirtyChunks);
 	CompactMaterialChunks(DirtyChunks);
 	RecordModifiedMaterialChunks(DirtyChunks);
+	// Start the density rebuild before notifying material observers. This lets the
+	// mesh actor coalesce a material update with the cell-rebuild notification.
+	if (bDensityChanged)
+		RebuildDirtyCellChunks(MoveTemp(ActuallyDirtyChunks), bAsync);
 	// Both stores and save overlays are complete before observers receive the edit.
 	for (const FDualContourDensitySampleDelta& Change : DensityChanges)
 		OnDensityChanged(Change.SampleCoord, Change.Before, Change.After);
@@ -643,8 +647,6 @@ bool UDualContour::ApplyPendingEdit(FDualContourPendingDensityBatch& Batch, FDua
 		if (CellMin.X < CellMax.X && CellMin.Y < CellMax.Y && CellMin.Z < CellMax.Z)
 			OnMaterialsChanged.Broadcast(CellMin, CellMax);
 	}
-	if (bDensityChanged)
-		RebuildDirtyCellChunks(MoveTemp(ActuallyDirtyChunks), true);
 	return bDensityChanged || bMaterialChanged;
 }
 
