@@ -206,15 +206,15 @@ void UDualContourBrushTool::OnClickPress(const FInputDeviceRay& PressPos)
 	ActiveRayOrigin = PressPos.WorldRay.Origin;
 	ActiveRayDirection = PressPos.WorldRay.Direction;
 	bHasActiveRay = true;
-	StrokeOrigin = HitPosition;
-	StrokeNormal = HitNormal;
 	bStationarySculptStroke = Settings->ActiveTool == EDualContourEditTool::Sculpt
 	                          && !Settings->bUseClayBrush;
-	bStationarySculptSubtract = bStationarySculptStroke && bShiftDown;
-	StrokeGrowthDirection = bStationarySculptSubtract ? -StrokeNormal : StrokeNormal;
+	if (bStationarySculptStroke)
+	{
+		// Lock the growth axis at press time. Dual-contour facet normals jitter, and
+		// re-deriving the direction from them every tick accumulates visible drift.
+		StationaryGrowthAxis = HitNormal;
+	}
 	bStrokeMoved = false;
-	StationarySculptDistance = 0.0f;
-	StationarySculptEmbedDepth = 0.0f;
 	bFlattenHeightLocked = Settings->ActiveTool == EDualContourEditTool::Flatten;
 	if (bFlattenHeightLocked)
 	{
@@ -234,23 +234,7 @@ void UDualContourBrushTool::OnClickPress(const FInputDeviceRay& PressPos)
 	LastStampNormal = HitNormal;
 	LastPreviewFlushTime = FPlatformTime::Seconds();
 	StationaryAccumulator = 0.0f;
-	if (bStationarySculptStroke)
-	{
-		const float ActorScale = FMath::Max(
-			FMath::Abs(TargetActor->GetActorTransform().GetScale3D().X), UE_SMALL_NUMBER);
-		const float WorldCellSize = TargetActor->DualContour->CellSize * ActorScale;
-		const float WorldRadius = Settings->BrushSize * 0.5f;
-		StationarySculptEmbedDepth = FMath::Max(WorldCellSize * 2.0f, WorldRadius * 0.25f);
-		const float EmbedStampSpacing = FMath::Max(WorldCellSize, Settings->BrushSize * 0.15f);
-		for (float Distance = -StationarySculptEmbedDepth; Distance < 0.0f; Distance += EmbedStampSpacing)
-			ApplyStationarySculptStamp(Distance, 1.0f);
-		StationarySculptDistance = 0.0f;
-		ApplyStationarySculptStamp(StationarySculptDistance, 1.0f);
-	}
-	else
-	{
-		ApplyStampAt(HitPosition, HitNormal, 1.0f);
-	}
+	ApplyStampAt(HitPosition, HitNormal, 1.0f);
 	if (Settings->ActiveTool == EDualContourEditTool::Brush)
 		FinishStroke(false);
 }
@@ -278,7 +262,7 @@ void UDualContourBrushTool::OnClickDrag(const FInputDeviceRay& DragPos)
 		if (!bRayMoved)
 		{
 			// Collision updates can produce drag callbacks even though the physical
-			// mouse ray is unchanged. Do not trace the growing cylinder in that case.
+			// mouse ray is unchanged. Do not re-trace the growing surface in that case.
 			return;
 		}
 		bStrokeMoved = true;
@@ -336,44 +320,25 @@ void UDualContourBrushTool::OnTick(float DeltaTime)
 	    || Settings->ActiveTool == EDualContourEditTool::Brush)
 		return;
 
-	if (bStationarySculptStroke && !bStrokeMoved)
-	{
-		StationaryAccumulator += DeltaTime;
-		constexpr float FixedStep = 1.0f / 30.0f;
-		while (StationaryAccumulator >= FixedStep)
-		{
-			const float PreviousDistance = StationarySculptDistance;
-			const float NextDistance = PreviousDistance + Settings->SculptGrowthSpeed * FixedStep;
-			const float ActorScale = FMath::Max(
-				FMath::Abs(TargetActor->GetActorTransform().GetScale3D().X), UE_SMALL_NUMBER);
-			const float WorldCellSize = TargetActor->DualContour->CellSize * ActorScale;
-			const float MaximumSpatialStep = FMath::Max(
-				1.0f, FMath::Min(WorldCellSize, Settings->BrushSize * 0.1f));
-			const float TravelDistance = NextDistance - PreviousDistance;
-			if (TravelDistance > UE_SMALL_NUMBER)
-			{
-				const int32 StepCount = FMath::Max(1, FMath::CeilToInt(TravelDistance / MaximumSpatialStep));
-				for (int32 StepIndex = 1; StepIndex <= StepCount; ++StepIndex)
-				{
-					const float Alpha = static_cast<float>(StepIndex) / static_cast<float>(StepCount);
-					ApplyStationarySculptStamp(FMath::Lerp(PreviousDistance, NextDistance, Alpha), 1.0f);
-				}
-				StationarySculptDistance = NextDistance;
-			}
-			StationaryAccumulator -= FixedStep;
-		}
-		HitPosition = StrokeOrigin + StrokeGrowthDirection * StationarySculptDistance;
-		HitNormal = StrokeNormal;
-		if (FPlatformTime::Seconds() - LastPreviewFlushTime >= FMath::Max(0.033f, Settings->PreviewUpdateInterval))
-			FlushStroke(false);
-		return;
-	}
-
-	// A Sculpt stroke that has moved follows the changing surface along its
-	// normal. Other tools retain screen-ray positioning semantics.
+	// A Sculpt stroke follows the changing surface along its normal, whether the
+	// pointer is held still or being dragged. Other tools retain screen-ray
+	// positioning semantics.
 	const bool bSurfaceNormalSculpt = Settings->ActiveTool == EDualContourEditTool::Sculpt
 	                                  && !Settings->bUseClayBrush;
-	if (bSurfaceNormalSculpt)
+	// A stationary sculpt hold (pointer never moved) deposits one drag-strength
+	// stamp per tick; the shared FixedStep pacing accumulates only one such stamp
+	// per second, which grows a mound far slower than dragging back and forth does.
+	const bool bStationarySculptHold = bSurfaceNormalSculpt && !bStrokeMoved;
+	if (bStationarySculptHold)
+	{
+		// Trace along the locked press axis only to find the current surface
+		// height; the stamp keeps the press normal as its direction so facet
+		// hit normals cannot accumulate drift over a long hold.
+		if (!UpdateSculptHitAlongNormal(LastStampPosition, StationaryGrowthAxis))
+			return;
+		HitNormal = StationaryGrowthAxis;
+	}
+	else if (bSurfaceNormalSculpt)
 	{
 		if (!UpdateSculptHitAlongNormal(LastStampPosition, LastStampNormal))
 			return;
@@ -386,7 +351,7 @@ void UDualContourBrushTool::OnTick(float DeltaTime)
 	constexpr float FixedStep = 1.0f / 30.0f;
 	while (StationaryAccumulator >= FixedStep)
 	{
-		ApplyStampAt(HitPosition, HitNormal, FixedStep);
+		ApplyStampAt(HitPosition, HitNormal, bStationarySculptHold ? 1.0f : FixedStep);
 		StationaryAccumulator -= FixedStep;
 	}
 	LastStampPosition = HitPosition;
@@ -428,21 +393,6 @@ bool UDualContourBrushTool::ApplyStampAt(const FVector& WorldPosition, const FVe
 			       bShiftDown ? 0 : static_cast<uint8>(FMath::Clamp(Settings->PaintMaterialId, 0, 255)),
 			       Settings->MaterialPaintThreshold, Settings->bPaintSolidSamplesOnly)
 		       : DualContourBrushOperations::ApplyDensityStamp(*ActiveEdit, TargetActor->InitialDualContour, Stamp);
-}
-
-bool UDualContourBrushTool::ApplyStationarySculptStamp(float WorldDistance, float TimeScale)
-{
-	if (!TargetActor || !TargetActor->DualContour || !Settings || !ActiveEdit)
-		return false;
-
-	const FVector StampPosition = StrokeOrigin + StrokeGrowthDirection * WorldDistance;
-	FDualContourBrushStamp Stamp = MakeStamp(StampPosition, StrokeNormal, TimeScale);
-	Stamp.Operation = bStationarySculptSubtract
-		                  ? EDualContourDensityEditOperation::SculptSubtract
-		                  : EDualContourDensityEditOperation::Sculpt;
-	Stamp.bUseClayBrush = false;
-	Stamp.bUseDirectionalFalloff = true;
-	return DualContourBrushOperations::ApplyDensityStamp(*ActiveEdit, TargetActor->InitialDualContour, Stamp);
 }
 
 int32 UDualContourBrushTool::ApplyMaterialBrushVolumes(TConstArrayView<ADualContourMaterialBrushVolume*> BrushVolumes)
@@ -577,9 +527,7 @@ void UDualContourBrushTool::FinishStroke(bool bCancel)
 	bStrokeActive = false;
 	bHasActiveRay = false;
 	bStationarySculptStroke = false;
-	bStationarySculptSubtract = false;
 	bStrokeMoved = false;
-	StationarySculptEmbedDepth = 0.0f;
 	bFlattenHeightLocked = false;
 	if (TargetActor && (!Settings || Settings->ActiveTool != EDualContourEditTool::PaintMaterial))
 		TargetActor->SetDensityEditInProgress(false);

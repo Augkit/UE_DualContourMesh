@@ -70,7 +70,6 @@ private:
 	void DrawSurfaceProjectedRing(FPrimitiveDrawInterface* PDI, float Radius, const FLinearColor& Color, float Thickness) const;
 	bool BeginPendingBatch();
 	bool ApplyStampAt(const FVector& WorldPosition, const FVector& WorldNormal, float TimeScale);
-	bool ApplyStationarySculptStamp(float WorldDistance, float TimeScale);
 	void ApplyPathTo(const FVector& WorldPosition, const FVector& WorldNormal);
 	void FlushStroke(bool bFinalFlush);
 	void FinishStroke(bool bCancel);
@@ -101,12 +100,9 @@ private:
 	FVector TargetLocalFlattenPlaneNormal = FVector::UpVector;
 	FVector ActiveRayOrigin = FVector::ZeroVector;
 	FVector ActiveRayDirection = FVector::ForwardVector;
-	FVector StrokeOrigin = FVector::ZeroVector;
-	FVector StrokeNormal = FVector::UpVector;
-	FVector StrokeGrowthDirection = FVector::UpVector;
+	/** Press-point normal; a stationary sculpt hold grows along this axis for the whole stroke. */
+	FVector StationaryGrowthAxis = FVector::UpVector;
 	float FlattenWorldHeight = 0.0f;
-	float StationarySculptDistance = 0.0f;
-	float StationarySculptEmbedDepth = 0.0f;
 	double LastPreviewFlushTime = 0.0;
 	float StationaryAccumulator = 0.0f;
 	bool bHasHit = false;
@@ -115,7 +111,6 @@ private:
 	bool bFlattenHeightLocked = false;
 	bool bHasActiveRay = false;
 	bool bStationarySculptStroke = false;
-	bool bStationarySculptSubtract = false;
 	bool bStrokeMoved = false;
 	bool bMaterialRegionTransformMode = false;
 
