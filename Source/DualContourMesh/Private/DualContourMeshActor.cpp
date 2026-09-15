@@ -15,46 +15,6 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogDualContourMesh, Log, All);
 
-void ADualContourMeshActor::BuildMeshRequests(const UDualContour& InDualContour, TArray<FMeshBuildRequest>& Requests,
-	const std::atomic<bool>* bAbortFlag)
-{
-	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_BuildMeshRequests);
-	ParallelFor(TEXT("DualContourMesh.BuildDivisions"), Requests.Num(), 1,
-		[&InDualContour, &Requests, bAbortFlag](int32 RequestIndex)
-		{
-			// Aborted builds keep remaining divisions empty; the revision check discards them later.
-			if (bAbortFlag && bAbortFlag->load(std::memory_order_relaxed))
-				return;
-
-			FMeshBuildRequest& Request = Requests[RequestIndex];
-			FDualContourMeshBuilder::Build(InDualContour, Request.CellMin, Request.CellMax, Request.MeshData);
-		}, EParallelForFlags::Unbalanced);
-}
-
-bool ADualContourMeshActor::IsMeshInitializationPending() const
-{
-	return (DualContour && DualContour->IsCellRebuildPending()) || ActiveMeshBuild.IsValid() || bMeshUpdateCompletionPending;
-}
-
-void ADualContourMeshActor::FlushPendingMeshWork()
-{
-	AbortActiveMeshBuild();
-}
-
-void ADualContourMeshActor::AbortActiveMeshBuild()
-{
-	if (ActiveMeshBuild.IsValid())
-		ActiveMeshBuild->bAborted.store(true, std::memory_order_relaxed);
-
-	if (PendingMeshBuildFuture.IsValid())
-	{
-		// Workers observe the abort flag between requests, so this join only waits for in-flight chunks.
-		PendingMeshBuildFuture.Get();
-		PendingMeshBuildFuture = TFuture<void>();
-	}
-	ActiveMeshBuild.Reset();
-}
-
 ADualContourMeshActor::ADualContourMeshActor()
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -163,6 +123,46 @@ void ADualContourMeshActor::ProcessPendingMeshUpdates()
 	// preview world while background generation is still running.
 	check(IsInGameThread());
 	ApplyQueuedMeshData();
+}
+
+void ADualContourMeshActor::BuildMeshRequests(const UDualContour& InDualContour, TArray<FMeshBuildRequest>& Requests,
+	const std::atomic<bool>* bAbortFlag)
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_BuildMeshRequests);
+	ParallelFor(TEXT("DualContourMesh.BuildDivisions"), Requests.Num(), 1,
+		[&InDualContour, &Requests, bAbortFlag](int32 RequestIndex)
+		{
+			// Aborted builds keep remaining divisions empty; the revision check discards them later.
+			if (bAbortFlag && bAbortFlag->load(std::memory_order_relaxed))
+				return;
+
+			FMeshBuildRequest& Request = Requests[RequestIndex];
+			FDualContourMeshBuilder::Build(InDualContour, Request.CellMin, Request.CellMax, Request.MeshData);
+		}, EParallelForFlags::Unbalanced);
+}
+
+bool ADualContourMeshActor::IsMeshInitializationPending() const
+{
+	return (DualContour && DualContour->IsCellRebuildPending()) || ActiveMeshBuild.IsValid() || bMeshUpdateCompletionPending;
+}
+
+void ADualContourMeshActor::FlushPendingMeshWork()
+{
+	AbortActiveMeshBuild();
+}
+
+void ADualContourMeshActor::AbortActiveMeshBuild()
+{
+	if (ActiveMeshBuild.IsValid())
+		ActiveMeshBuild->bAborted.store(true, std::memory_order_relaxed);
+
+	if (PendingMeshBuildFuture.IsValid())
+	{
+		// Workers observe the abort flag between requests, so this join only waits for in-flight chunks.
+		PendingMeshBuildFuture.Get();
+		PendingMeshBuildFuture = TFuture<void>();
+	}
+	ActiveMeshBuild.Reset();
 }
 
 void ADualContourMeshActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
