@@ -21,6 +21,11 @@
 			"LoadingPhase": "PostConfigInit"
 		},
 		{
+			"Name": "DualContourGamePlay",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
 			"Name": "DualContourEditor",
 			"Type": "Editor",
 			"LoadingPhase": "Default"
