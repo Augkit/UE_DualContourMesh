@@ -112,12 +112,14 @@ public:
 	/** Joins any in-flight background mesh generation. Call before mutating the contour externally. */
 	void FlushPendingMeshWork();
 
-	/** Applies a sampler with the supplied target-local volume size at a surface point. The optional edit direction aligns its local +X axis. */
-	bool ModifyDensityWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal, UVolumeSampler* Sampler,
-		const FVector& SamplingVolumeSize, bool bExcavate, const FVector& WorldEditDirection = FVector::ZeroVector);
-	/** Applies a material ID through a sampler with the supplied target-local volume size at a surface point. */
-	bool ModifyMaterialWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal, UVolumeSampler* Sampler,
-		const FVector& SamplingVolumeSize, uint8 MaterialId, const FVector& WorldEditDirection = FVector::ZeroVector);
+	/**
+	 * Applies a density and a material stamp through a sampler at a surface point, each with its own target-local
+	 * volume size. The optional edit direction aligns the sampler's local +X axis. Density lands first so solid-only
+	 * material paint sees the staged density.
+	 */
+	bool ModifyDensityAndMaterialWithSampler(const FVector& WorldHitPos, const FVector& WorldHitNormal, UVolumeSampler* Sampler,
+		const FVector& DensitySamplingVolumeSize, const FVector& MaterialSamplingVolumeSize, bool bExcavate, const FVector& WorldEditDirection,
+		uint8 MaterialId);
 	/**
 	 * Marks an interactive density stroke as active. Collision cooking is deferred by default, but tools whose
 	 * hit position must follow the changing preview surface can request collision updates during the stroke.

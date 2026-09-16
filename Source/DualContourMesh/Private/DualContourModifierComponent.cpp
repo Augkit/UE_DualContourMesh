@@ -18,8 +18,8 @@ int32 UDualContourModifierComponent::AddSampler(TSubclassOf<UVolumeSampler> Samp
 	return Samplers.Add(NewObject<UVolumeSampler>(this, SamplerClass));
 }
 
-bool UDualContourModifierComponent::ModifyDualContourWithRay(const FVector& WorldRayOrigin,
-	const FVector& WorldRayDirection, int32 SamplerIndex, uint8 MaterialId, bool bExcavate)
+bool UDualContourModifierComponent::ModifyDualContourWithRay(const FVector& WorldRayOrigin, const FVector& WorldRayDirection, int32 SamplerIndex,
+	uint8 MaterialId, bool bExcavate)
 {
 	if (!GetWorld() || WorldRayOrigin.ContainsNaN() || WorldRayDirection.ContainsNaN())
 		return false;
@@ -43,9 +43,8 @@ bool UDualContourModifierComponent::ModifyDualContourWithRay(const FVector& Worl
 		NormalizedRayDirection, Cast<ADualContourMeshActor>(HitResult.GetActor()), SamplerIndex, MaterialId, bExcavate);
 }
 
-bool UDualContourModifierComponent::ModifyDualContourWithSamplerAndDirection(const FVector& WorldHitPos,
-	const FVector& WorldHitNormal, const FVector& WorldRayDirection, ADualContourMeshActor* MeshActor,
-	int32 SamplerIndex, uint8 MaterialId, bool bExcavate)
+bool UDualContourModifierComponent::ModifyDualContourWithSamplerAndDirection(const FVector& WorldHitPos, const FVector& WorldHitNormal,
+	const FVector& WorldRayDirection, ADualContourMeshActor* MeshActor, int32 SamplerIndex, uint8 MaterialId, bool bExcavate)
 {
 	if (!IsValid(MeshActor) || !Samplers.IsValidIndex(SamplerIndex)
 	    || !FMath::IsFinite(SamplerScale) || SamplerScale <= UE_SMALL_NUMBER
@@ -57,9 +56,6 @@ bool UDualContourModifierComponent::ModifyDualContourWithSamplerAndDirection(con
 		return false;
 
 	const FVector SamplingVolumeSize(SamplerSize * SamplerScale);
-	const bool bDensityModified = MeshActor->ModifyDensityWithSampler(
-		WorldHitPos, FVector::UpVector, Sampler, SamplingVolumeSize, bExcavate, WorldRayDirection);
-	const bool bMaterialModified = MeshActor->ModifyMaterialWithSampler(
-		WorldHitPos, FVector::UpVector, Sampler, SamplingVolumeSize * 1.3f, MaterialId, WorldRayDirection);
-	return bDensityModified || bMaterialModified;
+	return MeshActor->ModifyDensityAndMaterialWithSampler(WorldHitPos, FVector::UpVector, Sampler,
+		SamplingVolumeSize, SamplingVolumeSize * 1.3f, bExcavate, WorldRayDirection, MaterialId);
 }

@@ -38,10 +38,10 @@ public:
 
 	/** Fires a world-space ray and modifies the hit dual-contour mesh. */
 	UFUNCTION(BlueprintCallable, Category = "DualContour")
-	bool ModifyDualContourWithRay(const FVector& WorldRayOrigin, const FVector& WorldRayDirection, int32 SamplerIndex, uint8 MaterialId, bool bExcavate);
+	bool ModifyDualContourWithRay(const FVector& WorldRayOrigin, const FVector& WorldRayDirection, int32 SamplerIndex, uint8 MaterialId,
+		bool bExcavate);
 
 private:
-	bool ModifyDualContourWithSamplerAndDirection(const FVector& WorldHitPos, const FVector& WorldHitNormal,
-		const FVector& WorldRayDirection, ADualContourMeshActor* MeshActor, int32 SamplerIndex,
-		uint8 MaterialId, bool bExcavate);
+	bool ModifyDualContourWithSamplerAndDirection(const FVector& WorldHitPos, const FVector& WorldHitNormal, const FVector& WorldRayDirection,
+		ADualContourMeshActor* MeshActor, int32 SamplerIndex, uint8 MaterialId, bool bExcavate);
 };
