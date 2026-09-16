@@ -6,6 +6,7 @@
 #include "DualContourMeshActor.h"
 #include "DualContourMaterialBrushVolume.h"
 #include "Editor.h"
+#include "EditorModeManager.h"
 #include "Engine/Selection.h"
 #include "EngineUtils.h"
 #include "InteractiveToolManager.h"

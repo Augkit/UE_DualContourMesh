@@ -228,7 +228,7 @@ void UDualContourBrushTool::OnClickPress(const FInputDeviceRay& PressPos)
 	TargetLocalClayPlaneOrigin = TargetActor->GetActorTransform().InverseTransformPosition(HitPosition);
 	TargetLocalClayPlaneNormal = TargetActor->GetActorTransform().InverseTransformVectorNoScale(HitNormal)
 	                                        .GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
-	StrokeDeltas.Reset();
+	DensityStrokeDeltas.Reset();
 	MaterialStrokeDeltas.Reset();
 	LastStampPosition = HitPosition;
 	LastStampNormal = HitNormal;
@@ -388,11 +388,18 @@ bool UDualContourBrushTool::ApplyStampAt(const FVector& WorldPosition, const FVe
 	if (!TargetActor || !TargetActor->DualContour || !ActiveEdit)
 		return false;
 	const FDualContourBrushStamp Stamp = MakeStamp(WorldPosition, WorldNormal, TimeScale);
-	return Settings && Settings->ActiveTool == EDualContourEditTool::PaintMaterial
-		       ? DualContourBrushOperations::ApplyMaterialStamp(*ActiveEdit, Stamp,
-			       bShiftDown ? 0 : static_cast<uint8>(FMath::Clamp(Settings->PaintMaterialId, 0, 255)),
-			       Settings->MaterialPaintThreshold, Settings->bPaintSolidSamplesOnly)
-		       : DualContourBrushOperations::ApplyDensityStamp(*ActiveEdit, TargetActor->InitialDualContour, Stamp);
+	if (Settings && Settings->ActiveTool == EDualContourEditTool::PaintMaterial)
+		return DualContourBrushOperations::ApplyMaterialStamp(*ActiveEdit, Stamp,
+			bShiftDown ? 0 : static_cast<uint8>(FMath::Clamp(Settings->PaintMaterialId, 0, 255)),
+			Settings->MaterialPaintThreshold, Settings->bPaintSolidSamplesOnly);
+	const bool bDensityChanged = DualContourBrushOperations::ApplyDensityStamp(*ActiveEdit, TargetActor->InitialDualContour, Stamp);
+	// The density stamp lands first so solid-only material paint sees the staged
+	// density and colors the samples the stamp just filled in.
+	if (Settings && Settings->SculptMaterialId != 0)
+		DualContourBrushOperations::ApplyMaterialStamp(*ActiveEdit, Stamp,
+			static_cast<uint8>(FMath::Clamp(Settings->SculptMaterialId, 0, 255)),
+			Settings->MaterialPaintThreshold, Settings->bPaintSolidSamplesOnly);
+	return bDensityChanged;
 }
 
 int32 UDualContourBrushTool::ApplyMaterialBrushVolumes(TConstArrayView<ADualContourMaterialBrushVolume*> BrushVolumes)
@@ -417,8 +424,8 @@ int32 UDualContourBrushTool::ApplyMaterialBrushVolumes(TConstArrayView<ADualCont
 		return 0;
 
 	const int32 ChangedSampleCount = Deltas.Num();
-	TUniquePtr<FDualContourMaterialEditChange> Change = MakeUnique<FDualContourMaterialEditChange>();
-	Change->Deltas = MoveTemp(Deltas);
+	TUniquePtr<FDualContourEditChange> Change = MakeUnique<FDualContourEditChange>();
+	Change->MaterialDeltas = MoveTemp(Deltas);
 	GetToolManager()->EmitObjectChange(DualContour, MoveTemp(Change), LOCTEXT("MaterialRegionEdit", "Paint Dual Contour Material Region"));
 	DualContour->MarkPackageDirty();
 	TargetActor->MarkPackageDirty();
@@ -499,10 +506,10 @@ void UDualContourBrushTool::FlushStroke(bool bFinalFlush)
 	ActiveEdit->Commit(
 		[this](const FIntVector& Coord, uint16 Before, uint16 After)
 		{
-			if (FDualContourDensitySampleDelta* Existing = StrokeDeltas.Find(Coord))
+			if (FDualContourDensitySampleDelta* Existing = DensityStrokeDeltas.Find(Coord))
 				Existing->After = After;
 			else
-				StrokeDeltas.Add(Coord, FDualContourDensitySampleDelta{Coord, Before, After});
+				DensityStrokeDeltas.Add(Coord, FDualContourDensitySampleDelta{Coord, Before, After});
 		},
 		[this](const FIntVector& Coord, uint8 Before, uint8 After)
 		{
@@ -531,47 +538,30 @@ void UDualContourBrushTool::FinishStroke(bool bCancel)
 		TargetActor->SetDensityEditInProgress(false);
 	if (!TargetActor || !TargetActor->DualContour)
 		return;
-	if (Settings && Settings->ActiveTool == EDualContourEditTool::PaintMaterial)
-	{
-		TArray<FDualContourMaterialSampleDelta> Deltas;
-		MaterialStrokeDeltas.GenerateValueArray(Deltas);
-		Deltas.RemoveAllSwap([](const FDualContourMaterialSampleDelta& Delta) { return Delta.Before == Delta.After; });
-		if (Deltas.IsEmpty())
-			return;
-		if (bCancel)
-			DualContourEditing::ApplyMaterialDeltas(*TargetActor->DualContour, Deltas, false);
-		else
-		{
-			TUniquePtr<FDualContourMaterialEditChange> Change = MakeUnique<FDualContourMaterialEditChange>();
-			Change->Deltas = MoveTemp(Deltas);
-			GetToolManager()->EmitObjectChange(TargetActor->DualContour, MoveTemp(Change), LOCTEXT("MaterialEdit", "Paint Dual Contour Material"));
-			TargetActor->DualContour->MarkPackageDirty();
-			TargetActor->MarkPackageDirty();
-		}
-		MaterialStrokeDeltas.Reset();
-		return;
-	}
-	if (StrokeDeltas.IsEmpty())
-		return;
 
-	TArray<FDualContourDensitySampleDelta> Deltas;
-	StrokeDeltas.GenerateValueArray(Deltas);
-	Deltas.RemoveAllSwap([](const FDualContourDensitySampleDelta& Delta) { return Delta.Before == Delta.After; });
-	if (Deltas.IsEmpty())
-		return;
+	TArray<FDualContourDensitySampleDelta> Densities;
+	DensityStrokeDeltas.GenerateValueArray(Densities);
+	Densities.RemoveAllSwap([](const FDualContourDensitySampleDelta& Delta) { return Delta.Before == Delta.After; });
+	TArray<FDualContourMaterialSampleDelta> Materials;
+	MaterialStrokeDeltas.GenerateValueArray(Materials);
+	Materials.RemoveAllSwap([](const FDualContourMaterialSampleDelta& Delta) { return Delta.Before == Delta.After; });
 	if (bCancel)
+		DualContourEditing::ApplyEditDeltas(*TargetActor->DualContour, Densities, Materials, false);
+	else if (!Densities.IsEmpty() || !Materials.IsEmpty())
 	{
-		DualContourEditing::ApplyDensityDeltas(*TargetActor->DualContour, Deltas, false);
-	}
-	else
-	{
-		TUniquePtr<FDualContourDensityEditChange> Change = MakeUnique<FDualContourDensityEditChange>();
-		Change->Deltas = MoveTemp(Deltas);
-		GetToolManager()->EmitObjectChange(TargetActor->DualContour, MoveTemp(Change), LOCTEXT("DensityEdit", "Edit Dual Contour"));
+		// One undo entry per stroke: everything the stroke painted reverts together.
+		TUniquePtr<FDualContourEditChange> Change = MakeUnique<FDualContourEditChange>();
+		Change->DensityDeltas = MoveTemp(Densities);
+		Change->MaterialDeltas = MoveTemp(Materials);
+		const FText Description = !Densities.IsEmpty()
+			                          ? LOCTEXT("DensityEdit", "Edit Dual Contour")
+			                          : LOCTEXT("MaterialEdit", "Paint Dual Contour Material");
+		GetToolManager()->EmitObjectChange(TargetActor->DualContour, MoveTemp(Change), Description);
 		TargetActor->DualContour->MarkPackageDirty();
 		TargetActor->MarkPackageDirty();
 	}
-	StrokeDeltas.Reset();
+	DensityStrokeDeltas.Reset();
+	MaterialStrokeDeltas.Reset();
 }
 
 bool UDualContourBrushTool::ProjectBrushPointToSurface(const FVector& PlanePoint, float ProjectionHalfDepth, FVector& OutSurfacePoint) const

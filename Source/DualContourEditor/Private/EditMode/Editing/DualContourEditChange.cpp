@@ -2,70 +2,51 @@
 #include "DualContour.h"
 #include "DualContourUtils.h"
 
-bool DualContourEditing::ApplyDensityDeltas(UDualContour& DualContour, TConstArrayView<FDualContourDensitySampleDelta> Deltas, bool bUseAfterValues)
+bool DualContourEditing::ApplyEditDeltas(UDualContour& DualContour, TConstArrayView<FDualContourDensitySampleDelta> DensityDeltas,
+	TConstArrayView<FDualContourMaterialSampleDelta> MaterialDeltas, bool bUseAfterValues)
 {
-	if (!DualContour.HasCurrentGeneratedData() || Deltas.IsEmpty())
+	if (!DualContour.HasCurrentGeneratedData() || (DensityDeltas.IsEmpty() && MaterialDeltas.IsEmpty()))
 		return false;
-	FDualContourPendingDensityBatch Batch;
-	Batch.Owner = &DualContour;
-	Batch.bOpen = true;
+	FDualContourPendingDensityBatch DensityBatch;
+	DensityBatch.Owner = &DualContour;
+	DensityBatch.bOpen = true;
+	FDualContourPendingMaterialBatch MaterialBatch;
+	MaterialBatch.Owner = &DualContour;
+	MaterialBatch.bOpen = true;
 	const FIntVector SampleDims = DualContour.GetSampleDimensions();
-	for (const FDualContourDensitySampleDelta& Delta : Deltas)
+	for (const FDualContourDensitySampleDelta& Delta : DensityDeltas)
 	{
 		const FIntVector& Coord = Delta.SampleCoord;
 		if (!DualContourUtils::IsValidCoordinate(SampleDims, Coord.X, Coord.Y, Coord.Z))
 			continue;
-		FDualContourPendingDensitySample& Pending = Batch.ChunkSamples.FindOrAdd(
+		FDualContourPendingDensitySample& Pending = DensityBatch.ChunkSamples.FindOrAdd(
 			DualContourUtils::ChunkCoord(Coord.X, Coord.Y, Coord.Z)).FindOrAdd(
 			DualContourUtils::ChunkLocalIndex(Coord.X, Coord.Y, Coord.Z));
 		Pending.Before = DualContour.GetDensity(Coord.X, Coord.Y, Coord.Z);
 		Pending.WorkingValue = FDensityChunk::DecodeLinearDensity(bUseAfterValues ? Delta.After : Delta.Before);
 	}
-	return DualContour.ApplyPendingDensityBatch(Batch);
-}
-
-bool DualContourEditing::ApplyMaterialDeltas(UDualContour& DualContour, TConstArrayView<FDualContourMaterialSampleDelta> Deltas, bool bUseAfterValues)
-{
-	if (!DualContour.HasCurrentGeneratedData() || Deltas.IsEmpty())
-		return false;
-	FDualContourPendingMaterialBatch Batch;
-	Batch.Owner = &DualContour;
-	Batch.bOpen = true;
-	const FIntVector SampleDims = DualContour.GetSampleDimensions();
-	for (const FDualContourMaterialSampleDelta& Delta : Deltas)
+	for (const FDualContourMaterialSampleDelta& Delta : MaterialDeltas)
 	{
 		const FIntVector& Coord = Delta.SampleCoord;
 		if (!DualContourUtils::IsValidCoordinate(SampleDims, Coord.X, Coord.Y, Coord.Z))
 			continue;
-		FDualContourPendingMaterialSample& Pending = Batch.ChunkSamples.FindOrAdd(
+		FDualContourPendingMaterialSample& Pending = MaterialBatch.ChunkSamples.FindOrAdd(
 			DualContourUtils::ChunkCoord(Coord.X, Coord.Y, Coord.Z)).FindOrAdd(
 			DualContourUtils::ChunkLocalIndex(Coord.X, Coord.Y, Coord.Z));
 		Pending.Before = DualContour.GetMaterialId(Coord.X, Coord.Y, Coord.Z);
 		Pending.WorkingId = bUseAfterValues ? Delta.After : Delta.Before;
 	}
-	return DualContour.ApplyPendingMaterialBatch(Batch);
+	return DualContour.ApplyPendingEdit(DensityBatch, MaterialBatch);
 }
 
-void FDualContourDensityEditChange::Apply(UObject* Object)
+void FDualContourEditChange::Apply(UObject* Object)
 {
 	if (UDualContour* DualContour = Cast<UDualContour>(Object))
-		DualContourEditing::ApplyDensityDeltas(*DualContour, Deltas, true);
+		DualContourEditing::ApplyEditDeltas(*DualContour, DensityDeltas, MaterialDeltas, true);
 }
 
-void FDualContourDensityEditChange::Revert(UObject* Object)
+void FDualContourEditChange::Revert(UObject* Object)
 {
 	if (UDualContour* DualContour = Cast<UDualContour>(Object))
-		DualContourEditing::ApplyDensityDeltas(*DualContour, Deltas, false);
-}
-
-void FDualContourMaterialEditChange::Apply(UObject* Object)
-{
-	if (UDualContour* DualContour = Cast<UDualContour>(Object))
-		DualContourEditing::ApplyMaterialDeltas(*DualContour, Deltas, true);
-}
-
-void FDualContourMaterialEditChange::Revert(UObject* Object)
-{
-	if (UDualContour* DualContour = Cast<UDualContour>(Object))
-		DualContourEditing::ApplyMaterialDeltas(*DualContour, Deltas, false);
+		DualContourEditing::ApplyEditDeltas(*DualContour, DensityDeltas, MaterialDeltas, false);
 }

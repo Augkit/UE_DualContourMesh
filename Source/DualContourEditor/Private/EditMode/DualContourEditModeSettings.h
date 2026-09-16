@@ -66,6 +66,12 @@ public:
 		meta = (EditCondition = "ActiveTool == EDualContourEditTool::PaintMaterial", EditConditionHides))
 	bool bPaintSolidSamplesOnly = true;
 
+	/** Non-zero id also painted into the solid samples each density stamp touches; 0 leaves material untouched. */
+	UPROPERTY(EditAnywhere, Config, Category = "Tool Settings",
+		meta = (DisplayName = "Material ID", ClampMin = "0", ClampMax = "255",
+			EditCondition = "ActiveTool != EDualContourEditTool::PaintMaterial", EditConditionHides))
+	int32 SculptMaterialId = 0;
+
 	UPROPERTY(EditAnywhere, Config, Category = "Brush Settings", meta = (ClampMin = "1.0", UIMin = "1.0", UIMax = "8192.0", Delta = "1.0"))
 	float BrushSize = 200.0f;
 
