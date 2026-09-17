@@ -15,6 +15,9 @@ public class DualContourGamePlay : ModuleRules
 				"CoreUObject",
 				"Engine",
 				"UMG",
+				"InputCore",
+				"EnhancedInput",
+				"ControlRig",
 				"DualContourMesh",
 			}
 		);
