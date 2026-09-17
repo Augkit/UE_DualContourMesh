@@ -17,7 +17,7 @@ public class DualContourGamePlay : ModuleRules
 				"UMG",
 				"InputCore",
 				"EnhancedInput",
-				"ControlRig",
+				"TP_FirstPerson",
 				"DualContourMesh",
 			}
 		);
