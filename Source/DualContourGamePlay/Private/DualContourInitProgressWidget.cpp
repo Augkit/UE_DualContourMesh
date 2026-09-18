@@ -108,16 +108,12 @@ void UDualContourInitProgressWidget::BindActor(FTrackedActor& Tracked, int32 Tra
 		return;
 	}
 
-	// Actors with serialized contour data already have their cells ready; actors that copy
-	// InitialDualContour during BeginPlay only reach that state once OnCellsRebuilt fires.
-	Tracked.bCellsReady = Actor->DualContour && Actor->DualContour->HasCurrentGeneratedData();
+	// The player controller can create this widget after the actor's BeginPlay, so the
+	// initial OnCellsRebuilt event may already have been broadcast. Start in the cells
+	// phase and use the event, or the first actual mesh application callback as the
+	// authoritative transition into the mesh phase.
+	Tracked.bCellsReady = false;
 	Actor->GetMeshComponentProgress(Tracked.CompletedMeshCount, Tracked.TotalMeshCount);
-	if (Tracked.TotalMeshCount > 0)
-	{
-		const float MeshProgress = FMath::Clamp(
-			static_cast<float>(Tracked.CompletedMeshCount) / static_cast<float>(Tracked.TotalMeshCount), 0.0f, 1.0f);
-		Tracked.ProgressTarget = 0.6f + MeshProgress * 0.39f;
-	}
 
 	TWeakObjectPtr<UDualContourInitProgressWidget> WeakThis(this);
 	if (UDualContour* DualContour = Actor->DualContour)
@@ -180,6 +176,10 @@ void UDualContourInitProgressWidget::HandleMeshComponentProgress(int32 TrackedIn
 	FTrackedActor& Tracked = TrackedActors[TrackedIndex];
 	Tracked.CompletedMeshCount = FMath::Max(CompletedMeshCount, 0);
 	Tracked.TotalMeshCount = FMath::Max(TotalMeshCount, 0);
+	// If binding happened after OnCellsRebuilt, the first applied component is the
+	// earliest observable signal that the actor has entered the mesh phase.
+	if (!Tracked.bCellsReady && Tracked.CompletedMeshCount > 0)
+		Tracked.bCellsReady = true;
 	if (Tracked.TotalMeshCount > 0)
 	{
 		const float MeshProgress = FMath::Clamp(
@@ -211,11 +211,10 @@ void UDualContourInitProgressWidget::HandleMeshComponentsUpdated(int32 TrackedIn
 		return;
 
 	// The actor consumed every queued component update, so initialization is actually
-	// complete. Snap to 100% instead of slowly interpolating fake progress after the
-	// work has finished.
+	// complete. Move the target to 100%, while NativeTick performs the final
+	// interpolation so the completion event cannot cause a visible jump.
 	Tracked.bComplete = true;
 	Tracked.bCellsReady = true;
-	Tracked.Progress = 1.0f;
 	Tracked.ProgressTarget = 1.0f;
 }
 
@@ -298,7 +297,13 @@ void UDualContourInitProgressWidget::NativeTick(const FGeometry& MyGeometry, flo
 		if (!Tracked.bComplete && (!Actor || IsActorInitializationComplete(*Actor)))
 			HandleMeshComponentsUpdated(TrackedIndex);
 		if (Tracked.bComplete)
+		{
+			// Use a faster easing rate for the short final transition to 100%.
+			Tracked.Progress = FMath::Lerp(
+				Tracked.Progress, Tracked.ProgressTarget,
+				FMath::Clamp(AnimationDeltaTime * 8.0f, 0.0f, 1.0f));
 			continue;
+		}
 
 		if (!Tracked.bCellsReady)
 		{
