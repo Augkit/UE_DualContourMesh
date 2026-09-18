@@ -1,4 +1,5 @@
 #include "DualContourFPCharacter.h"
+#include "DualContourBombActor.h"
 #include "Animation/AnimInstance.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -6,7 +7,9 @@
 #include "Engine/GameViewportClient.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/World.h"
 #include "EnhancedInputComponent.h"
+#include "GameFramework/Controller.h"
 #include "InputAction.h"
 #include "InputActionValue.h"
 #include "Materials/MaterialInterface.h"
@@ -22,6 +25,7 @@ namespace
 ADualContourFPCharacter::ADualContourFPCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
+	BombClass = ADualContourBombActor::StaticClass();
 
 	// Match BP_ShooterCharacter's Blueprint override of CharacterMesh0.
 	GetMesh()->SetRelativeLocationAndRotation(
@@ -111,6 +115,36 @@ ADualContourFPCharacter::ADualContourFPCharacter()
 		TEXT("/DualContourMesh/FX/N_Sparks.N_Sparks"));
 	if (SplashSystemFinder.Succeeded())
 		SplashSystem = SplashSystemFinder.Object;
+}
+
+ADualContourBombActor* ADualContourFPCharacter::FireBomb()
+{
+	UWorld* World = GetWorld();
+	if (!World || !BombClass)
+		return nullptr;
+
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	if (AController* OwningController = GetController())
+		OwningController->GetPlayerViewPoint(ViewLocation, ViewRotation);
+	else
+	{
+		ViewLocation = GetActorLocation();
+		ViewRotation = GetActorRotation();
+	}
+
+	const FVector LaunchDirection = ViewRotation.Vector();
+	const FVector SpawnLocation = ViewLocation + LaunchDirection * BombSpawnDistance;
+	FActorSpawnParameters SpawnParameters;
+	SpawnParameters.Owner = this;
+	SpawnParameters.Instigator = this;
+	SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+
+	ADualContourBombActor* Bomb = World->SpawnActor<ADualContourBombActor>(
+		BombClass, SpawnLocation, LaunchDirection.Rotation(), SpawnParameters);
+	if (Bomb)
+		Bomb->LaunchBomb(LaunchDirection * BombLaunchSpeed + GetVelocity());
+	return Bomb;
 }
 
 void ADualContourFPCharacter::ActivatePistolPose()

@@ -121,7 +121,17 @@ void ADualContourGamePlayerController::SetupInputComponent()
 		this, &ADualContourGamePlayerController::OnDigPressed);
 	InputComponent->BindKey(EKeys::LeftMouseButton, IE_Released,
 		this, &ADualContourGamePlayerController::OnDigReleased);
+	InputComponent->BindKey(BombFireKey, IE_Pressed,
+		this, &ADualContourGamePlayerController::OnBombFirePressed);
 	InitializeSamplers();
+}
+
+void ADualContourGamePlayerController::OnBombFirePressed()
+{
+	if (IsSaveLoadWidgetOpen())
+		return;
+	if (ADualContourFPCharacter* FPCharacter = Cast<ADualContourFPCharacter>(GetPawn()))
+		FPCharacter->FireBomb();
 }
 
 void ADualContourGamePlayerController::OnDigPressed()

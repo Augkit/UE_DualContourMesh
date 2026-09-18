@@ -11,6 +11,7 @@ class UMaterialInterface;
 class UAnimInstance;
 class UNiagaraComponent;
 class UNiagaraSystem;
+class ADualContourBombActor;
 struct FInputActionValue;
 
 /**
@@ -36,6 +37,22 @@ public:
 	void SetWeaponShakeHeld(bool bHeld) { bWeaponShakeHeld = bHeld; }
 	/** Starts or stops the muzzle beam fired from the pistol toward the screen center. */
 	void SetBeamHeld(bool bHeld);
+
+	/** Spawns and launches a physics bomb along the current view direction. */
+	UFUNCTION(BlueprintCallable, Category = "DualContour|Bomb")
+	ADualContourBombActor* FireBomb();
+
+	/** Bomb implementation spawned by FireBomb. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Bomb")
+	TSubclassOf<ADualContourBombActor> BombClass;
+
+	/** Initial speed applied to the bomb rigid body. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Bomb", meta = (ClampMin = "0.0", Units = "cm/s"))
+	float BombLaunchSpeed = 1800.0f;
+
+	/** Distance in front of the camera used to keep the spawned bomb clear of the character capsule. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Bomb", meta = (ClampMin = "0.0", Units = "cm"))
+	float BombSpawnDistance = 100.0f;
 
 	/** Relative transform inside the official Variant_Shooter HandGrip_R socket. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="DualContour|Pistol")

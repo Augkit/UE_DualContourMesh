@@ -1,0 +1,74 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameFramework/Actor.h"
+#include "DualContourBombActor.generated.h"
+
+class ADualContourMeshActor;
+class UPrimitiveComponent;
+class USphereComponent;
+class UStaticMeshComponent;
+class UVolumeSampler;
+
+/**
+ * Physics bomb that removes density from every intersecting DualContour mesh when it hits something.
+ * The sampler is instanced so derived Blueprints can replace the default sphere with another volume shape.
+ */
+UCLASS(Blueprintable)
+class DUALCONTOURGAMEPLAY_API ADualContourBombActor : public AActor
+{
+	GENERATED_BODY()
+
+public:
+	ADualContourBombActor();
+
+	/** Detonates the bomb once. Returns true when at least one DualContour mesh was modified. */
+	UFUNCTION(BlueprintCallable, Category = "Bomb")
+	bool Explode();
+
+	UFUNCTION(BlueprintPure, Category = "Bomb")
+	bool HasExploded() const { return bHasExploded; }
+
+	/** Sets the rigid body's world-space launch velocity. */
+	UFUNCTION(BlueprintCallable, Category = "Bomb")
+	void LaunchBomb(const FVector& Velocity);
+
+	virtual void NotifyHit(UPrimitiveComponent* MyComp, AActor* Other, UPrimitiveComponent* OtherComp,
+		bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse,
+		const FHitResult& Hit) override;
+
+protected:
+	virtual void BeginPlay() override;
+
+	/** Called after the density edit has been submitted. Use this to spawn sound, particles, or camera shake. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Bomb", meta = (DisplayName = "On Exploded"))
+	void BP_OnExploded(bool bModifiedDualContour);
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Bomb|Components")
+	TObjectPtr<USphereComponent> CollisionComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Bomb|Components")
+	TObjectPtr<UStaticMeshComponent> BombMesh;
+
+	/** World-space diameter of the sampling volume. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bomb|Explosion", meta = (ClampMin = "1.0", Units = "cm"))
+	float ExplosionDiameter = 400.0f;
+
+	/** Volume used for the Difference edit. Defaults to a sphere filling ExplosionDiameter. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Instanced, Category = "Bomb|Explosion")
+	TObjectPtr<UVolumeSampler> ExplosionSampler;
+
+	/** Material id used by the shared runtime edit path at the newly exposed surface. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bomb|Explosion", meta = (ClampMin = "0", ClampMax = "255"))
+	uint8 CutSurfaceMaterialId = 0;
+
+	/** Delay before destroying the actor, allowing Blueprint explosion effects to begin. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bomb|Explosion", meta = (ClampMin = "0.0", Units = "s"))
+	float DestroyDelay = 0.1f;
+
+private:
+	bool ExcavateActor(ADualContourMeshActor& MeshActor, const FVector& ExplosionCenter) const;
+
+	UPROPERTY(Transient)
+	bool bHasExploded = false;
+};

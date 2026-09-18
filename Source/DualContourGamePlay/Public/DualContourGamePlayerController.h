@@ -58,6 +58,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DualContour|SaveLoad")
 	FKey SaveLoadToggleKey = EKeys::Tab;
 
+	/** Key used by the first-person template to launch a physics bomb. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DualContour|Input")
+	FKey BombFireKey = EKeys::RightMouseButton;
+
 	/** Index of the sampler used when the progress ring completes. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Mining", meta = (ClampMin = "0"))
 	int32 SelectedSamplerIndex = 0;
@@ -107,6 +111,7 @@ private:
 	void HandleProgressFinished();
 	void OnDigPressed();
 	void OnDigReleased();
+	void OnBombFirePressed();
 	void PerformDig();
 	void InitializeSamplers();
 	void EnsureReticle();
