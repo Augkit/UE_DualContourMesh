@@ -2,11 +2,13 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "InputCoreTypes.h"
 #include "DualContourGamePlayerController.generated.h"
 
 class UInputMappingContext;
 class UDualContourInitProgressWidget;
 class UDualContourMiningReticleWidget;
+class UDualContourSaveLoadWidget;
 class UDualContourModifierComponent;
 class UVolumeSampler;
 
@@ -45,6 +47,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DualContour|Mining")
 	int32 ReticleZOrder = 90;
 
+	/** Widget class shown by SaveLoadToggleKey. The default is the native save/load panel. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DualContour|SaveLoad")
+	TSubclassOf<UDualContourSaveLoadWidget> SaveLoadWidgetClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DualContour|SaveLoad")
+	int32 SaveLoadWidgetZOrder = 110;
+
+	/** Key used to open and close the save/load panel. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DualContour|SaveLoad")
+	FKey SaveLoadToggleKey = EKeys::Tab;
+
 	/** Index of the sampler used when the progress ring completes. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Mining", meta = (ClampMin = "0"))
 	int32 SelectedSamplerIndex = 0;
@@ -65,6 +78,21 @@ public:
 	UFUNCTION(BlueprintPure, Category = "DualContour|Mining")
 	float GetDigProgress() const { return bDigHeld ? DigProgress : 0.0f; }
 
+	UFUNCTION(BlueprintCallable, Category = "DualContour|SaveLoad")
+	void SaveToSlot(int32 SlotIndex);
+
+	UFUNCTION(BlueprintCallable, Category = "DualContour|SaveLoad")
+	void LoadFromSlot(int32 SlotIndex);
+
+	UFUNCTION(BlueprintCallable, Category = "DualContour|SaveLoad")
+	void ClearSlot(int32 SlotIndex);
+
+	UFUNCTION(BlueprintCallable, Category = "DualContour|SaveLoad")
+	void CloseSaveLoadWidget();
+
+	UFUNCTION(BlueprintPure, Category = "DualContour|SaveLoad")
+	bool IsSaveLoadWidgetOpen() const { return SaveLoadWidget != nullptr; }
+
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -82,12 +110,21 @@ private:
 	void PerformDig();
 	void InitializeSamplers();
 	void EnsureReticle();
+	void ToggleSaveLoadWidget();
+	void OpenSaveLoadWidget();
+	void SetSaveLoadInputMode(bool bMenuOpen);
+	FString GetSaveSlotName(int32 SlotIndex) const;
+	FString GetTerrainSlotName(const FString& SaveSlotName, int32 ActorIndex) const;
+	void GetSortedMeshActors(TArray<class ADualContourMeshActor*>& OutActors) const;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UDualContourInitProgressWidget> ProgressWidget;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UDualContourMiningReticleWidget> ReticleWidget;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UDualContourSaveLoadWidget> SaveLoadWidget;
 
 	bool bDigHeld = false;
 	float DigProgress = 0.0f;

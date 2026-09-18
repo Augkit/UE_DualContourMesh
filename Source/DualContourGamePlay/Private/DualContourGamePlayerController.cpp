@@ -3,6 +3,8 @@
 #include "DualContourGamePlay.h"
 #include "DualContourInitProgressWidget.h"
 #include "DualContourMiningReticleWidget.h"
+#include "DualContourSaveLoadWidget.h"
+#include "DualContourFirstPersonSaveGame.h"
 #include "DualContourMeshActor.h"
 #include "DualContourModifierComponent.h"
 #include "VolumeSampler/ProceduralVolumeSampler.h"
@@ -12,6 +14,7 @@
 #include "Engine/GameViewportClient.h"
 #include "EngineUtils.h"
 #include "InputMappingContext.h"
+#include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
 #include "InputCoreTypes.h"
 
@@ -21,6 +24,7 @@ ADualContourGamePlayerController::ADualContourGamePlayerController()
 	bShowMouseCursor = false;
 	ProgressWidgetClass = UDualContourInitProgressWidget::StaticClass();
 	ReticleWidgetClass = UDualContourMiningReticleWidget::StaticClass();
+	SaveLoadWidgetClass = UDualContourSaveLoadWidget::StaticClass();
 	ModifierComponent = CreateDefaultSubobject<UDualContourModifierComponent>(TEXT("DualContourModifier"));
 
 	static ConstructorHelpers::FObjectFinder<UInputMappingContext> DefaultMappingContextFinder(
@@ -100,12 +104,19 @@ void ADualContourGamePlayerController::EndPlay(const EEndPlayReason::Type EndPla
 		ReticleWidget->RemoveFromParent();
 		ReticleWidget = nullptr;
 	}
+	if (SaveLoadWidget)
+	{
+		SaveLoadWidget->RemoveFromParent();
+		SaveLoadWidget = nullptr;
+	}
 	Super::EndPlay(EndPlayReason);
 }
 
 void ADualContourGamePlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
+	InputComponent->BindKey(SaveLoadToggleKey, IE_Pressed,
+		this, &ADualContourGamePlayerController::ToggleSaveLoadWidget);
 	InputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed,
 		this, &ADualContourGamePlayerController::OnDigPressed);
 	InputComponent->BindKey(EKeys::LeftMouseButton, IE_Released,
@@ -115,6 +126,9 @@ void ADualContourGamePlayerController::SetupInputComponent()
 
 void ADualContourGamePlayerController::OnDigPressed()
 {
+	if (IsSaveLoadWidgetOpen())
+		return;
+
 	bDigHeld = true;
 	if (ADualContourFPCharacter* FPCharacter = Cast<ADualContourFPCharacter>(GetPawn()))
 	{
@@ -201,6 +215,238 @@ void ADualContourGamePlayerController::EnsureReticle()
 		ReticleWidget->SetProgress(0.0f);
 		ReticleWidget->AddToViewport(ReticleZOrder);
 	}
+}
+
+void ADualContourGamePlayerController::ToggleSaveLoadWidget()
+{
+	if (IsSaveLoadWidgetOpen())
+		CloseSaveLoadWidget();
+	else
+		OpenSaveLoadWidget();
+}
+
+void ADualContourGamePlayerController::OpenSaveLoadWidget()
+{
+	if (SaveLoadWidget || !SaveLoadWidgetClass)
+		return;
+
+	SaveLoadWidget = CreateWidget<UDualContourSaveLoadWidget>(this, SaveLoadWidgetClass);
+	if (!SaveLoadWidget)
+		return;
+
+	bDigHeld = false;
+	if (ADualContourFPCharacter* FPCharacter = Cast<ADualContourFPCharacter>(GetPawn()))
+	{
+		FPCharacter->SetWeaponShakeHeld(false);
+		FPCharacter->SetBeamHeld(false);
+	}
+	if (ReticleWidget)
+		ReticleWidget->SetVisibility(ESlateVisibility::Hidden);
+
+	SaveLoadWidget->AddToViewport(SaveLoadWidgetZOrder);
+	SetSaveLoadInputMode(true);
+	SaveLoadWidget->SetStatusMessage(FText::FromString(TEXT("选择槽位后进行保存或加载")));
+	UE_LOG(LogDualContourGamePlay, Log, TEXT("Save/load panel opened."));
+}
+
+void ADualContourGamePlayerController::CloseSaveLoadWidget()
+{
+	if (!SaveLoadWidget)
+		return;
+
+	SaveLoadWidget->RemoveFromParent();
+	SaveLoadWidget = nullptr;
+	if (ReticleWidget)
+		ReticleWidget->SetVisibility(ESlateVisibility::HitTestInvisible);
+	SetSaveLoadInputMode(false);
+	UE_LOG(LogDualContourGamePlay, Log, TEXT("Save/load panel closed."));
+}
+
+void ADualContourGamePlayerController::SetSaveLoadInputMode(bool bMenuOpen)
+{
+	SetIgnoreMoveInput(bMenuOpen);
+	SetIgnoreLookInput(bMenuOpen);
+	if (bMenuOpen)
+	{
+		FInputModeGameAndUI InputMode;
+		if (SaveLoadWidget)
+			InputMode.SetWidgetToFocus(SaveLoadWidget->TakeWidget());
+		InputMode.SetHideCursorDuringCapture(false);
+		SetInputMode(InputMode);
+		bShowMouseCursor = true;
+	}
+	else
+	{
+		SetInputMode(FInputModeGameOnly());
+		bShowMouseCursor = false;
+	}
+}
+
+FString ADualContourGamePlayerController::GetSaveSlotName(int32 SlotIndex) const
+{
+	return FString::Printf(TEXT("DualContourFirstPerson_%d"), FMath::Clamp(SlotIndex, 0, 2));
+}
+
+FString ADualContourGamePlayerController::GetTerrainSlotName(const FString& SaveSlotName, int32 ActorIndex) const
+{
+	return FString::Printf(TEXT("%s_Terrain_%d"), *SaveSlotName, ActorIndex);
+}
+
+void ADualContourGamePlayerController::GetSortedMeshActors(TArray<ADualContourMeshActor*>& OutActors) const
+{
+	OutActors.Reset();
+	UWorld* World = GetWorld();
+	if (!World)
+		return;
+
+	for (TActorIterator<ADualContourMeshActor> ActorIt(World); ActorIt; ++ActorIt)
+		if (IsValid(*ActorIt))
+			OutActors.Add(*ActorIt);
+
+	OutActors.Sort([](const ADualContourMeshActor& Left, const ADualContourMeshActor& Right)
+	{
+		return Left.GetName() < Right.GetName();
+	});
+}
+
+void ADualContourGamePlayerController::SaveToSlot(int32 SlotIndex)
+{
+	if (!IsLocalController())
+		return;
+
+	const FString SaveSlotName = GetSaveSlotName(SlotIndex);
+	UDualContourFirstPersonSaveGame* SaveGame = Cast<UDualContourFirstPersonSaveGame>(
+		UGameplayStatics::CreateSaveGameObject(UDualContourFirstPersonSaveGame::StaticClass()));
+	if (!SaveGame)
+	{
+		if (SaveLoadWidget)
+			SaveLoadWidget->SetStatusMessage(FText::FromString(TEXT("创建存档失败")));
+		return;
+	}
+
+	SaveGame->MapName = GetWorld() ? GetWorld()->GetMapName() : FString();
+	if (APawn* ControlledPawn = GetPawn())
+	{
+		SaveGame->bHasPlayerTransform = true;
+		SaveGame->PlayerTransform = ControlledPawn->GetActorTransform();
+		SaveGame->ControlRotation = GetControlRotation();
+	}
+	SaveGame->SelectedSamplerIndex = SelectedSamplerIndex;
+
+	TArray<ADualContourMeshActor*> MeshActors;
+	GetSortedMeshActors(MeshActors);
+	SaveGame->TerrainActorCount = MeshActors.Num();
+
+	const bool bPlayerSaved = UGameplayStatics::SaveGameToSlot(SaveGame, SaveSlotName, 0);
+	bool bTerrainSaved = true;
+	for (int32 ActorIndex = 0; ActorIndex < MeshActors.Num(); ++ActorIndex)
+	{
+		bTerrainSaved &= MeshActors[ActorIndex]->SaveRuntimeDensityIncrement(
+			GetTerrainSlotName(SaveSlotName, ActorIndex), 0);
+	}
+
+	if (SaveLoadWidget)
+	{
+		SaveLoadWidget->SetStatusMessage((bPlayerSaved && bTerrainSaved)
+			? FText::Format(FText::FromString(TEXT("槽位 {0} 保存成功")), FText::AsNumber(SlotIndex + 1))
+			: FText::FromString(TEXT("保存失败：请查看日志")));
+	}
+	UE_LOG(LogDualContourGamePlay, Log, TEXT("Save slot %d completed: player=%s terrain=%s actors=%d."),
+		SlotIndex + 1, bPlayerSaved ? TEXT("ok") : TEXT("failed"),
+		bTerrainSaved ? TEXT("ok") : TEXT("failed"), MeshActors.Num());
+}
+
+void ADualContourGamePlayerController::LoadFromSlot(int32 SlotIndex)
+{
+	if (!IsLocalController())
+		return;
+
+	const FString SaveSlotName = GetSaveSlotName(SlotIndex);
+	UDualContourFirstPersonSaveGame* SaveGame = Cast<UDualContourFirstPersonSaveGame>(
+		UGameplayStatics::LoadGameFromSlot(SaveSlotName, 0));
+	if (!SaveGame)
+	{
+		if (SaveLoadWidget)
+			SaveLoadWidget->SetStatusMessage(FText::Format(
+				FText::FromString(TEXT("槽位 {0} 没有可用存档")), FText::AsNumber(SlotIndex + 1)));
+		return;
+	}
+
+	const FString CurrentMapName = GetWorld() ? GetWorld()->GetMapName() : FString();
+	if (!SaveGame->MapName.IsEmpty() && SaveGame->MapName != CurrentMapName)
+	{
+		if (SaveLoadWidget)
+			SaveLoadWidget->SetStatusMessage(FText::FromString(TEXT("该存档属于其他地图")));
+		return;
+	}
+
+	if (SaveGame->bHasPlayerTransform)
+	{
+		if (APawn* ControlledPawn = GetPawn())
+			ControlledPawn->SetActorTransform(SaveGame->PlayerTransform);
+		SetControlRotation(SaveGame->ControlRotation);
+	}
+	SetSelectedSamplerIndex(SaveGame->SelectedSamplerIndex);
+
+	TArray<ADualContourMeshActor*> MeshActors;
+	GetSortedMeshActors(MeshActors);
+	bool bTerrainLoaded = true;
+	for (int32 ActorIndex = 0; ActorIndex < MeshActors.Num(); ++ActorIndex)
+	{
+		bTerrainLoaded &= MeshActors[ActorIndex]->LoadRuntimeDensityIncrement(
+			GetTerrainSlotName(SaveSlotName, ActorIndex), 0);
+	}
+
+	if (SaveLoadWidget)
+	{
+		SaveLoadWidget->SetStatusMessage(bTerrainLoaded
+			? FText::Format(FText::FromString(TEXT("槽位 {0} 加载成功")), FText::AsNumber(SlotIndex + 1))
+			: FText::FromString(TEXT("玩家状态已加载，但部分地形加载失败")));
+	}
+	UE_LOG(LogDualContourGamePlay, Log, TEXT("Load slot %d completed: terrain=%s actors=%d."),
+		SlotIndex + 1, bTerrainLoaded ? TEXT("ok") : TEXT("failed"), MeshActors.Num());
+}
+
+void ADualContourGamePlayerController::ClearSlot(int32 SlotIndex)
+{
+	if (!IsLocalController())
+		return;
+
+	const FString SaveSlotName = GetSaveSlotName(SlotIndex);
+	int32 TerrainSlotCount = 0;
+	if (UDualContourFirstPersonSaveGame* SaveGame = Cast<UDualContourFirstPersonSaveGame>(
+		UGameplayStatics::LoadGameFromSlot(SaveSlotName, 0)))
+	{
+		TerrainSlotCount = FMath::Max(0, SaveGame->TerrainActorCount);
+	}
+
+	TArray<ADualContourMeshActor*> MeshActors;
+	GetSortedMeshActors(MeshActors);
+	TerrainSlotCount = FMath::Max(TerrainSlotCount, MeshActors.Num());
+
+	bool bDeletedAny = false;
+	for (int32 ActorIndex = 0; ActorIndex < TerrainSlotCount; ++ActorIndex)
+	{
+		const FString TerrainSlotName = GetTerrainSlotName(SaveSlotName, ActorIndex);
+		if (UGameplayStatics::DoesSaveGameExist(TerrainSlotName, 0))
+		{
+			bDeletedAny |= UGameplayStatics::DeleteGameInSlot(TerrainSlotName, 0);
+		}
+	}
+
+	if (UGameplayStatics::DoesSaveGameExist(SaveSlotName, 0))
+	{
+		bDeletedAny |= UGameplayStatics::DeleteGameInSlot(SaveSlotName, 0);
+	}
+
+	if (SaveLoadWidget)
+	{
+		SaveLoadWidget->SetStatusMessage(bDeletedAny
+			? FText::Format(FText::FromString(TEXT("槽位 {0} 的存档修改已失效")), FText::AsNumber(SlotIndex + 1))
+			: FText::Format(FText::FromString(TEXT("槽位 {0} 没有有效存档")), FText::AsNumber(SlotIndex + 1)));
+	}
+	UE_LOG(LogDualContourGamePlay, Log, TEXT("Invalidated save slot %d: deleted=%s terrain_slots=%d; current world was not rebuilt."),
+		SlotIndex + 1, bDeletedAny ? TEXT("yes") : TEXT("no"), TerrainSlotCount);
 }
 
 void ADualContourGamePlayerController::ShowInitializationProgress()
