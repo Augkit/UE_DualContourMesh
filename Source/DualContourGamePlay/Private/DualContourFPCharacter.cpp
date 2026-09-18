@@ -3,9 +3,21 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/GameViewportClient.h"
+#include "Engine/SkeletalMesh.h"
+#include "Engine/StaticMesh.h"
 #include "EnhancedInputComponent.h"
 #include "InputAction.h"
 #include "InputActionValue.h"
+#include "Materials/MaterialInterface.h"
+#include "NiagaraComponent.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraSystem.h"
+
+namespace
+{
+	const FName MuzzleSocketName = TEXT("Muzzle");
+}
 
 ADualContourFPCharacter::ADualContourFPCharacter()
 {
@@ -21,7 +33,7 @@ ADualContourFPCharacter::ADualContourFPCharacter()
 	// controller and camera every frame.
 	{
 		static ConstructorHelpers::FObjectFinder<USkeletalMesh> MeshFinder(
-			TEXT("/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple.SKM_Manny_Simple"));
+			TEXT("/DualContourMesh/Characters/Mannequins/Meshes/SKM_Manny_Simple.SKM_Manny_Simple"));
 		if (MeshFinder.Succeeded())
 		{
 			GetMesh()->SetSkeletalMesh(MeshFinder.Object);
@@ -29,48 +41,48 @@ ADualContourFPCharacter::ADualContourFPCharacter()
 		}
 
 		static ConstructorHelpers::FClassFinder<UAnimInstance> InitialFirstPersonAnimFinder(
-			TEXT("/Game/FirstPerson/Anims/ABP_FP_Copy.ABP_FP_Copy_C"));
+			TEXT("/DualContourMesh/FirstPerson/Anims/ABP_FP_Copy.ABP_FP_Copy_C"));
 		if (InitialFirstPersonAnimFinder.Succeeded())
 			GetFirstPersonMesh()->SetAnimInstanceClass(InitialFirstPersonAnimFinder.Class);
 
 		static ConstructorHelpers::FClassFinder<UAnimInstance> InitialFullBodyAnimFinder(
-			TEXT("/Game/Characters/Mannequins/Anims/Unarmed/ABP_Unarmed.ABP_Unarmed_C"));
+			TEXT("/DualContourMesh/Characters/Mannequins/Anims/Unarmed/ABP_Unarmed.ABP_Unarmed_C"));
 		if (InitialFullBodyAnimFinder.Succeeded())
 			GetMesh()->SetAnimInstanceClass(InitialFullBodyAnimFinder.Class);
 
 		static ConstructorHelpers::FClassFinder<UAnimInstance> PistolFirstPersonAnimFinder(
-			TEXT("/Game/Variant_Shooter/Anims/ABP_FP_Pistol.ABP_FP_Pistol_C"));
+			TEXT("/DualContourMesh/Variant_Shooter/Anims/ABP_FP_Pistol.ABP_FP_Pistol_C"));
 		if (PistolFirstPersonAnimFinder.Succeeded())
 			PistolFirstPersonAnimClass = PistolFirstPersonAnimFinder.Class;
 
 		static ConstructorHelpers::FClassFinder<UAnimInstance> PistolThirdPersonAnimFinder(
-			TEXT("/Game/Variant_Shooter/Anims/ABP_TP_Pistol.ABP_TP_Pistol_C"));
+			TEXT("/DualContourMesh/Variant_Shooter/Anims/ABP_TP_Pistol.ABP_TP_Pistol_C"));
 		if (PistolThirdPersonAnimFinder.Succeeded())
 			PistolThirdPersonAnimClass = PistolThirdPersonAnimFinder.Class;
 
 		static ConstructorHelpers::FObjectFinder<UInputAction> JumpActionFinder(
-			TEXT("/Game/Input/Actions/IA_Jump.IA_Jump"));
+			TEXT("/DualContourMesh/Input/Actions/IA_Jump.IA_Jump"));
 		if (JumpActionFinder.Succeeded())
 			JumpAction = JumpActionFinder.Object;
 
 		static ConstructorHelpers::FObjectFinder<UInputAction> MoveActionFinder(
-			TEXT("/Game/Input/Actions/IA_Move.IA_Move"));
+			TEXT("/DualContourMesh/Input/Actions/IA_Move.IA_Move"));
 		if (MoveActionFinder.Succeeded())
 			MoveAction = MoveActionFinder.Object;
 
 		static ConstructorHelpers::FObjectFinder<UInputAction> LookActionFinder(
-			TEXT("/Game/Input/Actions/IA_Look.IA_Look"));
+			TEXT("/DualContourMesh/Input/Actions/IA_Look.IA_Look"));
 		if (LookActionFinder.Succeeded())
 			LookAction = LookActionFinder.Object;
 
 		static ConstructorHelpers::FObjectFinder<UInputAction> MouseLookActionFinder(
-			TEXT("/Game/Input/Actions/IA_MouseLook.IA_MouseLook"));
+			TEXT("/DualContourMesh/Input/Actions/IA_MouseLook.IA_MouseLook"));
 		if (MouseLookActionFinder.Succeeded())
 			MouseLookAction = MouseLookActionFinder.Object;
 	}
 
-	// Cosmetic static pistol only. It has no weapon actor, collision or gameplay.
-	PistolMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Pistol Mesh"));
+	// Cosmetic skeletal pistol (ships with the Muzzle socket) parented to the right hand.
+	PistolMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Pistol Mesh"));
 	PistolMesh->SetupAttachment(GetFirstPersonMesh(), FName("HandGrip_R"));
 	PistolMesh->SetOnlyOwnerSee(true);
 	PistolMesh->FirstPersonPrimitiveType = EFirstPersonPrimitiveType::FirstPerson;
@@ -79,10 +91,26 @@ ADualContourFPCharacter::ADualContourFPCharacter()
 	PistolMesh->SetCanEverAffectNavigation(false);
 	PistolMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> PistolMeshFinder(
-		TEXT("/Game/Weapons/Pistol/Meshes/SM_Pistol.SM_Pistol"));
+	static ConstructorHelpers::FObjectFinder<USkeletalMesh> PistolMeshFinder(
+			TEXT("/DualContourMesh/Weapons/Pistol/Meshes/SKM_Pistol.SKM_Pistol"));
 	if (PistolMeshFinder.Succeeded())
-		PistolMesh->SetStaticMesh(PistolMeshFinder.Object);
+		PistolMesh->SetSkeletalMesh(PistolMeshFinder.Object);
+
+	// Built by the DualContourBeam commandlet in the plugin content.
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> BeamMeshFinder(
+		TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	if (BeamMeshFinder.Succeeded())
+		BeamMesh = BeamMeshFinder.Object;
+
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> BeamMaterialFinder(
+		TEXT("/DualContourMesh/FX/M_DualContourBeam.M_DualContourBeam"));
+	if (BeamMaterialFinder.Succeeded())
+		BeamMaterial = BeamMaterialFinder.Object;
+
+	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> SplashSystemFinder(
+		TEXT("/DualContourMesh/FX/N_Sparks.N_Sparks"));
+	if (SplashSystemFinder.Succeeded())
+		SplashSystem = SplashSystemFinder.Object;
 }
 
 void ADualContourFPCharacter::ActivatePistolPose()
@@ -100,10 +128,172 @@ void ADualContourFPCharacter::PostInitializeComponents()
 	PistolMesh->SetRelativeTransform(PistolRelativeTransform);
 }
 
+void ADualContourFPCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	DestroyBeamVisual();
+	DeactivateSplash();
+	Super::EndPlay(EndPlayReason);
+}
+
 void ADualContourFPCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	ApplyWeaponShake(DeltaSeconds);
+	if (bBeamHeld)
+		UpdateBeam(DeltaSeconds);
+}
+
+void ADualContourFPCharacter::SetBeamHeld(bool bHeld)
+{
+	if (bBeamHeld == bHeld)
+		return;
+
+	bBeamHeld = bHeld;
+	if (bHeld)
+	{
+		UpdateBeam(0.0f);
+	}
+	else
+	{
+		DestroyBeamVisual();
+		DeactivateSplash();
+	}
+}
+
+void ADualContourFPCharacter::EnsureBeamVisual()
+{
+	if (IsValid(BeamMeshComponent) || !BeamMesh)
+		return;
+
+	// The cylinder is positioned in world space every tick: midpoint between the muzzle and
+	// the impact point, Z axis aligned to the beam direction, Z scale stretched to the length.
+	BeamMeshComponent = NewObject<UStaticMeshComponent>(this, TEXT("BeamCylinder"));
+	BeamMeshComponent->SetStaticMesh(BeamMesh);
+	if (BeamMaterial)
+		BeamMeshComponent->SetMaterial(0, BeamMaterial);
+	BeamMeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	BeamMeshComponent->SetCastShadow(false);
+	BeamMeshComponent->SetGenerateOverlapEvents(false);
+	BeamMeshComponent->SetCanEverAffectNavigation(false);
+	BeamMeshComponent->SetupAttachment(GetRootComponent());
+	BeamMeshComponent->SetAbsolute(true, true, true);
+	BeamMeshComponent->RegisterComponent();
+	BeamMeshComponent->SetVisibility(true);
+}
+
+void ADualContourFPCharacter::DestroyBeamVisual()
+{
+	if (IsValid(BeamMeshComponent))
+		BeamMeshComponent->DestroyComponent();
+	BeamMeshComponent = nullptr;
+}
+
+void ADualContourFPCharacter::UpdateBeam(float DeltaSeconds)
+{
+	FVector RayOrigin;
+	FVector RayDirection;
+	if (!GetScreenCenterRay(RayOrigin, RayDirection))
+		return;
+
+	FHitResult Hit;
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(DualContourBeam), /*bTraceComplex=*/ false);
+	QueryParams.AddIgnoredActor(this);
+	const FVector TraceEnd = RayOrigin + RayDirection * BeamMaxDistance;
+	const bool bBlockingHit = GetWorld()->LineTraceSingleByChannel(
+		Hit, RayOrigin, TraceEnd, ECC_Visibility, QueryParams);
+	const FVector EndPoint = bBlockingHit ? Hit.ImpactPoint : TraceEnd;
+	BeamImpactPoint = bBlockingHit ? Hit.ImpactPoint : FVector::ZeroVector;
+	BeamImpactNormal = bBlockingHit ? Hit.ImpactNormal : FVector::ZeroVector;
+
+	EnsureBeamVisual();
+	if (BeamMeshComponent)
+	{
+		const FVector BeamStart = GetMuzzleWorldLocation();
+		const FVector BeamDelta = EndPoint - BeamStart;
+		const float BeamLength = BeamDelta.Size();
+		if (BeamLength > KINDA_SMALL_NUMBER)
+		{
+			const FVector BeamDirection = BeamDelta / BeamLength;
+			// Extend the cylinder backward past the Muzzle socket so the start hides inside the gun.
+			const FVector VisualStart = BeamStart - BeamDirection * BeamStartPullBack;
+			const float VisualLength = BeamLength + BeamStartPullBack;
+
+			BeamMeshComponent->SetWorldLocation((VisualStart + EndPoint) * 0.5f);
+			BeamMeshComponent->SetWorldRotation(FRotationMatrix::MakeFromZ(BeamDirection).Rotator());
+			// BasicShapes/Cylinder: radius 50, height 100 along Z.
+			BeamMeshComponent->SetWorldScale3D(FVector(
+				BeamRadius / 50.0f, BeamRadius / 50.0f, VisualLength / 100.0f));
+		}
+	}
+
+	UpdateSplash(bBlockingHit);
+}
+
+void ADualContourFPCharacter::UpdateSplash(bool bHitting)
+{
+	if (!bHitting || !SplashSystem)
+	{
+		DeactivateSplash();
+		return;
+	}
+
+	// Add Velocity in Cone uses Local space with Cone Axis +Z. Align that local
+	// axis to the surface normal so sparks leave the impact surface instead of
+	// always using world-up. The Niagara asset owns the continuous Spawn Rate.
+	const FRotator SplashRotation = BeamImpactNormal.IsNearlyZero()
+		? FRotator::ZeroRotator
+		: FRotationMatrix::MakeFromZ(BeamImpactNormal.GetSafeNormal()).Rotator();
+
+	if (!IsValid(SplashComponent))
+	{
+		SplashComponent = UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+			this, SplashSystem, BeamImpactPoint, SplashRotation, FVector::OneVector,
+			/*bAutoDestroy=*/ true, /*bAutoActivate=*/ true, ENCPoolMethod::None);
+	}
+	else
+	{
+		// Keep the persistent effect on the current impact point while held.
+		SplashComponent->SetWorldLocationAndRotation(BeamImpactPoint, SplashRotation);
+	}
+}
+
+void ADualContourFPCharacter::DeactivateSplash()
+{
+	if (IsValid(SplashComponent))
+	{
+		// Natural deactivation stops new particles but allows existing particles
+		// to finish. bAutoDestroy removes the component after the system completes.
+		SplashComponent->Deactivate();
+		SplashComponent = nullptr;
+	}
+}
+
+bool ADualContourFPCharacter::GetScreenCenterRay(FVector& OutOrigin, FVector& OutDirection) const
+{
+	const APlayerController* PlayerController = Cast<APlayerController>(GetController());
+	UGameViewportClient* Viewport = GetWorld() ? GetWorld()->GetGameViewport() : nullptr;
+	if (!PlayerController || !Viewport)
+		return false;
+
+	FVector2D ViewportSize;
+	Viewport->GetViewportSize(ViewportSize);
+	if (ViewportSize.IsNearlyZero())
+		return false;
+
+	return PlayerController->DeprojectScreenPositionToWorld(
+		ViewportSize.X * 0.5f, ViewportSize.Y * 0.5f, OutOrigin, OutDirection);
+}
+
+FVector ADualContourFPCharacter::GetMuzzleWorldLocation() const
+{
+	if (PistolMesh)
+	{
+		// Prefer the Muzzle socket bound on SM_Pistol; fall back to the manual offset.
+		if (PistolMesh->DoesSocketExist(MuzzleSocketName))
+			return PistolMesh->GetSocketLocation(MuzzleSocketName);
+		return PistolMesh->GetComponentTransform().TransformPosition(BeamMuzzleOffset);
+	}
+	return GetActorLocation();
 }
 
 void ADualContourFPCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -188,5 +378,5 @@ float ADualContourFPCharacter::TakeDamage(float Damage, const FDamageEvent& Dama
 
 void ADualContourFPCharacter::AddWeaponClass(const TSubclassOf<AShooterWeapon>& WeaponClass)
 {
-	// Intentionally ignore shooter pickups. The only weapon is the cosmetic SM_Pistol.
+	// Intentionally ignore shooter pickups. The only weapon is the cosmetic SK_Pistol.
 }

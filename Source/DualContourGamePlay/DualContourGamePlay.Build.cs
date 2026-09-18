@@ -17,8 +17,11 @@ public class DualContourGamePlay : ModuleRules
 				"UMG",
 				"InputCore",
 				"EnhancedInput",
-				"TP_FirstPerson",
 				"DualContourMesh",
+				"Niagara",
+				"AIModule",
+				"StateTreeModule",
+				"GameplayStateTreeModule",
 			}
 		);
 

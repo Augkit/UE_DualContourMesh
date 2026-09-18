@@ -24,9 +24,9 @@ ADualContourGamePlayerController::ADualContourGamePlayerController()
 	ModifierComponent = CreateDefaultSubobject<UDualContourModifierComponent>(TEXT("DualContourModifier"));
 
 	static ConstructorHelpers::FObjectFinder<UInputMappingContext> DefaultMappingContextFinder(
-		TEXT("/Game/Input/IMC_Default.IMC_Default"));
+		TEXT("/DualContourMesh/Input/IMC_Default.IMC_Default"));
 	static ConstructorHelpers::FObjectFinder<UInputMappingContext> MouseLookMappingContextFinder(
-		TEXT("/Game/Input/IMC_MouseLook.IMC_MouseLook"));
+		TEXT("/DualContourMesh/Input/IMC_MouseLook.IMC_MouseLook"));
 	if (DefaultMappingContextFinder.Succeeded())
 		DefaultMappingContexts.Add(DefaultMappingContextFinder.Object);
 	if (MouseLookMappingContextFinder.Succeeded())
@@ -117,14 +117,20 @@ void ADualContourGamePlayerController::OnDigPressed()
 {
 	bDigHeld = true;
 	if (ADualContourFPCharacter* FPCharacter = Cast<ADualContourFPCharacter>(GetPawn()))
+	{
 		FPCharacter->SetWeaponShakeHeld(true);
+		FPCharacter->SetBeamHeld(true);
+	}
 }
 
 void ADualContourGamePlayerController::OnDigReleased()
 {
 	bDigHeld = false;
 	if (ADualContourFPCharacter* FPCharacter = Cast<ADualContourFPCharacter>(GetPawn()))
+	{
 		FPCharacter->SetWeaponShakeHeld(false);
+		FPCharacter->SetBeamHeld(false);
+	}
 }
 
 void ADualContourGamePlayerController::PerformDig()
