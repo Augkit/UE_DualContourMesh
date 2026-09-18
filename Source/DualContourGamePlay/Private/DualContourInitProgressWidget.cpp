@@ -112,6 +112,12 @@ void UDualContourInitProgressWidget::BindActor(FTrackedActor& Tracked, int32 Tra
 	// InitialDualContour during BeginPlay only reach that state once OnCellsRebuilt fires.
 	Tracked.bCellsReady = Actor->DualContour && Actor->DualContour->HasCurrentGeneratedData();
 	Actor->GetMeshComponentProgress(Tracked.CompletedMeshCount, Tracked.TotalMeshCount);
+	if (Tracked.TotalMeshCount > 0)
+	{
+		const float MeshProgress = FMath::Clamp(
+			static_cast<float>(Tracked.CompletedMeshCount) / static_cast<float>(Tracked.TotalMeshCount), 0.0f, 1.0f);
+		Tracked.ProgressTarget = 0.6f + MeshProgress * 0.39f;
+	}
 
 	TWeakObjectPtr<UDualContourInitProgressWidget> WeakThis(this);
 	if (UDualContour* DualContour = Actor->DualContour)
@@ -178,7 +184,10 @@ void UDualContourInitProgressWidget::HandleMeshComponentProgress(int32 TrackedIn
 	{
 		const float MeshProgress = FMath::Clamp(
 			static_cast<float>(Tracked.CompletedMeshCount) / static_cast<float>(Tracked.TotalMeshCount), 0.0f, 1.0f);
-		Tracked.ProgressTarget = FMath::Max(Tracked.ProgressTarget, 0.6f + MeshProgress * 0.35f);
+		// Reserve the final 1% for OnMeshComponentsUpdated. This keeps the display
+		// below 100% until the actor has consumed every queued update, while still
+		// allowing progress to follow incremental mesh application past 95%.
+		Tracked.ProgressTarget = FMath::Max(Tracked.ProgressTarget, 0.6f + MeshProgress * 0.39f);
 	}
 }
 
@@ -291,12 +300,15 @@ void UDualContourInitProgressWidget::NativeTick(const FGeometry& MyGeometry, flo
 		if (Tracked.bComplete)
 			continue;
 
-		// Fake progress uses diminishing returns: it moves quickly at first and slows down
-		// as it approaches the end of the current phase.
-		const float PhaseProgressCap = Tracked.bCellsReady ? 0.95f : 0.6f;
-		Tracked.ProgressTarget = FMath::Min(
-			Tracked.ProgressTarget + (PhaseProgressCap - Tracked.ProgressTarget)
-				* FMath::Min(AnimationDeltaTime * 0.8f, 1.0f), PhaseProgressCap);
+		if (!Tracked.bCellsReady)
+		{
+			// Fake progress uses diminishing returns while contour cells are being
+			// prepared. Once cells are ready, mesh progress is driven only by the
+			// actor's incremental component-application callbacks.
+			Tracked.ProgressTarget = FMath::Min(
+				Tracked.ProgressTarget + (0.6f - Tracked.ProgressTarget)
+					* FMath::Min(AnimationDeltaTime * 0.8f, 1.0f), 0.6f);
+		}
 
 		// Smooth the visible value independently from the target so the bar never jumps
 		// between the cell and mesh-component phases or the final completion signal.

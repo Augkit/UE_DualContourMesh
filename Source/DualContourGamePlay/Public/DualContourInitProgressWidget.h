@@ -17,7 +17,7 @@ DECLARE_MULTICAST_DELEGATE(FOnDualContourInitProgressFinished);
  *
  * Progress mirrors the DualContour editor toolkit's generation progress: an animated
  * fake value with diminishing returns until the contour cells are ready (capped at 0.6),
- * then while the actor applies its queued mesh components (capped at 0.95), with the
+ * then while the actor applies its queued mesh components (capped at 0.99), with the
  * applied mesh count reported by ADualContourMeshActor, and a snap to 100% when
  * OnMeshComponentsUpdated reports the actor is done.
  */
