@@ -106,15 +106,117 @@ inline bool IsValidSampledChunks(const FIntVector& FullDimensions, const TArray<
 	}
 	return true;
 }
+
+void SerializeChunkCoord(FArchive& Ar, FIntVector& Coord)
+{
+	Ar << Coord.X;
+	Ar << Coord.Y;
+	Ar << Coord.Z;
 }
 
-void UDualContour::EnsureRebuildComplete() const
+template <typename SampleType>
+bool SerializeChunkSamples(FArchive& Ar, TArray<SampleType>& Samples)
 {
-	if (!IsInGameThread())
-		return;
-	if (PendingRebuildFuture.IsValid())
+	int32 SampleCount = Ar.IsSaving() ? Samples.Num() : 0;
+	Ar << SampleCount;
+	constexpr int32 ExpandedChunkSize = GDualContourChunkSize * GDualContourChunkSize * GDualContourChunkSize;
+	if (SampleCount != 0 && SampleCount != ExpandedChunkSize)
 	{
-		PendingRebuildFuture.Get();
+		Ar.SetError();
+		return false;
+	}
+	if (Ar.IsLoading())
+		Samples.SetNumUninitialized(SampleCount);
+	if (SampleCount > 0)
+		Ar.Serialize(Samples.GetData(), static_cast<int64>(SampleCount) * sizeof(SampleType));
+	return !Ar.IsError();
+}
+
+void SerializeDensityChunksForDuplication(FArchive& Ar, FDualContourDensityChunks& Chunks)
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_SerializeDuplicateDensityChunks);
+	int32 ChunkCount = Ar.IsSaving() ? Chunks.Num() : 0;
+	Ar << ChunkCount;
+	if (ChunkCount < 0)
+	{
+		Ar.SetError();
+		return;
+	}
+
+	if (Ar.IsLoading())
+	{
+		Chunks.Empty(ChunkCount);
+		for (int32 Index = 0; Index < ChunkCount && !Ar.IsError(); ++Index)
+		{
+			FIntVector Coord;
+			FDensityChunk Chunk;
+			SerializeChunkCoord(Ar, Coord);
+			Ar << Chunk.UniformValue;
+			if (SerializeChunkSamples(Ar, Chunk.DensitySamples))
+				Chunks.Add(Coord, MoveTemp(Chunk));
+		}
+		return;
+	}
+
+	for (TPair<FIntVector, FDensityChunk>& Pair : Chunks)
+	{
+		FIntVector Coord = Pair.Key;
+		SerializeChunkCoord(Ar, Coord);
+		Ar << Pair.Value.UniformValue;
+		if (!SerializeChunkSamples(Ar, Pair.Value.DensitySamples))
+			return;
+	}
+}
+
+void SerializeMaterialChunksForDuplication(FArchive& Ar, FDualContourMaterialChunks& Chunks)
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_SerializeDuplicateMaterialChunks);
+	int32 ChunkCount = Ar.IsSaving() ? Chunks.Num() : 0;
+	Ar << ChunkCount;
+	if (ChunkCount < 0)
+	{
+		Ar.SetError();
+		return;
+	}
+
+	if (Ar.IsLoading())
+	{
+		Chunks.Empty(ChunkCount);
+		for (int32 Index = 0; Index < ChunkCount && !Ar.IsError(); ++Index)
+		{
+			FIntVector Coord;
+			FMaterialIdChunk Chunk;
+			SerializeChunkCoord(Ar, Coord);
+			Ar << Chunk.UniformId;
+			if (SerializeChunkSamples(Ar, Chunk.MaterialIds))
+				Chunks.Add(Coord, MoveTemp(Chunk));
+		}
+		return;
+	}
+
+	for (TPair<FIntVector, FMaterialIdChunk>& Pair : Chunks)
+	{
+		FIntVector Coord = Pair.Key;
+		SerializeChunkCoord(Ar, Coord);
+		Ar << Pair.Value.UniformId;
+		if (!SerializeChunkSamples(Ar, Pair.Value.MaterialIds))
+			return;
+	}
+}
+}
+
+void UDualContour::Serialize(FArchive& Ar)
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_Serialize);
+	Super::Serialize(Ar);
+
+	// UObject duplication normally reflects through every TMap entry, struct field and sample-array element.
+	// The archive is process-local and source/destination run the same code, so a compact native stream is both
+	// safe and substantially cheaper. Disk package serialization intentionally retains the existing UPROPERTY format.
+	if (Ar.HasAnyPortFlags(PPF_Duplicate))
+	{
+		SerializeDensityChunksForDuplication(Ar, DensityChunks);
+		SerializeMaterialChunksForDuplication(Ar, MaterialChunks);
 	}
 }
 
@@ -122,8 +224,7 @@ void UDualContour::PostLoad()
 {
 	Super::PostLoad();
 	EnsureRebuildComplete();
-	CompactAllDensityChunks();
-	CompactAllMaterialChunks();
+
 	ModifiedDensityChunks.Reset();
 	ModifiedMaterialChunks.Reset();
 
@@ -209,6 +310,16 @@ bool UDualContour::ValidateGenerationSettings() const
 		return false;
 	}
 	return true;
+}
+
+void UDualContour::EnsureRebuildComplete() const
+{
+	if (!IsInGameThread())
+		return;
+	if (PendingRebuildFuture.IsValid())
+	{
+		PendingRebuildFuture.Get();
+	}
 }
 
 bool UDualContour::HasCurrentGeneratedData() const
@@ -372,7 +483,8 @@ bool UDualContour::Rebuild()
 	return true;
 }
 
-bool UDualContour::ReplaceDensityFromSampler(const UVolumeSampler& Sampler, const FVector& SamplingVolumeSize, const FTransform& SamplerPivotTransform,
+bool UDualContour::ReplaceDensityFromSampler(const UVolumeSampler& Sampler, const FVector& SamplingVolumeSize,
+	const FTransform& SamplerPivotTransform,
 	FText& OutError)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_ReplaceDensityFromSampler);

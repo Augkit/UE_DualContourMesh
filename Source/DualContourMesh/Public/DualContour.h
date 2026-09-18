@@ -86,6 +86,8 @@ public:
 	bool ApplyPendingDensityBatch(FDualContourPendingDensityBatch& Batch, FDualContourDensityChangedCallback OnSampleChanged = {});
 	bool ApplyPendingMaterialBatch(FDualContourPendingMaterialBatch& Batch, FDualContourMaterialChangedCallback OnSampleChanged = {});
 
+	virtual void Serialize(FArchive& Ar) override;
+
 	virtual void PostLoad() override;
 	virtual void PreSave(FObjectPreSaveContext SaveContext) override;
 	virtual void BeginDestroy() override;
@@ -98,14 +100,16 @@ public:
 #endif
 
 private:
-	UPROPERTY(NonTransactional)
+	// Duplicate archives use UDualContour::Serialize's packed in-memory path; package save/load keeps this property format.
+	UPROPERTY(DuplicateTransient, NonTransactional)
 	TMap<FIntVector, FDensityChunk> DensityChunks;
 
 	/** Latest complete state of every density chunk touched since the base contour was copied or generated. */
 	UPROPERTY(Transient, NonTransactional)
 	TMap<FIntVector, FDensityChunk> ModifiedDensityChunks;
 
-	UPROPERTY(NonTransactional)
+	// Duplicate archives use UDualContour::Serialize's packed in-memory path; package save/load keeps this property format.
+	UPROPERTY(DuplicateTransient, NonTransactional)
 	TMap<FIntVector, FMaterialIdChunk> MaterialChunks;
 
 	UPROPERTY(Transient, NonTransactional)
