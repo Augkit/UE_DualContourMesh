@@ -40,10 +40,15 @@ public:
 	virtual bool WantsNegXTriMesh() override { return false; }
 
 private:
-	void CreateMeshBodySetup();
+	UBodySetup* CreateBodySetup();
 	void UpdateCollision();
+	void FinishPhysicsAsyncCook(bool bSuccess, UBodySetup* FinishedBodySetup);
 	FDualContourMeshData MeshData;
 
 	UPROPERTY(Instanced, Transient)
 	TObjectPtr<UBodySetup> MeshBodySetup;
+
+	/** Keeps in-flight body setups alive until the newest asynchronous Chaos cook completes. */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UBodySetup>> AsyncBodySetupQueue;
 };

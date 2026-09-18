@@ -323,34 +323,71 @@ bool UDualContourMeshComponent::ContainsPhysicsTriMeshData(bool bInUseAllTriData
 	return MeshData.Positions.Num() >= 3 && MeshData.Indices.Num() >= 3;
 }
 
-void UDualContourMeshComponent::CreateMeshBodySetup()
+UBodySetup* UDualContourMeshComponent::CreateBodySetup()
 {
-	if (MeshBodySetup)
-		return;
-
 	const EObjectFlags BodySetupFlags = IsTemplate() ? RF_Public | RF_ArchetypeObject : RF_NoFlags;
-	MeshBodySetup = NewObject<UBodySetup>(this, NAME_None, BodySetupFlags);
-	MeshBodySetup->BodySetupGuid = FGuid::NewGuid();
-	MeshBodySetup->bGenerateMirroredCollision = false;
-	MeshBodySetup->bDoubleSidedGeometry = false;
-	MeshBodySetup->CollisionTraceFlag = CTF_UseComplexAsSimple;
+	UBodySetup* NewBodySetup = NewObject<UBodySetup>(this, NAME_None, BodySetupFlags);
+	NewBodySetup->BodySetupGuid = FGuid::NewGuid();
+	NewBodySetup->bGenerateMirroredCollision = false;
+	NewBodySetup->bDoubleSidedGeometry = false;
+	NewBodySetup->CollisionTraceFlag = CTF_UseComplexAsSimple;
+	return NewBodySetup;
 }
 
 void UDualContourMeshComponent::UpdateCollision()
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_UpdateCollision);
-	CreateMeshBodySetup();
-	MeshBodySetup->CollisionTraceFlag = CTF_UseComplexAsSimple;
-	MeshBodySetup->bDoubleSidedGeometry = false;
-	MeshBodySetup->bHasCookedCollisionData = true;
-	MeshBodySetup->InvalidatePhysicsData();
-	MeshBodySetup->CreatePhysicsMeshes();
+	check(IsInGameThread());
+
+	// A body setup may only own one active async cook. Keep the currently installed setup
+	// alive for queries and cook each new mesh into a separate setup.
+	for (UBodySetup* PendingBodySetup : AsyncBodySetupQueue)
+	{
+		if (PendingBodySetup)
+			PendingBodySetup->AbortPhysicsMeshAsyncCreation();
+	}
+
+	UBodySetup* NewBodySetup = CreateBodySetup();
+	AsyncBodySetupQueue.Add(NewBodySetup);
+	NewBodySetup->CreatePhysicsMeshesAsync(
+		FOnAsyncPhysicsCookFinished::CreateUObject(this, &UDualContourMeshComponent::FinishPhysicsAsyncCook, NewBodySetup));
+}
+
+void UDualContourMeshComponent::FinishPhysicsAsyncCook(bool bSuccess, UBodySetup* FinishedBodySetup)
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_FinishPhysicsAsyncCook);
+	check(IsInGameThread());
+
+	int32 FinishedIndex = INDEX_NONE;
+	if (!AsyncBodySetupQueue.Find(FinishedBodySetup, FinishedIndex))
+		return;
+
+	// CreatePhysicsMeshesAsync reports false when there was simply no geometry to cook.
+	// Treat that case as a successful empty body so stale collision is removed.
+	const bool bNoCookNeeded = !ContainsPhysicsTriMeshData(false);
+	if (!bSuccess && !bNoCookNeeded)
+	{
+		AsyncBodySetupQueue.RemoveAt(FinishedIndex);
+		return;
+	}
+
+	// Presence in the queue means this result has not been superseded and removed. Install it,
+	// then retain only newer requests in case one was queued while this cook was completing.
+	MeshBodySetup = FinishedBodySetup;
 	RecreatePhysicsState();
+	MarkRenderStateDirty();
+
+	TArray<TObjectPtr<UBodySetup>> NewQueue;
+	NewQueue.Reserve(AsyncBodySetupQueue.Num() - FinishedIndex - 1);
+	for (int32 AsyncIndex = FinishedIndex + 1; AsyncIndex < AsyncBodySetupQueue.Num(); ++AsyncIndex)
+		NewQueue.Add(AsyncBodySetupQueue[AsyncIndex]);
+	AsyncBodySetupQueue = MoveTemp(NewQueue);
 }
 
 UBodySetup* UDualContourMeshComponent::GetBodySetup()
 {
-	CreateMeshBodySetup();
+	if (!MeshBodySetup)
+		MeshBodySetup = CreateBodySetup();
 	return MeshBodySetup;
 }
 
