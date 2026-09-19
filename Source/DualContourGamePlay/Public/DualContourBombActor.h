@@ -37,6 +37,7 @@ public:
 	virtual void NotifyHit(UPrimitiveComponent* MyComp, AActor* Other, UPrimitiveComponent* OtherComp,
 		bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse,
 		const FHitResult& Hit) override;
+	virtual void OnConstruction(const FTransform& Transform) override;
 
 protected:
 	virtual void BeginPlay() override;
@@ -50,6 +51,10 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Bomb|Components")
 	TObjectPtr<UStaticMeshComponent> BombMesh;
+
+	/** Visual size multiplier for the bomb mesh. Collision and explosion size are configured separately. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bomb|Visual", meta = (ClampMin = "0.01"))
+	float BombSizeMultiplier = 0.5f;
 
 	/** World-space diameter of the sampling volume. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bomb|Explosion", meta = (ClampMin = "1.0", Units = "cm"))

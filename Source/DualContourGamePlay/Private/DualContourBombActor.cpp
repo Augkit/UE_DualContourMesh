@@ -27,7 +27,6 @@ ADualContourBombActor::ADualContourBombActor()
 	BombMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("BombMesh"));
 	BombMesh->SetupAttachment(CollisionComponent);
 	BombMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	BombMesh->SetRelativeScale3D(FVector(0.5f));
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
 	if (SphereMesh.Succeeded())
@@ -38,6 +37,13 @@ ADualContourBombActor::ADualContourBombActor()
 	ExplosionSampler = SphereSampler;
 
 	ExplosionEffectClass = AExplosionSphereActor::StaticClass();
+}
+
+void ADualContourBombActor::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+	if (BombMesh)
+		BombMesh->SetRelativeScale3D(FVector(FMath::Max(BombSizeMultiplier, 0.01f)));
 }
 
 void ADualContourBombActor::BeginPlay()
