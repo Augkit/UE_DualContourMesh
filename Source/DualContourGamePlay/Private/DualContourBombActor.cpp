@@ -3,6 +3,7 @@
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "DualContourMeshActor.h"
+#include "ExplosionSphereActor.h"
 #include "Engine/CollisionProfile.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
@@ -35,6 +36,8 @@ ADualContourBombActor::ADualContourBombActor()
 	USphereVolumeSampler* SphereSampler = CreateDefaultSubobject<USphereVolumeSampler>(TEXT("ExplosionSampler"));
 	SphereSampler->Radius = 0.5f;
 	ExplosionSampler = SphereSampler;
+
+	ExplosionEffectClass = AExplosionSphereActor::StaticClass();
 }
 
 void ADualContourBombActor::BeginPlay()
@@ -88,6 +91,21 @@ bool ADualContourBombActor::Explode()
 				bModifiedDualContour |= ExcavateActor(MeshActor, ExplosionCenter);
 		}
 	}
+
+	// The visual effect is independent of the terrain edit, so it also plays when
+	// the bomb hits a regular actor or an empty part of the level.
+	// BasicShapes/Sphere 的直径是 100 cm。将效果球的最终直径对齐到
+	// ExplosionDiameter，使它与采样器的爆炸半径一致。
+	float EffectScaleMultiplier = FMath::Max(ExplosionEffectSizeMultiplier, 0.01f);
+	if (ExplosionEffectClass)
+	{
+		const AExplosionSphereActor* EffectCDO = ExplosionEffectClass->GetDefaultObject<AExplosionSphereActor>();
+		const float EffectEndScale = EffectCDO ? FMath::Max(EffectCDO->EndScale, 0.01f) : 8.0f;
+		const float EffectFinalDiameter = 100.0f * EffectEndScale;
+		EffectScaleMultiplier *= ExplosionDiameter / EffectFinalDiameter;
+	}
+
+	AExplosionSphereActor::SpawnExplosion(this, ExplosionEffectClass, ExplosionCenter, EffectScaleMultiplier);
 
 	BP_OnExploded(bModifiedDualContour);
 	if (DestroyDelay <= 0.0f)

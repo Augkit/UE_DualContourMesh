@@ -9,6 +9,7 @@ class UPrimitiveComponent;
 class USphereComponent;
 class UStaticMeshComponent;
 class UVolumeSampler;
+class AExplosionSphereActor;
 
 /**
  * Physics bomb that removes density from every intersecting DualContour mesh when it hits something.
@@ -65,6 +66,14 @@ protected:
 	/** Delay before destroying the actor, allowing Blueprint explosion effects to begin. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bomb|Explosion", meta = (ClampMin = "0.0", Units = "s"))
 	float DestroyDelay = 0.1f;
+
+	/** Explosion sphere spawned at the impact point after the bomb detonates. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bomb|Explosion")
+	TSubclassOf<AExplosionSphereActor> ExplosionEffectClass;
+
+	/** Additional size multiplier applied after matching the sampler radius. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bomb|Explosion", meta = (ClampMin = "0.01"))
+	float ExplosionEffectSizeMultiplier = 1.0f;
 
 private:
 	bool ExcavateActor(ADualContourMeshActor& MeshActor, const FVector& ExplosionCenter) const;
