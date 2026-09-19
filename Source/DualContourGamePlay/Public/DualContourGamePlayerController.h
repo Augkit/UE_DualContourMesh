@@ -80,7 +80,10 @@ public:
 	void SetSelectedSamplerIndex(int32 SamplerIndex);
 
 	UFUNCTION(BlueprintPure, Category = "DualContour|Mining")
-	float GetDigProgress() const { return bDigHeld ? DigProgress : 0.0f; }
+	float GetDigProgress() const
+	{
+		return bBombHeld ? BombChargeProgress : (bDigHeld ? DigProgress : 0.0f);
+	}
 
 	UFUNCTION(BlueprintCallable, Category = "DualContour|SaveLoad")
 	void SaveToSlot(int32 SlotIndex);
@@ -112,6 +115,7 @@ private:
 	void OnDigPressed();
 	void OnDigReleased();
 	void OnBombFirePressed();
+	void OnBombFireReleased();
 	void PerformDig();
 	void InitializeSamplers();
 	void EnsureReticle();
@@ -133,4 +137,6 @@ private:
 
 	bool bDigHeld = false;
 	float DigProgress = 0.0f;
+	bool bBombHeld = false;
+	float BombChargeProgress = 0.0f;
 };

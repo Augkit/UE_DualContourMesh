@@ -87,6 +87,27 @@ void ADualContourGamePlayerController::Tick(float DeltaSeconds)
 		DigProgress = 0.0f;
 	}
 
+	if (bBombHeld)
+	{
+		// Bomb charging is intentionally tied to the mining charge duration so the
+		// right mouse button always takes exactly twice as long as the left button.
+		const float BombHoldDuration = FMath::Max(DigHoldDuration * 2.0f, KINDA_SMALL_NUMBER);
+		BombChargeProgress = FMath::Min(
+			BombChargeProgress + DeltaSeconds / BombHoldDuration, 1.0f);
+		if (BombChargeProgress >= 1.0f)
+		{
+			// Fire as soon as the charge completes so the action does not depend on
+			// receiving a mouse-release event from the captured game viewport.
+			bBombHeld = false;
+			if (ADualContourFPCharacter* FPCharacter = Cast<ADualContourFPCharacter>(GetPawn()))
+				FPCharacter->FireBomb();
+		}
+	}
+	else
+	{
+		BombChargeProgress = 0.0f;
+	}
+
 	if (ReticleWidget)
 		ReticleWidget->SetProgress(GetDigProgress());
 }
@@ -123,6 +144,8 @@ void ADualContourGamePlayerController::SetupInputComponent()
 		this, &ADualContourGamePlayerController::OnDigReleased);
 	InputComponent->BindKey(BombFireKey, IE_Pressed,
 		this, &ADualContourGamePlayerController::OnBombFirePressed);
+	InputComponent->BindKey(BombFireKey, IE_Released,
+		this, &ADualContourGamePlayerController::OnBombFireReleased);
 	InitializeSamplers();
 }
 
@@ -130,8 +153,26 @@ void ADualContourGamePlayerController::OnBombFirePressed()
 {
 	if (IsSaveLoadWidgetOpen())
 		return;
-	if (ADualContourFPCharacter* FPCharacter = Cast<ADualContourFPCharacter>(GetPawn()))
-		FPCharacter->FireBomb();
+
+	bBombHeld = true;
+	BombChargeProgress = 0.0f;
+}
+
+void ADualContourGamePlayerController::OnBombFireReleased()
+{
+	if (IsSaveLoadWidgetOpen())
+	{
+		bBombHeld = false;
+		return;
+	}
+
+	const bool bFullyCharged = bBombHeld && BombChargeProgress >= 1.0f;
+	bBombHeld = false;
+	if (bFullyCharged)
+	{
+		if (ADualContourFPCharacter* FPCharacter = Cast<ADualContourFPCharacter>(GetPawn()))
+			FPCharacter->FireBomb();
+	}
 }
 
 void ADualContourGamePlayerController::OnDigPressed()
@@ -245,6 +286,8 @@ void ADualContourGamePlayerController::OpenSaveLoadWidget()
 		return;
 
 	bDigHeld = false;
+	bBombHeld = false;
+	BombChargeProgress = 0.0f;
 	if (ADualContourFPCharacter* FPCharacter = Cast<ADualContourFPCharacter>(GetPawn()))
 	{
 		FPCharacter->SetWeaponShakeHeld(false);
