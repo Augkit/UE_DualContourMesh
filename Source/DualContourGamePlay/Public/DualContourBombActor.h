@@ -10,6 +10,8 @@ class USphereComponent;
 class UStaticMeshComponent;
 class UVolumeSampler;
 class AExplosionSphereActor;
+class USoundBase;
+class USoundAttenuation;
 
 /**
  * Physics bomb that removes density from every intersecting DualContour mesh when it hits something.
@@ -75,6 +77,14 @@ protected:
 	/** Explosion sphere spawned at the impact point after the bomb detonates. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bomb|Explosion")
 	TSubclassOf<AExplosionSphereActor> ExplosionEffectClass;
+
+	/** Sound played at the bomb's detonation location. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bomb|Audio")
+	TObjectPtr<USoundBase> ExplosionSound;
+
+	/** Runtime attenuation override so the explosion is not audible across the whole map. */
+	UPROPERTY(Transient)
+	TObjectPtr<USoundAttenuation> ExplosionSoundAttenuation;
 
 	/** Additional size multiplier applied after matching the sampler radius. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bomb|Explosion", meta = (ClampMin = "0.01"))

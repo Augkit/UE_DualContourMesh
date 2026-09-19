@@ -16,6 +16,9 @@
 #include "NiagaraComponent.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
+#include "Kismet/GameplayStatics.h"
+#include "Sound/SoundBase.h"
+#include "UObject/ConstructorHelpers.h"
 
 namespace
 {
@@ -26,6 +29,11 @@ ADualContourFPCharacter::ADualContourFPCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	BombClass = ADualContourBombActor::StaticClass();
+
+	static ConstructorHelpers::FObjectFinder<USoundBase> BombLaunchSoundFinder(
+		TEXT("/DualContourMesh/SF/Pulse_Shot_Single_A.Pulse_Shot_Single_A"));
+	if (BombLaunchSoundFinder.Succeeded())
+		BombLaunchSound = BombLaunchSoundFinder.Object;
 
 	// Match BP_ShooterCharacter's Blueprint override of CharacterMesh0.
 	GetMesh()->SetRelativeLocationAndRotation(
@@ -143,7 +151,11 @@ ADualContourBombActor* ADualContourFPCharacter::FireBomb()
 	ADualContourBombActor* Bomb = World->SpawnActor<ADualContourBombActor>(
 		BombClass, SpawnLocation, LaunchDirection.Rotation(), SpawnParameters);
 	if (Bomb)
+	{
 		Bomb->LaunchBomb(LaunchDirection * BombLaunchSpeed + GetVelocity());
+		if (BombLaunchSound)
+			UGameplayStatics::PlaySoundAtLocation(this, BombLaunchSound, SpawnLocation, ViewRotation);
+	}
 	return Bomb;
 }
 

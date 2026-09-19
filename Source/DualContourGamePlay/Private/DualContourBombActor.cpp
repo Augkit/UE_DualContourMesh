@@ -8,6 +8,9 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "Kismet/GameplayStatics.h"
+#include "Sound/SoundBase.h"
+#include "Sound/SoundAttenuation.h"
 #include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
 #include "VolumeSampler/ProceduralVolumeSampler.h"
@@ -37,6 +40,11 @@ ADualContourBombActor::ADualContourBombActor()
 	ExplosionSampler = SphereSampler;
 
 	ExplosionEffectClass = AExplosionSphereActor::StaticClass();
+
+	static ConstructorHelpers::FObjectFinder<USoundBase> ExplosionSoundFinder(
+		TEXT("/DualContourMesh/SF/Rocket_Explosion_A.Rocket_Explosion_A"));
+	if (ExplosionSoundFinder.Succeeded())
+		ExplosionSound = ExplosionSoundFinder.Object;
 }
 
 void ADualContourBombActor::OnConstruction(const FTransform& Transform)
@@ -49,6 +57,22 @@ void ADualContourBombActor::OnConstruction(const FTransform& Transform)
 void ADualContourBombActor::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// Override any missing or overly wide attenuation on the imported sound asset.
+	ExplosionSoundAttenuation = NewObject<USoundAttenuation>(this, TEXT("ExplosionSoundAttenuation"));
+	if (ExplosionSoundAttenuation)
+	{
+		FSoundAttenuationSettings& Attenuation = ExplosionSoundAttenuation->Attenuation;
+		Attenuation.bAttenuate = true;
+		Attenuation.bSpatialize = true;
+		Attenuation.DistanceAlgorithm = EAttenuationDistanceModel::NaturalSound;
+		Attenuation.FalloffMode = ENaturalSoundFalloffMode::Silent;
+		Attenuation.dBAttenuationAtMax = -60.0f;
+		Attenuation.AttenuationShape = EAttenuationShape::Sphere;
+		Attenuation.AttenuationShapeExtents = FVector(3000.0f, 0.0f, 0.0f);
+		Attenuation.FalloffDistance = 3000.0f;
+	}
+
 	CollisionComponent->IgnoreActorWhenMoving(GetOwner(), true);
 	CollisionComponent->IgnoreActorWhenMoving(GetInstigator(), true);
 }
@@ -82,6 +106,9 @@ bool ADualContourBombActor::Explode()
 	BombMesh->SetVisibility(false, true);
 
 	const FVector ExplosionCenter = GetActorLocation();
+	if (ExplosionSound)
+		UGameplayStatics::PlaySoundAtLocation(this, ExplosionSound, ExplosionCenter,
+			FRotator::ZeroRotator, 1.0f, 1.0f, 0.0f, ExplosionSoundAttenuation);
 	const float ExplosionRadius = ExplosionDiameter * 0.5f;
 	bool bModifiedDualContour = false;
 

@@ -15,8 +15,11 @@
 #include "EngineUtils.h"
 #include "InputMappingContext.h"
 #include "Kismet/GameplayStatics.h"
+#include "Sound/SoundBase.h"
+#include "Sound/SoundAttenuation.h"
 #include "TimerManager.h"
 #include "InputCoreTypes.h"
+#include "UObject/ConstructorHelpers.h"
 
 ADualContourGamePlayerController::ADualContourGamePlayerController()
 {
@@ -36,6 +39,11 @@ ADualContourGamePlayerController::ADualContourGamePlayerController()
 	if (MouseLookMappingContextFinder.Succeeded())
 		DefaultMappingContexts.Add(MouseLookMappingContextFinder.Object);
 
+	static ConstructorHelpers::FObjectFinder<USoundBase> DigReleaseSoundFinder(
+		TEXT("/DualContourMesh/SF/Plasmagun_A.Plasmagun_A"));
+	if (DigReleaseSoundFinder.Succeeded())
+		DigReleaseSound = DigReleaseSoundFinder.Object;
+
 }
 
 void ADualContourGamePlayerController::OnPossess(APawn* InPawn)
@@ -54,6 +62,21 @@ void ADualContourGamePlayerController::ActivatePossessedPistolPose()
 void ADualContourGamePlayerController::BeginPlay()
 {
 	Super::BeginPlay();
+
+	DigReleaseSoundAttenuation = NewObject<USoundAttenuation>(this, TEXT("DigReleaseSoundAttenuation"));
+	if (DigReleaseSoundAttenuation)
+	{
+		FSoundAttenuationSettings& Attenuation = DigReleaseSoundAttenuation->Attenuation;
+		Attenuation.bAttenuate = true;
+		Attenuation.bSpatialize = true;
+		Attenuation.DistanceAlgorithm = EAttenuationDistanceModel::NaturalSound;
+		Attenuation.FalloffMode = ENaturalSoundFalloffMode::Silent;
+		Attenuation.dBAttenuationAtMax = -60.0f;
+		Attenuation.AttenuationShape = EAttenuationShape::Sphere;
+		Attenuation.AttenuationShapeExtents = FVector(3000.0f, 0.0f, 0.0f);
+		Attenuation.FalloffDistance = 3000.0f;
+	}
+
 	if (IsLocalController())
 	{
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem =
@@ -218,6 +241,23 @@ void ADualContourGamePlayerController::PerformDig()
 
 	ModifierComponent->ModifyDualContourWithRay(WorldOrigin, WorldDirection,
 		SelectedSamplerIndex, MaterialId, /*bExcavate=*/ true);
+
+	// Play at the pistol muzzle when the mining countdown completes and the terrain
+	// edit is executed, rather than when the mouse button is released.
+	if (DigReleaseSound)
+	{
+		const ADualContourFPCharacter* FPCharacter = Cast<ADualContourFPCharacter>(GetPawn());
+		FVector SoundLocation = WorldOrigin + WorldDirection * 5000.0f;
+		if (FPCharacter)
+		{
+			const FVector BeamImpactPoint = FPCharacter->GetBeamImpactPoint();
+			SoundLocation = BeamImpactPoint.IsNearlyZero()
+				? WorldOrigin + WorldDirection * FPCharacter->BeamMaxDistance
+				: BeamImpactPoint;
+		}
+		UGameplayStatics::PlaySoundAtLocation(this, DigReleaseSound, SoundLocation,
+			FRotator::ZeroRotator, 1.0f, 1.0f, 0.0f, DigReleaseSoundAttenuation);
+	}
 }
 
 void ADualContourGamePlayerController::InitializeSamplers()

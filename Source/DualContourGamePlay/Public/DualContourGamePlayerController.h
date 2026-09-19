@@ -10,6 +10,8 @@ class UDualContourInitProgressWidget;
 class UDualContourMiningReticleWidget;
 class UDualContourSaveLoadWidget;
 class UDualContourModifierComponent;
+class USoundBase;
+class USoundAttenuation;
 class UVolumeSampler;
 
 /**
@@ -61,6 +63,14 @@ public:
 	/** Key used by the first-person template to launch a physics bomb. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DualContour|Input")
 	FKey BombFireKey = EKeys::RightMouseButton;
+
+	/** Sound played when the left mouse button is released after mining. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DualContour|Audio")
+	TObjectPtr<USoundBase> DigReleaseSound;
+
+	/** Runtime attenuation override so the distant laser impact is not globally audible. */
+	UPROPERTY(Transient)
+	TObjectPtr<USoundAttenuation> DigReleaseSoundAttenuation;
 
 	/** Index of the sampler used when the progress ring completes. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Mining", meta = (ClampMin = "0"))

@@ -11,6 +11,7 @@ class UMaterialInterface;
 class UAnimInstance;
 class UNiagaraComponent;
 class UNiagaraSystem;
+class USoundBase;
 class ADualContourBombActor;
 struct FInputActionValue;
 
@@ -38,6 +39,12 @@ public:
 	/** Starts or stops the muzzle beam fired from the pistol toward the screen center. */
 	void SetBeamHeld(bool bHeld);
 
+	/** Returns the world-space location used as the pistol muzzle for spatial audio and effects. */
+	FVector GetMuzzleWorldLocation() const;
+
+	/** Returns the current world-space point where the held laser hits. */
+	FVector GetBeamImpactPoint() const { return BeamImpactPoint; }
+
 	/** Spawns and launches a physics bomb along the current view direction. */
 	UFUNCTION(BlueprintCallable, Category = "DualContour|Bomb")
 	ADualContourBombActor* FireBomb();
@@ -45,6 +52,10 @@ public:
 	/** Bomb implementation spawned by FireBomb. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Bomb")
 	TSubclassOf<ADualContourBombActor> BombClass;
+
+	/** Sound played when a bomb is successfully launched. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DualContour|Audio")
+	TObjectPtr<USoundBase> BombLaunchSound;
 
 	/** Initial speed applied to the bomb rigid body. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Bomb", meta = (ClampMin = "0.0", Units = "cm/s"))
@@ -127,7 +138,6 @@ private:
 	void UpdateSplash(bool bHitting);
 	void DeactivateSplash();
 	bool GetScreenCenterRay(FVector& OutOrigin, FVector& OutDirection) const;
-	FVector GetMuzzleWorldLocation() const;
 
 	bool bWeaponShakeHeld = false;
 	float WeaponShakeAlpha = 0.0f;
