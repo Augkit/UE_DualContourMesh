@@ -46,7 +46,7 @@ public:
 	ESVTDualContourAttribute DensityAttribute = ESVTDualContourAttribute::AttributesA_R;
 
 	UPROPERTY(EditAnywhere, Category = "Source", meta = (ClampMin = "0.0"))
-	float DensityScale = 1.f;
+	float DensityScale = 16.f;
 
 	UPROPERTY(EditAnywhere, Category = "Source")
 	float DensityBias = 0.f;

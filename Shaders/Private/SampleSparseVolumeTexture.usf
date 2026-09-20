@@ -48,5 +48,5 @@ void SampleSparseVolumeTextureCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 		Value = Attributes[AttributeIndex & 3];
 	}
 
-	OutputDensities[LinearIndex] = (uint)round(saturate(Value * DensityScale + DensityBias) * 255.0f);
+	OutputDensities[LinearIndex] = (uint)round(saturate(Value * DensityScale + DensityBias) * 65535.0f);
 }
