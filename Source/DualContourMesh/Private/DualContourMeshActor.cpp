@@ -343,8 +343,13 @@ bool ADualContourMeshActor::SaveRuntimeDensityIncrement(const FString& SlotName,
 
 	SaveGame->BaseDualContourPath = FSoftObjectPath(InitialDualContour);
 	SaveGame->BaseCellCount = InitialDualContour->CellCount;
-	SaveGame->DensityChunks = DualContour->GetModifiedDensityChunks();
-	SaveGame->MaterialChunks = DualContour->GetModifiedMaterialChunks();
+	if (!DualContour->GetModifiedChunksRelativeTo(InitialDualContour, SaveGame->DensityChunks, SaveGame->MaterialChunks))
+	{
+		UE_LOG(LogDualContourMesh, Warning,
+			TEXT("Runtime density save failed for %s because the current contour cannot be compared with InitialDualContour."),
+			*GetName());
+		return false;
+	}
 
 	const bool bSaved = UGameplayStatics::SaveGameToSlot(SaveGame.Get(), SlotName, UserIndex);
 	if (bSaved)

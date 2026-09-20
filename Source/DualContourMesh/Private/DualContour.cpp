@@ -473,6 +473,74 @@ bool UDualContour::CopyFrom(const UDualContour* Source, bool bBroadcastCellsRebu
 	return true;
 }
 
+bool UDualContour::GetModifiedChunksRelativeTo(const UDualContour* BaseDualContour,
+	FDualContourDensityChunks& OutDensityChunks, FDualContourMaterialChunks& OutMaterialChunks) const
+{
+	OutDensityChunks.Reset();
+	OutMaterialChunks.Reset();
+
+	if (!BaseDualContour || !HasCurrentGeneratedData() || !BaseDualContour->HasCurrentGeneratedData()
+	    || CellCount != BaseDualContour->CellCount || !FMath::IsNearlyEqual(CellSize, BaseDualContour->CellSize))
+	{
+		return false;
+	}
+
+	EnsureRebuildComplete();
+	BaseDualContour->EnsureRebuildComplete();
+
+	auto AreDensityChunksEqual = [](const FDensityChunk* A, const FDensityChunk* B)
+	{
+		FDensityChunk NormalizedA = A ? *A : FDensityChunk();
+		FDensityChunk NormalizedB = B ? *B : FDensityChunk();
+		NormalizedA.TryCollapse();
+		NormalizedB.TryCollapse();
+		return NormalizedA.UniformValue == NormalizedB.UniformValue
+		       && NormalizedA.DensitySamples == NormalizedB.DensitySamples;
+	};
+
+	auto AreMaterialChunksEqual = [](const FMaterialIdChunk* A, const FMaterialIdChunk* B)
+	{
+		FMaterialIdChunk NormalizedA = A ? *A : FMaterialIdChunk();
+		FMaterialIdChunk NormalizedB = B ? *B : FMaterialIdChunk();
+		NormalizedA.TryCollapse();
+		NormalizedB.TryCollapse();
+		return NormalizedA.UniformId == NormalizedB.UniformId
+		       && NormalizedA.MaterialIds == NormalizedB.MaterialIds;
+	};
+
+	TSet<FIntVector> DensityChunkCoords;
+	DensityChunkCoords.Reserve(DensityChunks.Num() + BaseDualContour->DensityChunks.Num());
+	for (const TPair<FIntVector, FDensityChunk>& Pair : DensityChunks)
+		DensityChunkCoords.Add(Pair.Key);
+	for (const TPair<FIntVector, FDensityChunk>& Pair : BaseDualContour->DensityChunks)
+		DensityChunkCoords.Add(Pair.Key);
+
+	for (const FIntVector& ChunkCoord : DensityChunkCoords)
+	{
+		const FDensityChunk* CurrentChunk = DensityChunks.Find(ChunkCoord);
+		const FDensityChunk* BaseChunk = BaseDualContour->DensityChunks.Find(ChunkCoord);
+		if (!AreDensityChunksEqual(CurrentChunk, BaseChunk))
+			OutDensityChunks.Add(ChunkCoord, CurrentChunk ? *CurrentChunk : FDensityChunk());
+	}
+
+	TSet<FIntVector> MaterialChunkCoords;
+	MaterialChunkCoords.Reserve(MaterialChunks.Num() + BaseDualContour->MaterialChunks.Num());
+	for (const TPair<FIntVector, FMaterialIdChunk>& Pair : MaterialChunks)
+		MaterialChunkCoords.Add(Pair.Key);
+	for (const TPair<FIntVector, FMaterialIdChunk>& Pair : BaseDualContour->MaterialChunks)
+		MaterialChunkCoords.Add(Pair.Key);
+
+	for (const FIntVector& ChunkCoord : MaterialChunkCoords)
+	{
+		const FMaterialIdChunk* CurrentChunk = MaterialChunks.Find(ChunkCoord);
+		const FMaterialIdChunk* BaseChunk = BaseDualContour->MaterialChunks.Find(ChunkCoord);
+		if (!AreMaterialChunksEqual(CurrentChunk, BaseChunk))
+			OutMaterialChunks.Add(ChunkCoord, CurrentChunk ? *CurrentChunk : FMaterialIdChunk());
+	}
+
+	return true;
+}
+
 bool UDualContour::Rebuild()
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContour_Rebuild);

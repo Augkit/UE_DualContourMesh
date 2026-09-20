@@ -57,6 +57,9 @@ public:
 	/** Returns the chunk overlay accumulated by runtime density mutation paths. */
 	const FDualContourDensityChunks& GetModifiedDensityChunks() const { return ModifiedDensityChunks; }
 	const FDualContourMaterialChunks& GetModifiedMaterialChunks() const { return ModifiedMaterialChunks; }
+	/** Builds sparse density/material overlays that transform BaseDualContour into this contour. */
+	bool GetModifiedChunksRelativeTo(const UDualContour* BaseDualContour,
+		FDualContourDensityChunks& OutDensityChunks, FDualContourMaterialChunks& OutMaterialChunks) const;
 
 	const FDualContourCell* GetCell(int32 CellX, int32 CellY, int32 CellZ) const;
 	bool HasActiveCellInRange(FIntVector CellMin, FIntVector CellMax) const;
