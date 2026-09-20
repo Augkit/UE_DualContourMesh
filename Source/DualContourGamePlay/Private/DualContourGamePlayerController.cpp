@@ -13,6 +13,8 @@
 #include "Engine/World.h"
 #include "Engine/GameViewportClient.h"
 #include "EngineUtils.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "InputMappingContext.h"
 #include "Kismet/GameplayStatics.h"
 #include "Sound/SoundBase.h"
@@ -49,8 +51,40 @@ ADualContourGamePlayerController::ADualContourGamePlayerController()
 void ADualContourGamePlayerController::OnPossess(APawn* InPawn)
 {
 	Super::OnPossess(InPawn);
+	if (IsLocalController())
+	{
+		bPawnGravitySuspended = false;
+		SetPawnGravityEnabled(false);
+	}
 	GetWorldTimerManager().SetTimerForNextTick(
 		this, &ADualContourGamePlayerController::ActivatePossessedPistolPose);
+}
+
+void ADualContourGamePlayerController::SetPawnGravityEnabled(bool bEnabled)
+{
+	if (ACharacter* ControlledCharacter = Cast<ACharacter>(GetPawn()))
+	{
+		if (UCharacterMovementComponent* CharacterMovement = ControlledCharacter->GetCharacterMovement())
+		{
+			if (bEnabled)
+			{
+				if (bPawnGravitySuspended)
+				{
+					CharacterMovement->GravityScale = PawnGravityScaleBeforeInitialization;
+					bPawnGravitySuspended = false;
+				}
+			}
+			else
+			{
+				if (!bPawnGravitySuspended)
+				{
+					PawnGravityScaleBeforeInitialization = CharacterMovement->GravityScale;
+					bPawnGravitySuspended = true;
+				}
+				CharacterMovement->GravityScale = 0.0f;
+			}
+		}
+	}
 }
 
 void ADualContourGamePlayerController::ActivatePossessedPistolPose()
@@ -544,12 +578,20 @@ void ADualContourGamePlayerController::ClearSlot(int32 SlotIndex)
 
 void ADualContourGamePlayerController::ShowInitializationProgress()
 {
-	if (ProgressWidget || !ProgressWidgetClass)
+	if (ProgressWidget)
 		return;
+	if (!ProgressWidgetClass)
+	{
+		SetPawnGravityEnabled(true);
+		return;
+	}
 
 	UWorld* World = GetWorld();
 	if (!World)
+	{
+		SetPawnGravityEnabled(true);
 		return;
+	}
 
 	TArray<TObjectPtr<ADualContourMeshActor>> MeshActors;
 	for (TActorIterator<ADualContourMeshActor> ActorIt(World); ActorIt; ++ActorIt)
@@ -559,6 +601,7 @@ void ADualContourGamePlayerController::ShowInitializationProgress()
 	}
 	if (MeshActors.IsEmpty())
 	{
+		SetPawnGravityEnabled(true);
 		UE_LOG(LogDualContourGamePlay, Log,
 			TEXT("Skipped the initialization overlay because the world contains no DualContour mesh actors."));
 		return;
@@ -566,7 +609,10 @@ void ADualContourGamePlayerController::ShowInitializationProgress()
 
 	ProgressWidget = CreateWidget<UDualContourInitProgressWidget>(this, ProgressWidgetClass);
 	if (!ProgressWidget)
+	{
+		SetPawnGravityEnabled(true);
 		return;
+	}
 
 	ProgressWidget->OnFinished.AddUObject(this, &ADualContourGamePlayerController::HandleProgressFinished);
 	ProgressWidget->TrackActors(MeshActors);
@@ -580,6 +626,7 @@ void ADualContourGamePlayerController::HandleProgressFinished()
 	if (!ProgressWidget)
 		return;
 
+	SetPawnGravityEnabled(true);
 	UE_LOG(LogDualContourGamePlay, Log, TEXT("DualContour initialization finished; hiding the overlay."));
 	ProgressWidget = nullptr;
 }

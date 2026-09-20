@@ -120,6 +120,7 @@ protected:
 
 private:
 	void ActivatePossessedPistolPose();
+	void SetPawnGravityEnabled(bool bEnabled);
 	void ShowInitializationProgress();
 	void HandleProgressFinished();
 	void OnDigPressed();
@@ -149,4 +150,6 @@ private:
 	float DigProgress = 0.0f;
 	bool bBombHeld = false;
 	float BombChargeProgress = 0.0f;
+	float PawnGravityScaleBeforeInitialization = 1.0f;
+	bool bPawnGravitySuspended = false;
 };
