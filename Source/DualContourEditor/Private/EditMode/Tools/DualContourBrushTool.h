@@ -45,7 +45,6 @@ public:
 	virtual void Shutdown(EToolShutdownType ShutdownType) override;
 	virtual void OnTick(float DeltaTime) override;
 	virtual void Render(IToolsContextRenderAPI* RenderAPI) override;
-	virtual void OnPropertyModified(UObject* PropertySet, FProperty* Property) override;
 
 	virtual FInputRayHit CanBeginClickDragSequence(const FInputDeviceRay& PressPos) override;
 	virtual void OnClickPress(const FInputDeviceRay& PressPos) override;

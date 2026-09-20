@@ -69,7 +69,6 @@ void UDualContourBrushTool::Setup()
 	UMouseHoverBehavior* HoverBehavior = NewObject<UMouseHoverBehavior>(this);
 	HoverBehavior->Initialize(this);
 	AddInputBehavior(HoverBehavior);
-	AddToolPropertySource(Settings);
 }
 
 void UDualContourBrushTool::Shutdown(EToolShutdownType ShutdownType)
@@ -79,12 +78,6 @@ void UDualContourBrushTool::Shutdown(EToolShutdownType ShutdownType)
 	if (Settings)
 		Settings->SaveConfig();
 	Super::Shutdown(ShutdownType);
-}
-
-void UDualContourBrushTool::OnPropertyModified(UObject* PropertySet, FProperty* Property)
-{
-	if (Settings)
-		Settings->SaveConfig();
 }
 
 void UDualContourBrushTool::OnUpdateModifierState(int ModifierID, bool bIsOn)

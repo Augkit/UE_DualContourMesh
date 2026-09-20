@@ -4,6 +4,5 @@
 void UDualContourEditModeSettings::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
-	SaveConfig();
 }
 #endif
