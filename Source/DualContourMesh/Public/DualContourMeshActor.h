@@ -55,6 +55,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Rendering")
 	TObjectPtr<UMaterialInterface> MeshMaterial = nullptr;
 
+	/** Number of texture repeats along the generated mesh UV X/Y axes. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Rendering", meta = (ClampMin = "0.001"))
+	FVector2D UVTiling = FVector2D(1.0f, 1.0f);
+
 	/** Maximum number of completed mesh chunks applied to components during one frame. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Rendering", meta = (ClampMin = "1"))
 	int32 MeshComponentsPerFrame = 4;
@@ -171,12 +175,14 @@ private:
 		/** Keeps the contour alive even if the actor is destroyed mid-build. */
 		TStrongObjectPtr<UDualContour> DualContour;
 		TArray<FMeshBuildRequest> Requests;
+		FVector2D UVTiling = FVector2D(1.0f, 1.0f);
 		std::atomic<bool> bAborted{false};
 		uint64 Revision = 0;
 	};
 
 	/** Builds every request's mesh data in parallel. Workers observe bAbortFlag between requests. */
-	static void BuildMeshRequests(const UDualContour& InDualContour, TArray<FMeshBuildRequest>& Requests, const std::atomic<bool>* bAbortFlag);
+	static void BuildMeshRequests(const UDualContour& InDualContour, const FVector2D& InUVTiling,
+		TArray<FMeshBuildRequest>& Requests, const std::atomic<bool>* bAbortFlag);
 	void AbortActiveMeshBuild();
 
 	FDelegateHandle DualContourCellsRebuiltHandle;

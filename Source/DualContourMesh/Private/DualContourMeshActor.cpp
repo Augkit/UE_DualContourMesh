@@ -130,19 +130,18 @@ void ADualContourMeshActor::ProcessPendingMeshUpdates()
 	ApplyQueuedMeshData();
 }
 
-void ADualContourMeshActor::BuildMeshRequests(const UDualContour& InDualContour, TArray<FMeshBuildRequest>& Requests,
-	const std::atomic<bool>* bAbortFlag)
+void ADualContourMeshActor::BuildMeshRequests(const UDualContour& InDualContour, const FVector2D& InUVTiling,
+	TArray<FMeshBuildRequest>& Requests, const std::atomic<bool>* bAbortFlag)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_BuildMeshRequests);
 	ParallelFor(TEXT("DualContourMesh.BuildDivisions"), Requests.Num(), 1,
-		[&InDualContour, &Requests, bAbortFlag](int32 RequestIndex)
+		[&InDualContour, &InUVTiling, &Requests, bAbortFlag](int32 RequestIndex)
 		{
 			// Aborted builds keep remaining divisions empty; the revision check discards them later.
 			if (bAbortFlag && bAbortFlag->load(std::memory_order_relaxed))
 				return;
-
 			FMeshBuildRequest& Request = Requests[RequestIndex];
-			FDualContourMeshBuilder::Build(InDualContour, Request.CellMin, Request.CellMax, Request.MeshData);
+			FDualContourMeshBuilder::Build(InDualContour, InUVTiling, Request.CellMin, Request.CellMax, Request.MeshData);
 		}, EParallelForFlags::Unbalanced);
 }
 
@@ -218,7 +217,8 @@ void ADualContourMeshActor::PostEditChangeProperty(FPropertyChangedEvent& Proper
 	}
 	else if (MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, Divisions)
 	         || MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, bAutoCalculateDivisions)
-	         || MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, MaxCellsPerDivision))
+	         || MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, MaxCellsPerDivision)
+	         || MemberPropertyName == GET_MEMBER_NAME_CHECKED(ADualContourMeshActor, UVTiling))
 	{
 		RecreateMeshComponents();
 	}
@@ -557,13 +557,14 @@ void ADualContourMeshActor::RecreateMeshComponents()
 		const TSharedPtr<FAsyncMeshBuild> Build = MakeShared<FAsyncMeshBuild>();
 		Build->DualContour = TStrongObjectPtr<UDualContour>(DualContour.Get());
 		Build->Requests = MoveTemp(Requests);
+		Build->UVTiling = UVTiling;
 		Build->Revision = MeshQueueRevision;
 		ActiveMeshBuild = Build;
 
 		TWeakObjectPtr<ADualContourMeshActor> WeakThis(this);
 		PendingMeshBuildFuture = Async(EAsyncExecution::ThreadPool, [WeakThis, Build]()
 		{
-			BuildMeshRequests(*Build->DualContour, Build->Requests, &Build->bAborted);
+			BuildMeshRequests(*Build->DualContour, Build->UVTiling, Build->Requests, &Build->bAborted);
 
 			AsyncTask(ENamedThreads::GameThread, [WeakThis, Build]()
 			{
@@ -940,7 +941,7 @@ void ADualContourMeshActor::UpdateMeshDivisions(const TSet<int32>& AffectedDivis
 		Request.CellMin = CellMin;
 		Request.CellMax = CellMax;
 	}
-	BuildMeshRequests(*DualContour, Requests, nullptr);
+	BuildMeshRequests(*DualContour, UVTiling, Requests, nullptr);
 
 	{
 		TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMesh_QueuePartialComponents);

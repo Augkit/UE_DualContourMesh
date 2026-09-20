@@ -55,8 +55,8 @@ FColor PackNormalizedWeights(const TStaticArray<float, 4>& Weights)
 class FDualContourMeshBuildContext
 {
 public:
-	FDualContourMeshBuildContext(const UDualContour& InDualContour, FDualContourMeshData& InMeshData)
-		: DualContour(InDualContour), MeshData(InMeshData) {}
+	FDualContourMeshBuildContext(const UDualContour& InDualContour, const FVector2D& InUVTiling, FDualContourMeshData& InMeshData)
+		: DualContour(InDualContour), UVTiling(InUVTiling), MeshData(InMeshData) {}
 
 	void GenerateQuadsForCell(int32 CellX, int32 CellY, int32 CellZ, bool bEmit = true)
 	{
@@ -147,18 +147,25 @@ public:
 			const uint32 BaseVertexIndex = static_cast<uint32>(MeshData.Positions.Num());
 			MeshData.Positions.Append({Cell0.Position(), Cell1.Position(), Cell2.Position(), Cell3.Position()});
 			MeshData.Normals.Append({Cell0.Normal(), Cell1.Normal(), Cell2.Normal(), Cell3.Normal()});
+			const FVector2f SafeUVTiling(
+				FMath::Max(static_cast<float>(UVTiling.X), 0.001f),
+				FMath::Max(static_cast<float>(UVTiling.Y), 0.001f));
+			const auto ApplyUVTiling = [&SafeUVTiling](const FVector2f& UV)
+			{
+				return FVector2f(UV.X * SafeUVTiling.X, UV.Y * SafeUVTiling.Y);
+			};
 			if (DualContour.UVMode == EDualContourUVMode::WorldAlignedBox)
 			{
 				const FVector QuadNormal = (Cell0.Normal() + Cell1.Normal() + Cell2.Normal() + Cell3.Normal()).GetSafeNormal();
 				const float WorldSize = FMath::Max(DualContour.UVWorldSize, 1.0f);
-				MeshData.UVs.Append({ProjectBoxUV(Cell0.Position(), QuadNormal, WorldSize),
-				                     ProjectBoxUV(Cell1.Position(), QuadNormal, WorldSize),
-				                     ProjectBoxUV(Cell2.Position(), QuadNormal, WorldSize),
-				                     ProjectBoxUV(Cell3.Position(), QuadNormal, WorldSize)});
+				MeshData.UVs.Append({ApplyUVTiling(ProjectBoxUV(Cell0.Position(), QuadNormal, WorldSize)),
+				                     ApplyUVTiling(ProjectBoxUV(Cell1.Position(), QuadNormal, WorldSize)),
+				                     ApplyUVTiling(ProjectBoxUV(Cell2.Position(), QuadNormal, WorldSize)),
+				                     ApplyUVTiling(ProjectBoxUV(Cell3.Position(), QuadNormal, WorldSize))});
 			}
 			else
 			{
-				MeshData.UVs.Append({UV0, UV1, UV2, UV3});
+				MeshData.UVs.Append({ApplyUVTiling(UV0), ApplyUVTiling(UV1), ApplyUVTiling(UV2), ApplyUVTiling(UV3)});
 			}
 			// QEF quads need not be convex or planar. A fixed diagonal can turn
 			// a concave corner into overlapping triangles with opposite normals.
@@ -299,6 +306,7 @@ private:
 	}
 
 	const UDualContour& DualContour;
+	const FVector2D& UVTiling;
 	FDualContourMeshData& MeshData;
 	TMap<FIntVector, FDualContourMaterialBlend> CellMaterialCache;
 	TMap<FIntVector, TArray<FVector>> IncidentQuadNormals;
@@ -311,6 +319,13 @@ private:
 void FDualContourMeshBuilder::Build(const UDualContour& DualContour, FIntVector CellRangeMin, FIntVector CellRangeMax,
 	FDualContourMeshData& OutMeshData)
 {
+	static const FVector2D DefaultUVTiling(1.0f, 1.0f);
+	Build(DualContour, DefaultUVTiling, CellRangeMin, CellRangeMax, OutMeshData);
+}
+
+void FDualContourMeshBuilder::Build(const UDualContour& DualContour, const FVector2D& UVTiling, FIntVector CellRangeMin, FIntVector CellRangeMax,
+	FDualContourMeshData& OutMeshData)
+{
 	TRACE_CPUPROFILER_EVENT_SCOPE(DualContourMeshBuilder_Build);
 	OutMeshData.Reset();
 	if (!DualContour.HasCurrentGeneratedData())
@@ -319,7 +334,7 @@ void FDualContourMeshBuilder::Build(const UDualContour& DualContour, FIntVector 
 		return;
 	}
 
-	FDualContourMeshBuildContext Context(DualContour, OutMeshData);
+	FDualContourMeshBuildContext Context(DualContour, UVTiling, OutMeshData);
 	// Include every face incident to emitted vertices even on division boundaries.
 	// Halo faces contribute normals only, never triangles/materials/bounds.
 	constexpr int32 Halo = 1;
