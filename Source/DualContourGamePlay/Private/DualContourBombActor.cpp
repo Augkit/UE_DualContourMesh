@@ -170,7 +170,7 @@ bool ADualContourBombActor::ExcavateActor(ADualContourMeshActor& MeshActor, cons
 		FVector::UpVector,
 		ExplosionSampler,
 		LocalSamplingSize,
-		LocalSamplingSize,
+		LocalSamplingSize * 1.1f,
 		true,
 		FVector::ZeroVector,
 		CutSurfaceMaterialId);
