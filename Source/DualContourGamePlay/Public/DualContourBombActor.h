@@ -68,7 +68,7 @@ protected:
 
 	/** Material id used by the shared runtime edit path at the newly exposed surface. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bomb|Explosion", meta = (ClampMin = "0", ClampMax = "255"))
-	uint8 CutSurfaceMaterialId = 0;
+	uint8 CutSurfaceMaterialId = 3;
 
 	/** Delay before destroying the actor, allowing Blueprint explosion effects to begin. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bomb|Explosion", meta = (ClampMin = "0.0", Units = "s"))

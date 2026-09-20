@@ -81,7 +81,7 @@ public:
 	TArray<TObjectPtr<UVolumeSampler>> AdditionalSamplers;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DualContour|Mining", meta = (ClampMin = "0", ClampMax = "255"))
-	uint8 MaterialId = 0;
+	uint8 MaterialId = 3;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "DualContour|Mining")
 	TObjectPtr<UDualContourModifierComponent> ModifierComponent;
