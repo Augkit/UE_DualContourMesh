@@ -21,14 +21,19 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF")
 	float DensityBias = 0.0f;
 
+	/** Width of the source SDF volume in its distance units. Houdini mountain/rock DDS files span 3.2 units.
+	 * Set this to the exported volume width in cm for StaticMeshSDFExporter textures. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "0.0001"))
+	float SourceVolumeSize = 3.2f;
+
 	virtual bool Prepare(FText& OutError) const override;
 	virtual void Finish() const override;
 
 	virtual bool SupportsParallelSampling() const override { return true; }
 
 protected:
-	float SignedDistanceToDensity(float SignedDistance) const;
-	float SampleCachedTexture(const FVector& NormalizedPosition) const;
+	float SignedDistanceToDensity(float SignedDistance, const FVolumeSamplerPlacement& Placement) const;
+	float SampleCachedTexture(const FVector& NormalizedPosition, const FVolumeSamplerPlacement& Placement) const;
 	virtual bool PrepareTexture(FText& OutError) const PURE_VIRTUAL(UTextureSDFSampler::PrepareTexture, return false;);
 
 	mutable FIntVector CachedResolution = FIntVector::ZeroValue;

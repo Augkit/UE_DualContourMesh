@@ -171,6 +171,8 @@ bool FDualContourNoiseMountainUnionTest::RunTest(const FString& Parameters)
 			Before[X + 129 * (Y + 129 * Z)] = Grid->GetLinearDensity(X, Y, Z);
 		TStrongObjectPtr<UTex3DSDFSampler> Mountain(NewObject<UTex3DSDFSampler>());
 		Mountain->Texture = Texture;
+		// The legacy conversion treated one source unit as one target centimeter.
+		Mountain->SourceVolumeSize = bNormalize ? 3.2f : 640.0f;
 		FDualContourEditContext Edit(*Grid);
 		if (!Edit.ApplyDensity(EDualContourDensityOperation::Union, *Mountain, FVector(640),
 			FTransform(FVector(640))) || !Edit.Commit()) return false;

@@ -97,12 +97,26 @@ bool ReadFloatTexture(const UTexture& Texture, const FTexturePlatformData* Platf
 }
 }
 
-float UTextureSDFSampler::SignedDistanceToDensity(float SignedDistance) const
+float UTextureSDFSampler::SignedDistanceToDensity(float SignedDistance, const FVolumeSamplerPlacement& Placement) const
 {
-	return (DensityBias - SignedDistance * DensityScale) * GDualContourLinearDensityFixedPointScale;
+	// The texture stores distances in source-volume units. Convert them to the
+	// placed volume's units before combining them with an existing density field.
+	const double DistanceUnit = Placement.SamplingVolumeSize.GetMin() / SourceVolumeSize;
+	double Value = (DensityBias - SignedDistance * DistanceUnit * DensityScale) * GDualContourLinearDensityFixedPointScale;
+	if (Placement.MaxTargetDensitySlope > 0.0f)
+	{
+		const double TransformBound = FMath::Sqrt(
+			Placement.TargetToSamplerNormalizedMatrix.TransformVector(FVector::ForwardVector).SizeSquared()
+			+ Placement.TargetToSamplerNormalizedMatrix.TransformVector(FVector::RightVector).SizeSquared()
+			+ Placement.TargetToSamplerNormalizedMatrix.TransformVector(FVector::UpVector).SizeSquared());
+		const double SlopeBound = Placement.SamplingVolumeSize.GetMin() * DensityScale * GDualContourLinearDensityFixedPointScale * TransformBound;
+		if (SlopeBound > Placement.MaxTargetDensitySlope)
+			Value *= Placement.MaxTargetDensitySlope / SlopeBound;
+	}
+	return static_cast<float>(Value);
 }
 
-float UTextureSDFSampler::SampleCachedTexture(const FVector& NormalizedPosition) const
+float UTextureSDFSampler::SampleCachedTexture(const FVector& NormalizedPosition, const FVolumeSamplerPlacement& Placement) const
 {
 	if (CachedSignedDistances.IsEmpty())
 		return 0.0f;
@@ -133,17 +147,16 @@ float UTextureSDFSampler::SampleCachedTexture(const FVector& NormalizedPosition)
 		FMath::Lerp(SampleTextureVoxel(LowerX, LowerY, UpperZ), SampleTextureVoxel(UpperX, LowerY, UpperZ), FractionX),
 		FMath::Lerp(SampleTextureVoxel(LowerX, UpperY, UpperZ), SampleTextureVoxel(UpperX, UpperY, UpperZ), FractionX),
 		FractionY);
-	return SignedDistanceToDensity(FMath::Lerp(LowerZInterpolatedValue, UpperZInterpolatedValue, FractionZ));
+	return SignedDistanceToDensity(FMath::Lerp(LowerZInterpolatedValue, UpperZInterpolatedValue, FractionZ), Placement);
 }
 
-bool UTextureSDFSampler::Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement,
-	float& Value, float& Weight) const
+bool UTextureSDFSampler::Sample(const FVector& TargetLocalPosition, const FVolumeSamplerPlacement& Placement, float& Value, float& Weight) const
 {
 	FVector NormalizedPosition;
 	if (!TryGetNormalizedPosition(TargetLocalPosition, Placement, NormalizedPosition))
 		return false;
 	Weight = 1.0f;
-	Value = SampleCachedTexture(NormalizedPosition);
+	Value = SampleCachedTexture(NormalizedPosition, Placement);
 	return FMath::IsFinite(Value);
 }
 
@@ -155,7 +168,17 @@ void UTextureSDFSampler::Finish() const
 
 bool UTextureSDFSampler::Prepare(FText& OutError) const
 {
-	if (!Super::Prepare(OutError) || !PrepareTexture(OutError))
+	if (!Super::Prepare(OutError))
+		return false;
+	if (!FMath::IsFinite(DensityScale) || DensityScale <= UE_SMALL_NUMBER
+	    || !FMath::IsFinite(DensityBias) || !FMath::IsFinite(SourceVolumeSize)
+	    || SourceVolumeSize <= UE_SMALL_NUMBER)
+	{
+		OutError = NSLOCTEXT("VolumeSampler", "InvalidTextureDensityConversion",
+			"DensityScale and SourceVolumeSize must be positive and finite; DensityBias must be finite.");
+		return false;
+	}
+	if (!PrepareTexture(OutError))
 		return false;
 	return true;
 }
