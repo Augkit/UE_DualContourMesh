@@ -24,7 +24,7 @@ public:
 	/** Width of the source SDF volume in its distance units. Houdini mountain/rock DDS files span 3.2 units.
 	 * Set this to the exported volume width in cm for StaticMeshSDFExporter textures. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SDF", meta = (ClampMin = "0.0001"))
-	float SourceVolumeSize = 3.2f;
+	float SourceVolumeSize = 1.0f;
 
 	virtual bool Prepare(FText& OutError) const override;
 	virtual void Finish() const override;

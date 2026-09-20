@@ -190,7 +190,10 @@ bool FDualContourNoiseMountainUnionTest::RunTest(const FString& Parameters)
 	if (!TestTrue(TEXT("Legacy union sampled"), Run(false, LegacyChanged, LegacyMesh))
 		|| !TestTrue(TEXT("Normalized union sampled"), Run(true, NormalizedChanged, NormalizedMesh))) return false;
 	AddInfo(FString::Printf(TEXT("NoiseVS near-surface samples changed: legacy=%d normalized=%d"), LegacyChanged, NormalizedChanged));
-	TestTrue(TEXT("Distance normalization reduces unintended terrain surface edits"), NormalizedChanged < LegacyChanged);
+	// With exterior writes limited to the stamp's crossing cells, neither
+	// distance scale should rewrite broad areas of the existing terrain.
+	TestTrue(TEXT("Mountain stamp leaves most terrain surface samples untouched"),
+		LegacyChanged < 5000 && NormalizedChanged < 5000);
 	TestTrue(TEXT("Normalized NoiseVS mountain union is nonempty"), NormalizedMesh.Indices.Num() > LegacyMesh.Indices.Num() / 2);
 	return true;
 }

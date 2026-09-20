@@ -42,11 +42,17 @@ bool DualContourEditing::ApplyEditDeltas(UDualContour& DualContour, TConstArrayV
 void FDualContourEditChange::Apply(UObject* Object)
 {
 	if (UDualContour* DualContour = Cast<UDualContour>(Object))
+	{
+		DualContour->bSparseEditUndoPending = true;
 		DualContourEditing::ApplyEditDeltas(*DualContour, DensityDeltas, MaterialDeltas, true);
+	}
 }
 
 void FDualContourEditChange::Revert(UObject* Object)
 {
 	if (UDualContour* DualContour = Cast<UDualContour>(Object))
+	{
+		DualContour->bSparseEditUndoPending = true;
 		DualContourEditing::ApplyEditDeltas(*DualContour, DensityDeltas, MaterialDeltas, false);
+	}
 }

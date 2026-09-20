@@ -100,6 +100,12 @@ public:
 #endif
 
 private:
+#if WITH_EDITOR
+	friend class FDualContourEditChange;
+	// Sparse tool changes already notify their affected cells while applying the undo/redo.
+	bool bSparseEditUndoPending = false;
+#endif
+
 	// Duplicate archives use UDualContour::Serialize's packed in-memory path; package save/load keeps this property format.
 	UPROPERTY(DuplicateTransient, NonTransactional)
 	TMap<FIntVector, FDensityChunk> DensityChunks;

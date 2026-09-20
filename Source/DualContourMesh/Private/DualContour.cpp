@@ -278,6 +278,11 @@ void UDualContour::PostEditChangeProperty(FPropertyChangedEvent& PropertyChanged
 void UDualContour::PostEditUndo()
 {
 	Super::PostEditUndo();
+	if (bSparseEditUndoPending)
+	{
+		bSparseEditUndoPending = false;
+		return;
+	}
 	if (HasCurrentGeneratedData())
 	{
 		OnCellsRebuilt.Broadcast(FIntVector::ZeroValue, CellCount);
@@ -754,8 +759,8 @@ bool UDualContour::ApplyPendingEdit(FDualContourPendingDensityBatch& Batch, FDua
 	{
 		const FIntVector CellMin(FMath::Max(0, SampleMin.X - 1), FMath::Max(0, SampleMin.Y - 1),
 			FMath::Max(0, SampleMin.Z - 1));
-		const FIntVector CellMax(FMath::Min(CellCount.X, CellMin.X + 1), FMath::Min(CellCount.Y, CellMin.Y + 1),
-			FMath::Min(CellCount.Z, CellMin.Z + 1));
+		const FIntVector CellMax(FMath::Min(CellCount.X, SampleMax.X + 1), FMath::Min(CellCount.Y, SampleMax.Y + 1),
+			FMath::Min(CellCount.Z, SampleMax.Z + 1));
 		if (CellMin.X < CellMax.X && CellMin.Y < CellMax.Y && CellMin.Z < CellMax.Z)
 			OnMaterialsChanged.Broadcast(CellMin, CellMax);
 	}

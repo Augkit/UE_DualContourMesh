@@ -124,6 +124,39 @@ bool FDualContourFieldSamplerTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualContourStampExteriorTest, "DualContour.EditContext.StampExterior",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FDualContourStampExteriorTest::RunTest(const FString& Parameters)
+{
+	for (const EDualContourDensityOperation Operation : {EDualContourDensityOperation::Union, EDualContourDensityOperation::Difference})
+	{
+		TStrongObjectPtr<UDualContour> Grid(NewObject<UDualContour>());
+		Grid->CellCount = FIntVector(8);
+		Grid->CellSize = 1.0f;
+		if (!TestTrue(TEXT("Initialize stamp grid"), Grid->Rebuild()))
+			return false;
+		TStrongObjectPtr<UBoxVolumeSampler> Box(NewObject<UBoxVolumeSampler>());
+		Box->HalfExtents = FVector(0.25f);
+		FDualContourEditContext Edit(*Grid);
+		for (int32 Z = 0; Z <= 8; ++Z)
+			for (int32 Y = 0; Y <= 8; ++Y)
+				for (int32 X = 0; X <= 8; ++X)
+					Edit.SetDensity(FIntVector(X, Y, Z), Operation == EDualContourDensityOperation::Union
+						? (4 - Z) * 4096.0f : 4096.0f);
+		if (!TestTrue(TEXT("Apply box stamp"), Edit.ApplyDensity(Operation, *Box, FVector(8), FTransform(FVector(4)))))
+			return false;
+		const float Untouched = Operation == EDualContourDensityOperation::Union ? -4096.0f : 4096.0f;
+		TestEqual(TEXT("Exterior beyond the crossing cell is unchanged"), Edit.GetDensity(FIntVector(8, 4, 5)), Untouched);
+		TestTrue(TEXT("Exterior beside the crossing cell retains a usable distance"),
+			Edit.GetDensity(FIntVector(7, 4, 5)) != Untouched);
+		TestTrue(TEXT("Stamp interior changes"), Operation == EDualContourDensityOperation::Union
+			? Edit.GetDensity(FIntVector(4, 4, 4)) > 0.0f
+			: Edit.GetDensity(FIntVector(4, 4, 4)) < 0.0f);
+	}
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDualContourSculptDensityUnitsTest, "DualContour.EditContext.SculptDensityUnits",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
