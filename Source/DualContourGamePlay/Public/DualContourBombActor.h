@@ -36,6 +36,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Bomb")
 	void LaunchBomb(const FVector& Velocity);
 
+	/** Enables collision and physics after the owning scene has finished loading. */
+	UFUNCTION(BlueprintCallable, Category = "Bomb")
+	void ActivateBomb();
+
 	virtual void NotifyHit(UPrimitiveComponent* MyComp, AActor* Other, UPrimitiveComponent* OtherComp,
 		bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse,
 		const FHitResult& Hit) override;

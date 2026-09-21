@@ -2,6 +2,8 @@
 
 #include "CoreMinimal.h"
 #include "ShooterCharacter.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "TimerManager.h"
 #include "DualContourFPCharacter.generated.h"
 
 class UStaticMeshComponent;
@@ -34,6 +36,8 @@ public:
 
 	/** Applies the official pistol stance after a controller possesses this pawn. */
 	void ActivatePistolPose();
+	/** Temporarily suspends character collision and movement while a save is loaded. */
+	void BeginSaveLoadPhysicsPause();
 	/** Starts or stops the procedural hand motion driven by the controller's dig input. */
 	void SetWeaponShakeHeld(bool bHeld) { bWeaponShakeHeld = bHeld; }
 	/** Starts or stops the muzzle beam fired from the pistol toward the screen center. */
@@ -137,6 +141,7 @@ private:
 	void UpdateBeam(float DeltaSeconds);
 	void UpdateSplash(bool bHitting);
 	void DeactivateSplash();
+	void RestoreSaveLoadPhysics();
 	bool GetScreenCenterRay(FVector& OutOrigin, FVector& OutDirection) const;
 
 	bool bWeaponShakeHeld = false;
@@ -145,6 +150,10 @@ private:
 	FTransform FirstPersonMeshRelativeTransform = FTransform::Identity;
 
 	bool bBeamHeld = false;
+	bool bSaveLoadPhysicsPaused = false;
+	ECollisionEnabled::Type SaveLoadCollisionEnabled = ECollisionEnabled::QueryAndPhysics;
+	TEnumAsByte<EMovementMode> SaveLoadMovementMode = MOVE_Walking;
+	FTimerHandle SaveLoadPhysicsTimerHandle;
 	FVector BeamImpactPoint = FVector::ZeroVector;
 	FVector BeamImpactNormal = FVector::ZeroVector;
 

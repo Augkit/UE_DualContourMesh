@@ -4,6 +4,7 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/StaticMesh.h"
@@ -152,6 +153,7 @@ ADualContourBombActor* ADualContourFPCharacter::FireBomb()
 		BombClass, SpawnLocation, LaunchDirection.Rotation(), SpawnParameters);
 	if (Bomb)
 	{
+		Bomb->ActivateBomb();
 		Bomb->LaunchBomb(LaunchDirection * BombLaunchSpeed + GetVelocity());
 		if (BombLaunchSound)
 			UGameplayStatics::PlaySoundAtLocation(this, BombLaunchSound, SpawnLocation, ViewRotation);
@@ -167,6 +169,40 @@ void ADualContourFPCharacter::ActivatePistolPose()
 		GetMesh()->SetAnimInstanceClass(PistolThirdPersonAnimClass);
 }
 
+void ADualContourFPCharacter::BeginSaveLoadPhysicsPause()
+{
+	if (!GetWorld())
+		return;
+
+	if (!bSaveLoadPhysicsPaused)
+	{
+		bSaveLoadPhysicsPaused = true;
+		SaveLoadCollisionEnabled = GetCapsuleComponent()->GetCollisionEnabled();
+		SaveLoadMovementMode = GetCharacterMovement()->MovementMode;
+
+		GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		GetCharacterMovement()->DisableMovement();
+	}
+
+	GetWorldTimerManager().SetTimer(
+		SaveLoadPhysicsTimerHandle,
+		this,
+		&ADualContourFPCharacter::RestoreSaveLoadPhysics,
+		2.0f,
+		false);
+}
+
+void ADualContourFPCharacter::RestoreSaveLoadPhysics()
+{
+	if (!bSaveLoadPhysicsPaused)
+		return;
+
+	bSaveLoadPhysicsPaused = false;
+	GetCapsuleComponent()->SetCollisionEnabled(SaveLoadCollisionEnabled);
+	GetCharacterMovement()->SetMovementMode(SaveLoadMovementMode);
+	GetWorldTimerManager().ClearTimer(SaveLoadPhysicsTimerHandle);
+}
+
 void ADualContourFPCharacter::PostInitializeComponents()
 {
 	Super::PostInitializeComponents();
@@ -176,6 +212,7 @@ void ADualContourFPCharacter::PostInitializeComponents()
 
 void ADualContourFPCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	GetWorldTimerManager().ClearTimer(SaveLoadPhysicsTimerHandle);
 	DestroyBeamVisual();
 	DeactivateSplash();
 	Super::EndPlay(EndPlayReason);

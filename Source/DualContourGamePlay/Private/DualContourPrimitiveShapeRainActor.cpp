@@ -1,4 +1,5 @@
 #include "DualContourPrimitiveShapeRainActor.h"
+#include "DualContourCleanViewGameMode.h"
 
 #include "Components/BoxComponent.h"
 #include "Components/SceneComponent.h"
@@ -58,7 +59,9 @@ void ADualContourPrimitiveShapeRainActor::OnConstruction(const FTransform& Trans
 void ADualContourPrimitiveShapeRainActor::BeginPlay()
 {
 	Super::BeginPlay();
-	if (bStartAutomatically)
+	const bool bWaitForDualContour = GetWorld() && GetWorld()->GetAuthGameMode()
+		&& GetWorld()->GetAuthGameMode()->IsA(ADualContourCleanViewGameMode::StaticClass());
+	if (bStartAutomatically && !bWaitForDualContour)
 		StartShapeRain();
 }
 

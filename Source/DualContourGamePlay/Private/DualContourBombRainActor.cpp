@@ -3,6 +3,7 @@
 #include "Components/BoxComponent.h"
 #include "Components/SceneComponent.h"
 #include "DualContourBombActor.h"
+#include "DualContourCleanViewGameMode.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 
@@ -37,7 +38,9 @@ void ADualContourBombRainActor::OnConstruction(const FTransform& Transform)
 void ADualContourBombRainActor::BeginPlay()
 {
 	Super::BeginPlay();
-	if (bStartAutomatically)
+	const bool bWaitForDualContour = GetWorld() && GetWorld()->GetAuthGameMode()
+		&& GetWorld()->GetAuthGameMode()->IsA(ADualContourCleanViewGameMode::StaticClass());
+	if (bStartAutomatically && !bWaitForDualContour)
 		StartBombRain();
 }
 
@@ -117,6 +120,7 @@ void ADualContourBombRainActor::SpawnBomb()
 	if (ADualContourBombActor* Bomb = World->SpawnActor<ADualContourBombActor>(
 		BombClass, SpawnLocation, GetActorRotation(), SpawnParameters))
 	{
+		Bomb->ActivateBomb();
 		if (InitialDownwardSpeed > 0.0f)
 			Bomb->LaunchBomb(-GetActorUpVector() * InitialDownwardSpeed);
 		++SpawnedBombCount;

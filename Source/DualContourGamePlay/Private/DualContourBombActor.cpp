@@ -23,8 +23,11 @@ ADualContourBombActor::ADualContourBombActor()
 	SetRootComponent(CollisionComponent);
 	CollisionComponent->InitSphereRadius(25.0f);
 	CollisionComponent->SetCollisionProfileName(UCollisionProfile::PhysicsActor_ProfileName);
+	CollisionComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	CollisionComponent->SetNotifyRigidBodyCollision(true);
-	CollisionComponent->SetSimulatePhysics(true);
+	// Scene-placed bombs are activated by the clean-view controller after all
+	// DualContour mesh actors have finished building.
+	CollisionComponent->SetSimulatePhysics(false);
 	CollisionComponent->CanCharacterStepUpOn = ECanBeCharacterBase::ECB_No;
 
 	BombMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("BombMesh"));
@@ -79,8 +82,20 @@ void ADualContourBombActor::BeginPlay()
 
 void ADualContourBombActor::LaunchBomb(const FVector& Velocity)
 {
-	if (!bHasExploded && CollisionComponent->IsSimulatingPhysics())
+	if (!bHasExploded)
+	{
+		ActivateBomb();
 		CollisionComponent->SetPhysicsLinearVelocity(Velocity);
+	}
+}
+
+void ADualContourBombActor::ActivateBomb()
+{
+	if (!bHasExploded && CollisionComponent)
+	{
+		CollisionComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		CollisionComponent->SetSimulatePhysics(true);
+	}
 }
 
 void ADualContourBombActor::NotifyHit(UPrimitiveComponent* MyComp, AActor* Other, UPrimitiveComponent* OtherComp,

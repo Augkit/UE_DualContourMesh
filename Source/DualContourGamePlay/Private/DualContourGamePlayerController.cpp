@@ -507,9 +507,14 @@ void ADualContourGamePlayerController::LoadFromSlot(int32 SlotIndex)
 		return;
 	}
 
+	if (ADualContourFPCharacter* FPCharacter = Cast<ADualContourFPCharacter>(GetPawn()))
+		FPCharacter->BeginSaveLoadPhysicsPause();
+
 	if (SaveGame->bHasPlayerTransform)
 	{
-		if (APawn* ControlledPawn = GetPawn())
+		if (ADualContourFPCharacter* FPCharacter = Cast<ADualContourFPCharacter>(GetPawn()))
+			FPCharacter->SetActorTransform(SaveGame->PlayerTransform);
+		else if (APawn* ControlledPawn = GetPawn())
 			ControlledPawn->SetActorTransform(SaveGame->PlayerTransform);
 		SetControlRotation(SaveGame->ControlRotation);
 	}
