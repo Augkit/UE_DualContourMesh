@@ -130,3 +130,22 @@ public:
 
 	virtual bool Prepare(FText& OutError) const override;
 };
+
+/**
+ * Horizontal plane spanning the sampler volume. Height is normalized from the
+ * bottom of the volume (0) to the top (1); the volume below the plane is solid.
+ */
+UCLASS(Blueprintable, BlueprintType, EditInlineNew, AutoExpandCategories = ("Flat Plane"))
+class DUALCONTOURMESH_API UFlatPlaneVolumeSampler : public UProceduralVolumeSampler
+{
+	GENERATED_BODY()
+
+public:
+	/** Normalized plane height: 0 = bottom of the sampler volume, 1 = top. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flat Plane", meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0"))
+	float Height = 0.5f;
+
+	virtual float GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const override;
+
+	virtual bool Prepare(FText& OutError) const override;
+};

@@ -178,3 +178,20 @@ float UTorusVolumeSampler::GetSignedDistance_Implementation(const FVector& Cente
 		CenteredLocalPosition.Z);
 	return TubePosition.Length() - MinorRadius;
 }
+
+bool UFlatPlaneVolumeSampler::Prepare(FText& OutError) const
+{
+	if (!Super::Prepare(OutError))
+		return false;
+	if (!FMath::IsFinite(Height) || Height < 0.0f || Height > 1.0f)
+	{
+		OutError = NSLOCTEXT("ProceduralVolumeSampler", "InvalidFlatPlaneHeight", "Flat Plane Height must be finite and between zero and one.");
+		return false;
+	}
+	return true;
+}
+
+float UFlatPlaneVolumeSampler::GetSignedDistance_Implementation(const FVector& CenteredLocalPosition) const
+{
+	return CenteredLocalPosition.Z - (FMath::Clamp(Height, 0.0f, 1.0f) - 0.5f);
+}
